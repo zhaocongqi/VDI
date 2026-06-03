@@ -1,0 +1,51 @@
+apiVersion: kubekey.kubesphere.io/v1
+kind: Inventory
+metadata:
+  name: vdi-cluster
+spec:
+  hosts:
+    # ===== 请替换为实际 IP 和密码 =====
+    node1:
+      connector:
+        type: ssh
+        host: 192.168.1.101    # 替换为 node1 实际 IP
+        port: 22
+        user: root
+        password: "your-password"  # 替换为实际密码，或使用 private_key
+      internal_ipv4: 192.168.1.101
+    node2:
+      connector:
+        type: ssh
+        host: 192.168.1.102    # 替换为 node2 实际 IP
+        port: 22
+        user: root
+        password: "your-password"
+      internal_ipv4: 192.168.1.102
+    node3:
+      connector:
+        type: ssh
+        host: 192.168.1.103    # 替换为 node3 实际 IP
+        port: 22
+        user: root
+        password: "your-password"
+      internal_ipv4: 192.168.1.103
+  groups:
+    k8s_cluster:
+      groups:
+        - kube_control_plane
+        - kube_worker
+    kube_control_plane:
+      hosts:
+        - node1
+        - node2
+        - node3
+    kube_worker:
+      hosts:
+        - node1
+        - node2
+        - node3
+    etcd:
+      hosts:
+        - node1
+        - node2
+        - node3
