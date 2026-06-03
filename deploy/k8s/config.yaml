@@ -1,0 +1,40 @@
+apiVersion: kubekey.kubesphere.io/v1
+kind: Config
+spec:
+  kubernetes:
+    # K8s 版本
+    kube_version: v1.34.3
+    # Helm 版本
+    helm_version: v3.18.5
+    # API Server 端点配置
+    control_plane_endpoint:
+      # local 模式：control plane 节点解析为 127.0.0.1
+      # 后续部署 kube-vip 时需更新此配置
+      type: local
+      host: lb.kubesphere.local
+      port: 6443
+  etcd:
+    # etcd 版本
+    etcd_version: v3.6.5
+  cri:
+    # 容器运行时（K8s >= 1.24 自动使用 containerd）
+    container_manager: containerd
+  cni:
+    # 不安装 CNI，后续手动部署 Kube-OVN
+    type: none
+  storage_class:
+    local:
+      # 不安装默认存储，后续手动部署 Longhorn
+      enabled: false
+  dns:
+    coredns:
+      image:
+        tag: v1.12.1
+    nodelocaldns:
+      # 启用 NodeLocalDNS 缓存
+      enabled: true
+      image:
+        tag: 1.26.4
+  image_registry:
+    # 不安装私有镜像仓库
+    type: ""
