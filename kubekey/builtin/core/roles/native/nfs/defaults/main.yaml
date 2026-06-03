@@ -1,3 +1,0 @@
-nfs:
-  share_dir:
-    - /share/

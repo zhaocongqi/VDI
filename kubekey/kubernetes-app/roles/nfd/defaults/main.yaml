@@ -1,4 +1,0 @@
-nfd:
-  enabled: false
-  image: |
-    {{ .dockerio_registry }}/kubesphere/node-feature-discovery:v0.10.0

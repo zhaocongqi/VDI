@@ -1,4 +1,0 @@
-# kube-ovn helm values
-global:
-  registry:
-    address: {{ .image_registry.dockerio_registry }}/kubeovn

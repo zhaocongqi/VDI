@@ -1,3 +1,0 @@
-cni:
-  kubeovn:
-    values: |

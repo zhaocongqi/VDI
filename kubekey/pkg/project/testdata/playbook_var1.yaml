@@ -1,7 +1,0 @@
----
-- name: playbook-var1
-  hosts:
-    - node1
-  vars:
-    a: b
-    

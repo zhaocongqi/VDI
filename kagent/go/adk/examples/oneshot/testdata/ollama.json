@@ -1,8 +1,0 @@
-{
-  "model": {
-    "type": "ollama",
-    "model": "llama3.2"
-  },
-  "description": "Ollama test agent",
-  "instruction": "You are a helpful assistant. Answer concisely in one sentence."
-}

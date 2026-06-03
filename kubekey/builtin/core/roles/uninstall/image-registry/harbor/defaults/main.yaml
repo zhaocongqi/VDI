@@ -1,3 +1,0 @@
-image_registry:
-  harbor:
-    data_dir: /var/lib/harbor/data

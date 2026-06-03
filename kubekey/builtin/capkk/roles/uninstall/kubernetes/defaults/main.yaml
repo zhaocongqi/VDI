@@ -1,3 +1,0 @@
-cni:
-  type: >-
-    {{ .kubernetes.kube_network_plugin | default "calico" }}

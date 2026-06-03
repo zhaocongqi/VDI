@@ -1,5 +1,0 @@
----
-- hosts:
-    - etcd|random
-  roles:
-    - etcd/backup

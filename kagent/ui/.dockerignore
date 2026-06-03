@@ -1,9 +1,0 @@
-env/
-*.log
-.git/
-.gitignore
-.coverage
-htmlcov/
-workspace/
-node_modules/
-.next/
