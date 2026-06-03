@@ -1,0 +1,34 @@
+pull_request_rules:
+- name: Automatically merge PRs
+  conditions:
+  - check-success=continuous-integration/drone/pr
+  - "#approved-reviews-by>=2"
+  - approved-reviews-by=@longhorn/maintainer
+  actions:
+    merge:
+      method: rebase
+
+- name: Automatically merge bot's PRs
+  conditions:
+  - check-success=continuous-integration/drone/pr
+  - or:
+    - author = renovate[bot]
+    - author = mergify[bot]
+  actions:
+    merge:
+      method: rebase
+
+- name: Automatically approve bot's PRs
+  conditions:
+  - or:
+    - author = renovate[bot]
+  actions:
+    review:
+      type: APPROVE
+
+- name: Ask to resolve conflict
+  conditions:
+  - conflict
+  actions:
+    comment:
+      message: This pull request is now in conflict. Could you fix it @{{author}}? 🙏

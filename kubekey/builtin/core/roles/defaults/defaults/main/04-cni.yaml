@@ -1,0 +1,23 @@
+cni:
+  # CNI plugin to use
+  # Specify the network plugin to install for the cluster. Supported: calico, cilium, flannel, hybridnet, kubeovn, other
+  type: calico
+  # The complete Pod IP pool for the cluster. Supports IPv4, IPv6, and dual-stack.
+  pod_cidr: 10.233.64.0/18
+  # IPv4 subnet mask length for pod allocation per node. Determines the size of each node's pod IP pool.
+  ipv4_mask_size: 24
+  # IPv6 subnet mask length for pod allocation per node.
+  ipv6_mask_size: 64
+  # The complete Service IP pool for the cluster. Supports IPv4, IPv6, and dual-stack.
+  service_cidr: 10.233.0.0/18
+
+  # Multi-CNI type. Supported: multus, none.
+  multi_cni: "none"
+  # Network enhancement plugin for multiple pod network interfaces (Multus)
+  multus:
+    image:
+      registry: >-
+        {{ .image_registry.ghcrio_registry }}
+      repository: k8snetworkplumbingwg/multus-cni
+      # tag: v4.3.0
+

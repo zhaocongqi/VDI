@@ -1,0 +1,388 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { ChevronRight, Edit, GitBranch, ShieldAlert } from "lucide-react";
+import type { AgentResponse, GitRepo, Tool, ToolsResponse } from "@/types";
+import { SidebarHeader, Sidebar, SidebarContent, SidebarGroup, SidebarGroupLabel, SidebarMenu, SidebarMenuItem, SidebarMenuButton } from "@/components/ui/sidebar";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { LoadingState } from "@/components/LoadingState";
+import { isAgentTool, isMcpTool, getToolDescription, getToolIdentifier, getToolDisplayName } from "@/lib/toolUtils";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import Link from "next/link";
+import { getAgents } from "@/app/actions/agents";
+import { k8sRefUtils } from "@/lib/k8sUtils";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Badge } from "@/components/ui/badge";
+
+interface AgentDetailsSidebarProps {
+  selectedAgentName: string;
+  currentAgent: AgentResponse;
+  allTools: ToolsResponse[];
+}
+
+export function AgentDetailsSidebar({ selectedAgentName, currentAgent, allTools }: AgentDetailsSidebarProps) {
+  const [toolDescriptions, setToolDescriptions] = useState<Record<string, string>>({});
+  const [expandedTools, setExpandedTools] = useState<Record<string, boolean>>({});
+  const [availableAgents, setAvailableAgents] = useState<AgentResponse[]>([]);
+
+  const selectedTeam = currentAgent;
+
+  // Fetch agents for looking up agent tool descriptions
+  useEffect(() => {
+    const fetchAgents = async () => {
+      try {
+        const response = await getAgents();
+        if (response.data) {
+          setAvailableAgents(response.data);
+
+        } else if (response.error) {
+          console.error("AgentDetailsSidebar: Error fetching agents:", response.error);
+        }
+      } catch (error) {
+        console.error("AgentDetailsSidebar: Failed to fetch agents:", error);
+      }
+    };
+
+    fetchAgents();
+  }, []);
+
+
+
+  const RenderToolCollapsibleItem = ({
+    itemKey,
+    displayName,
+    providerTooltip,
+    description,
+    requiresApproval,
+    isExpanded,
+    onToggleExpansion,
+  }: {
+    itemKey: string;
+    displayName: string;
+    providerTooltip: string;
+    description: string;
+    requiresApproval?: boolean;
+    isExpanded: boolean;
+    onToggleExpansion: () => void;
+  }) => {
+    return (
+      <Collapsible
+        key={itemKey}
+        open={isExpanded}
+        onOpenChange={onToggleExpansion}
+        className="group/collapsible"
+      >
+        <SidebarMenuItem>
+          <CollapsibleTrigger asChild>
+            <SidebarMenuButton tooltip={providerTooltip} className="w-full">
+              <div className="flex items-center justify-between w-full">
+                <span className="truncate max-w-[200px]">{displayName}</span>
+                <div className="flex items-center gap-1">
+                  {requiresApproval && (
+                    <ShieldAlert className="h-3.5 w-3.5 text-amber-500 shrink-0" />
+                  )}
+                  <ChevronRight
+                    className={cn(
+                      "h-4 w-4 transition-transform duration-200",
+                      isExpanded && "rotate-90"
+                    )}
+                  />
+                </div>
+              </div>
+            </SidebarMenuButton>
+          </CollapsibleTrigger>
+          <CollapsibleContent className="px-2 py-1">
+            <div className="rounded-md bg-muted/50 p-2">
+              <p className="text-sm text-muted-foreground">{description}</p>
+              {requiresApproval && (
+                <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">Requires approval before execution</p>
+              )}
+            </div>
+          </CollapsibleContent>
+        </SidebarMenuItem>
+      </Collapsible>
+    );
+  };
+
+  useEffect(() => {
+    const processToolDescriptions = () => {
+      setToolDescriptions({});
+
+      if (!selectedTeam || !allTools) return;
+
+      const descriptions: Record<string, string> = {};
+      const toolRefs = selectedTeam.tools;
+
+      if (toolRefs && Array.isArray(toolRefs)) {
+        toolRefs.forEach((tool) => {
+          if (isMcpTool(tool)) {
+            const mcpTool = tool as Tool;
+            // For MCP tools, each tool name gets its own description
+            const baseToolIdentifier = getToolIdentifier(mcpTool);
+            mcpTool.mcpServer?.toolNames.forEach((mcpToolName) => {
+              const subToolIdentifier = `${baseToolIdentifier}::${mcpToolName}`;
+              
+              // Find the tool in allTools by matching server ref and tool name
+              const toolFromDB = allTools.find(server => {
+                const { name } = k8sRefUtils.fromRef(server.server_name);
+                return name === mcpTool.mcpServer?.name && server.id === mcpToolName;
+              });
+
+              if (toolFromDB) {
+                descriptions[subToolIdentifier] = toolFromDB.description;
+              } else {
+                descriptions[subToolIdentifier] = "No description available";
+              }
+            });
+          } else {
+            // Handle Agent tools or regular tools using getToolDescription
+            const toolIdentifier = getToolIdentifier(tool);
+            descriptions[toolIdentifier] = getToolDescription(tool, allTools);
+          }
+        });
+      }
+      
+      setToolDescriptions(descriptions);
+    };
+
+    processToolDescriptions();
+  }, [selectedTeam, allTools, availableAgents]);
+
+  const toggleToolExpansion = (toolIdentifier: string) => {
+    setExpandedTools(prev => ({
+      ...prev,
+      [toolIdentifier]: !prev[toolIdentifier]
+    }));
+  };
+
+  if (!selectedTeam) {
+    return <LoadingState />;
+  }
+
+  const renderAgentTools = (tools: Tool[] = []) => {
+    if (!tools || tools.length === 0) {
+      return (
+        <SidebarMenu>
+          <div className="text-sm italic">No tools/agents available</div>
+        </SidebarMenu>
+      );
+    }
+
+    const agentNamespace = currentAgent.agent.metadata.namespace || "";
+
+    return (
+      <SidebarMenu>
+        {tools.flatMap((tool) => {
+          const baseToolIdentifier = getToolIdentifier(tool);
+
+          if (tool.mcpServer && tool.mcpServer?.toolNames && tool.mcpServer.toolNames.length > 0) {
+            const mcpProvider = tool.mcpServer.name || "mcp_server";
+            const mcpProviderParts = mcpProvider.split(".");
+            const mcpProviderNameTooltip = mcpProviderParts[mcpProviderParts.length - 1];
+            const serverDisplayName = `${tool.mcpServer.namespace || agentNamespace}/${tool.mcpServer.name || ""}`;
+            const approvalSet = new Set(tool.mcpServer.requireApproval || []);
+
+            return tool.mcpServer.toolNames.map((mcpToolName) => {
+              const subToolIdentifier = `${baseToolIdentifier}::${mcpToolName}`;
+              const description = toolDescriptions[subToolIdentifier] || "Description loading or unavailable";
+              const isExpanded = expandedTools[subToolIdentifier] || false;
+              const displayName = `${mcpToolName} (${serverDisplayName})`;
+
+              return (
+                <RenderToolCollapsibleItem
+                  key={subToolIdentifier}
+                  itemKey={subToolIdentifier}
+                  displayName={displayName}
+                  providerTooltip={mcpProviderNameTooltip}
+                  description={description}
+                  requiresApproval={approvalSet.has(mcpToolName)}
+                  isExpanded={isExpanded}
+                  onToggleExpansion={() => toggleToolExpansion(subToolIdentifier)}
+                />
+              );
+            });
+          } else {
+            const toolIdentifier = baseToolIdentifier;
+            const provider = isAgentTool(tool) ? (tool.agent?.name || "unknown") : (tool.mcpServer?.name || "unknown");
+            const displayName = getToolDisplayName(tool, agentNamespace);
+            const description = toolDescriptions[toolIdentifier] || "Description loading or unavailable";
+            const isExpanded = expandedTools[toolIdentifier] || false;
+
+            const providerParts = provider.split(".");
+            const providerNameTooltip = providerParts[providerParts.length - 1];
+
+            return [(
+              <RenderToolCollapsibleItem
+                key={toolIdentifier}
+                itemKey={toolIdentifier}
+                displayName={displayName}
+                providerTooltip={providerNameTooltip}
+                description={description}
+                isExpanded={isExpanded}
+                onToggleExpansion={() => toggleToolExpansion(toolIdentifier)}
+              />
+            )];
+          }
+        })}
+      </SidebarMenu>
+    );
+  };
+
+  // Declarative agents (including SandboxAgent with declarative spec) share model-backed config.
+  const isDeclarativeLikeAgent = selectedTeam?.agent.spec.type === "Declarative";
+
+  return (
+    <>
+      <Sidebar side={"right"} collapsible="offcanvas">
+        <SidebarHeader>Agent Details</SidebarHeader>
+        <SidebarContent>
+          <ScrollArea>
+            <SidebarGroup>
+              <div className="flex items-center justify-between px-2 mb-1">
+                <SidebarGroupLabel className="font-bold mb-0 p-0">
+                  {selectedTeam?.agent.metadata.namespace}/{selectedTeam?.agent.metadata.name} {selectedTeam?.model && `(${selectedTeam?.model})`}
+                </SidebarGroupLabel>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7"
+                  asChild
+                  aria-label={`Edit agent ${selectedTeam?.agent.metadata.namespace}/${selectedTeam?.agent.metadata.name}`}
+                >
+                  <Link href={`/agents/new?edit=true&name=${selectedAgentName}&namespace=${currentAgent.agent.metadata.namespace}`}>
+                    <Edit className="h-3.5 w-3.5" />
+                  </Link>
+                </Button>
+              </div>
+              <p className="text-sm flex px-2 text-muted-foreground">{selectedTeam?.agent.spec.description}</p>
+            </SidebarGroup>
+            {isDeclarativeLikeAgent && (
+              <SidebarGroup className="group-data-[collapsible=icon]:hidden">
+                <SidebarGroupLabel>Tools & Agents</SidebarGroupLabel>
+                {selectedTeam && renderAgentTools(selectedTeam.tools)}
+              </SidebarGroup>
+            )}
+
+            {isDeclarativeLikeAgent && (() => {
+              const oci = selectedTeam?.agent.spec?.skills?.refs ?? [];
+              const git = selectedTeam?.agent.spec?.skills?.gitRefs ?? [];
+              if (oci.length + git.length === 0) return null;
+              return (
+              <SidebarGroup className="group-data-[collapsible=icon]:hidden">
+                <div className="flex items-center justify-between px-2 mb-2">
+                  <SidebarGroupLabel className="mb-0">Skills</SidebarGroupLabel>
+                  <Badge variant="secondary" className="h-5">
+                    {oci.length + git.length}
+                  </Badge>
+                </div>
+                <SidebarMenu>
+                  <TooltipProvider>
+                    {oci.map((skillRef, index) => {
+                      // Parse OCI image reference: [registry/]repository[:tag][@digest]
+                      const refMatch = skillRef.match(
+                        /^(?:((?:[a-zA-Z0-9-]+\.)+[a-zA-Z0-9-]+(?::\d+)?|localhost(?::\d+)?|[a-zA-Z0-9-]+:\d+)\/)?([^:@]+)(?::([^@]+))?(?:@(.+))?$/
+                      );
+                      const registry = refMatch?.[1] ?? null;
+                      const repoName = refMatch?.[2] ?? null;
+                      const tag = refMatch?.[3] ?? null;
+                      const digest = refMatch?.[4] ?? null;
+
+                      const versionBadge = refMatch
+                        ? tag ?? (digest ? (digest.length > 16 ? digest.substring(0, 16) + "\u2026" : digest) : "latest")
+                        : null;
+                      const displayName = repoName ?? skillRef;
+                      return (
+                        <SidebarMenuItem key={`oci-${index}`}>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <SidebarMenuButton className="w-full h-auto py-2">
+                                <div className="flex flex-col items-start w-full min-w-0 gap-0.5">
+                                  <div className="flex items-center w-full justify-between gap-2">
+                                    <span className="truncate text-sm font-medium leading-tight">{displayName}</span>
+                                    {versionBadge && (
+                                      <span className="shrink-0 text-[10px] bg-muted px-1.5 py-0.5 rounded-sm text-muted-foreground font-mono">
+                                        {versionBadge}
+                                      </span>
+                                    )}
+                                  </div>
+                                  {registry && (
+                                    <span className="truncate w-full text-xs text-muted-foreground leading-tight" title={registry}>
+                                      {registry}
+                                    </span>
+                                  )}
+                                </div>
+                              </SidebarMenuButton>
+                            </TooltipTrigger>
+                            <TooltipContent side="left">
+                              <p className="max-w-xs break-all">{skillRef}</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </SidebarMenuItem>
+                      );
+                    })}
+                    {git.map((g: GitRepo, index) => {
+                      const refLabel = g.ref?.trim() || "main";
+                      const fromUrl = g.url
+                        ?.split("/")
+                        .filter(Boolean)
+                        .pop()
+                        ?.replace(/\.git$/i, "");
+                      const displayName = (g.name && g.name.trim()) || fromUrl || "Git";
+                      const linkHref = (g.url || "").trim();
+                      const rowInner = (
+                        <div className="flex items-center w-full min-w-0 justify-between gap-2">
+                          <span className="truncate text-sm font-medium leading-tight flex items-center gap-1.5 min-w-0">
+                            <GitBranch className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                            <span className="truncate">{displayName}</span>
+                          </span>
+                          <span className="shrink-0 text-[10px] bg-muted px-1.5 py-0.5 rounded-sm text-muted-foreground font-mono">
+                            {refLabel}
+                          </span>
+                        </div>
+                      );
+                      return (
+                        <SidebarMenuItem key={`git-${index}`}>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              {linkHref ? (
+                                <SidebarMenuButton asChild className="w-full h-auto py-2">
+                                  <a
+                                    href={linkHref}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="no-underline cursor-pointer"
+                                    aria-label={`Open ${displayName} repository in a new tab`}
+                                  >
+                                    {rowInner}
+                                  </a>
+                                </SidebarMenuButton>
+                              ) : (
+                                <SidebarMenuButton className="w-full h-auto py-2 cursor-default" type="button">
+                                  {rowInner}
+                                </SidebarMenuButton>
+                              )}
+                            </TooltipTrigger>
+                            <TooltipContent side="left" className="max-w-sm">
+                              <p className="text-xs">Name: {displayName}</p>
+                              {g.path && (
+                                <p className="text-xs mt-1">Path: {g.path}</p>
+                              )}
+                            </TooltipContent>
+                          </Tooltip>
+                        </SidebarMenuItem>
+                      );
+                    })}
+                  </TooltipProvider>
+                </SidebarMenu>
+              </SidebarGroup>
+              );
+            })()}
+
+          </ScrollArea>
+        </SidebarContent>
+      </Sidebar>
+    </>
+  );
+}

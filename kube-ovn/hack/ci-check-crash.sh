@@ -1,0 +1,66 @@
+#!/bin/bash
+
+set -e
+
+# semicolon separated list of pod labels to ignore
+# example: "app=kube-ovn-monitor;component=network,app=kube-ovn-pinger"
+IGNORABLE_PODS=${IGNORABLE_PODS:-}
+
+namespace="kube-system"
+
+provider=$(kubectl get node -o jsonpath='{.items[0].spec.providerID}')
+if echo "${provider}" | grep -q '^talos://'; then
+  provider="talos"
+else
+  provider="other"
+fi
+
+IFS=';' read -r -a selectors <<< "$IGNORABLE_PODS"
+
+exit_code=0
+# check if there are any crashed pods
+for pod in `kubectl get pod -n $namespace -l component=network -o name`; do
+  podName=${pod#*/}
+  # skip pods that may have been deleted during iteration (e.g., DaemonSet rollout)
+  if ! kubectl get -n $namespace $pod &>/dev/null; then
+    echo ">>> pod $namespace/$podName no longer exists, skipping"
+    continue
+  fi
+  containerTypes=(initContainer container)
+  for containerType in ${containerTypes[@]}; do
+    restartCounts=(`kubectl get -n $namespace $pod -o jsonpath="{.status.${containerType}Statuses[*].restartCount}" 2>/dev/null`) || continue
+    for ((i=0; i<${#restartCounts[@]}; i++)); do
+      restartCount=${restartCounts[i]}
+      if [ $restartCount -eq 0 ]; then
+        continue
+      fi
+
+      name=`kubectl get -n $namespace $pod -o jsonpath="{.status.${containerType}Statuses[*].name}"`
+      echo ">>> $containerType $name in pod $namespace/$podName restarted $restartCount time(s). Logs of the previous instance:"
+      prevLogs=$(kubectl logs -p -n $namespace $pod -c $name 2>&1) || true
+      printf '%s\n' "$prevLogs"
+      if [ "$provider" = "talos" -a "$name" = "cni-server" ]; then
+        if printf '%s\n' "$prevLogs" | tail -n1 | grep -q "network not ready"; then
+          continue
+        fi
+      fi
+      for selector in "${selectors[@]}"; do
+        if kubectl get pod -n $namespace -l "$selector" -o name | grep -q "^$pod$"; then
+          continue 2
+        fi
+      done
+      # only fail if the previous instance crashed due to panic or SIGSEGV,
+      # or if Kubernetes reports a segfault via lastState.terminated.{signal,exitCode}
+      terminatedSignal=$(kubectl get -n "$namespace" "$pod" -o jsonpath="{.status.${containerType}Statuses[?(@.name==\"$name\")].lastState.terminated.signal}" 2>/dev/null || echo "")
+      terminatedExitCode=$(kubectl get -n "$namespace" "$pod" -o jsonpath="{.status.${containerType}Statuses[?(@.name==\"$name\")].lastState.terminated.exitCode}" 2>/dev/null || echo "")
+      if printf '%s\n' "$prevLogs" | grep -qE 'panic|SIGSEGV' || \
+         [ "$terminatedSignal" = "11" ] || [ "$terminatedExitCode" = "139" ]; then
+        exit_code=1
+      else
+        echo ">>> restart of $containerType $name in pod $namespace/$podName is not caused by panic/SIGSEGV, ignoring"
+      fi
+    done
+  done
+done
+
+exit $exit_code

@@ -1,0 +1,162 @@
+name: "[Issue Management] Update Issue Status in Longhorn Sprint Project"
+
+on:
+  issues:
+    types: [labeled, milestoned, assigned, unassigned]
+
+env:
+  LONGHORN_SPRINT_PROJECT_URL: https://github.com/orgs/longhorn/projects/8
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.issue.number }}
+  cancel-in-progress: true
+
+jobs:
+  longhorn:
+    runs-on: ubuntu-latest
+    steps:
+    - id: app-token
+      uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
+      with:
+        app-id: ${{ secrets.LONGHORN_GITHUB_BOT_APP_ID }}
+        private-key: ${{ secrets.LONGHORN_GITHUB_BOT_PRIVATE_KEY }}
+        owner: ${{ github.repository_owner }}
+        permission-contents: write
+        permission-pull-requests: write
+        permission-members: read
+        permission-issues: write
+        permission-organization-projects: write
+
+    - name: Checkout Repository
+      uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+    - name: Check Longhorn Membership (including bot)
+      id: check-membership
+      run: |
+        if [[ "${{ github.event.issue.user.login }}" == "github-actions[bot]" ]]; then
+          echo "is_longhorn_member=true" >> $GITHUB_ENV
+        else
+          echo "is_longhorn_member=false" >> $GITHUB_ENV
+        fi
+
+    - name: Real Membership Check (non-bot only)
+      if: env.is_longhorn_member == 'false'
+      id: is-longhorn-member
+      continue-on-error: true
+      uses: tspascoal/get-user-teams-membership@57e9f42acd78f4d0f496b3be4368fc5f62696662 # v3
+      with:
+        username: ${{ github.event.issue.user.login }}
+        organization: longhorn
+        GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+
+    - name: Set Final Membership Flag
+      if: env.is_longhorn_member == 'false'
+      run: |
+        if [[ "${{ steps.is-longhorn-member.outcome }}" == "success" ]]; then
+          echo "is_longhorn_member=true" >> $GITHUB_ENV
+        fi
+
+    - name: Debug Membership Status
+      run: |
+        echo "is_longhorn_member: ${{ env.is_longhorn_member }}"
+        echo "teams: ${{ steps.is-longhorn-member.outputs.teams || 'bot or N/A' }}"
+        echo "check outcome: ${{ steps.is-longhorn-member.outcome || 'bot or N/A' }}"
+
+    - name: Get Issue
+      uses: octokit/request-action@b91aabaa861c777dcdb14e2387e30eddf04619ae # v3.0.0
+      id: issue
+      if: env.is_longhorn_member == 'true'
+      with:
+        route: GET /repos/${{ github.repository }}/issues/${{ github.event.issue.number }}
+      env:
+        GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+
+    - uses: rancher/gh-issue-mgr/project-fields@b70f0bdf12a03e5e3f33e4f92ccb6c89deb3ebd9 # main
+      id: get-status-field
+      continue-on-error: true
+      if: env.is_longhorn_member == 'true'
+      with:
+        operation: get
+        fields: Status
+        github_token: ${{ steps.app-token.outputs.token }}
+        project_url: ${{ env.LONGHORN_SPRINT_PROJECT_URL }}
+        resource_url: https://github.com/longhorn/longhorn/issues/${{ github.event.issue.number }}
+
+    - name: Add Issue to Longhorn Sprint Project
+      id: add-project
+      uses: actions/add-to-project@244f685bbc3b7adfa8466e08b698b5577571133e # v1.0.2
+      if: ${{
+        env.is_longhorn_member == 'true' &&
+        steps.get-status-field.outcome == 'success'
+        }}
+      with:
+        project-url: ${{ env.LONGHORN_SPRINT_PROJECT_URL }}
+        github-token: ${{ steps.app-token.outputs.token }}
+
+    - name: Update Item To New
+      if: |
+        env.is_longhorn_member == 'true' &&
+        steps.add-project.outputs.itemId != ''
+      uses: titoportas/update-project-fields@421a54430b3cdc9eefd8f14f9ce0142ab7678751 # v0.1.0
+      with:
+        project-url: ${{ env.LONGHORN_SPRINT_PROJECT_URL }}
+        github-token: ${{ steps.app-token.outputs.token }}
+        item-id: ${{ steps.add-project.outputs.itemId }}
+        field-keys: Status
+        field-values: "New"
+
+    - name: Set Milestone Backlog to Issue
+      if: ${{
+        env.is_longhorn_member == 'true' &&
+        fromJSON(steps.is-longhorn-member.outputs.teams || '[]')[0] != null &&
+        github.event.issue.milestone == null &&
+        steps.get-status-field.outcome == 'success'
+        }}
+      env:
+        GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+      run: |
+        ISSUE_NUMBER="${{ github.event.issue.number }}"
+
+        # Reduce the chance that milestone is modified by users and actions at the same time.
+        MILESTONE_TITLE=$(gh issue view "$ISSUE_NUMBER" --json milestone --jq '.milestone.title')
+        if [ -z "$MILESTONE_TITLE" ]; then
+          gh issue edit "$ISSUE_NUMBER" --milestone "Backlog"
+        fi
+
+    - name: Update Project Item
+      if: ${{
+        env.is_longhorn_member == 'true' &&
+        steps.get-status-field.outcome == 'success' &&
+        steps.add-project.outputs.itemId != ''
+        }}
+      run: |
+        ASSIGNEES='${{ toJSON(github.event.issue.assignees) }}'
+
+        # Skip if status is already Closed
+        if [[ "${{ steps.get-status-field.outputs.values }}" == "Closed" ]]; then
+          echo "Status is Closed, skipping update"
+          exit 0
+        fi
+
+        if [[ ( "${{ steps.get-status-field.outputs.values }}" == "New Issues" || "${{ steps.get-status-field.outputs.values }}" == "" ) &&
+          $ASSIGNEES != "[]" ]]; then
+          echo "Updating to New Issues since it's assigned and status is New Issues or empty"
+          echo "field-values=New Issues" >> $GITHUB_ENV
+        elif [[ $ASSIGNEES == "[]" ]]; then
+          echo "Updating to New Issues since it's unassigned"
+          echo "field-values=New Issues" >> $GITHUB_ENV
+        fi
+        
+    - name: Apply Project Update
+      if: ${{
+        env.is_longhorn_member == 'true' &&
+        steps.get-status-field.outcome == 'success' &&
+        env.field-values != ''
+        }}
+      uses: rancher/gh-issue-mgr/update-project-fields@b70f0bdf12a03e5e3f33e4f92ccb6c89deb3ebd9 # main
+      with:
+        project-url: ${{ env.LONGHORN_SPRINT_PROJECT_URL }}
+        github-token: ${{ steps.app-token.outputs.token }}
+        item-id: ${{ steps.add-project.outputs.itemId }}
+        field-keys: Status
+        field-values: ${{ env.field-values }}

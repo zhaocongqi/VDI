@@ -1,0 +1,36 @@
+# 子项目的独立 Git 仓库目录（避免嵌套仓库）
+kagent/.git
+kubekey/.git
+kube-ovn/.git
+kube-vip/.git
+kubevirt/.git
+longhorn/.git
+
+# 常见临时文件
+*.tmp
+*.temp
+*~
+.DS_Store
+Thumbs.db
+
+# IDE 配置
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 构建产物（通用）
+*.o
+*.a
+*.so
+*.dylib
+*.exe
+*.bin
+
+# 日志文件
+*.log
+
+# 环境配置
+.env
+.env.local
+.env.*.local
