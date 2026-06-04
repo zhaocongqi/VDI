@@ -37,4 +37,6 @@ Thumbs.db
 .env
 .env.local
 .env.*.local
+
+# K8s 部署配置（含真实密码，不纳入版本控制）
 deploy/k8s/inventory.yaml
