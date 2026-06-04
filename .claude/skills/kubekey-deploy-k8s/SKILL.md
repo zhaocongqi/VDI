@@ -182,9 +182,27 @@ kubectl get pods -A
 - `native.set_hostname: true` 会将节点 hostname 改为 inventory 中的 key 名
 - 删除集群后旧节点可能残留，需要手动 `kubectl delete node` 清理
 
-## 后续步骤（不在本 skill 范围内）
+## 后续步骤
 
-部署完成后，用户可能需要：
-1. 部署 kube-vip — API Server VIP
-2. 部署 Kube-OVN — Pod 网络
-3. 部署 Longhorn — 持久化存储
+### 部署 kube-vip（API Server VIP）
+
+K8s 集群部署后，节点处于 NotReady 状态（无 CNI）。部署 kube-vip 提供 VIP，使集群可通过统一入口访问。
+
+```bash
+bash deploy/k8s/deploy-kube-vip.sh <VIP> <INTERFACE>
+# 示例: bash deploy/k8s/deploy-kube-vip.sh 192.168.220.100 ens160
+```
+
+**kube-vip 关键知识点**：
+- kube-vip 在 `EnableControlPlane` 模式下，硬编码用 `kubernetes:<port>` 连接 API Server（源码：`kube-vip/pkg/manager/manager.go:133`）
+- manifest 中**必须**包含 `hostAliases` 将 `kubernetes` 映射到 `127.0.0.1`，否则 leader election 会因 DNS 解析失败而卡住
+- 网络接口名需通过 `kubectl debug node/<node> -it --image=busybox -- ip addr show` 查看
+- 节点的 `/etc/hosts` 中也需要有 `127.0.0.1 kubernetes` 条目（可用 ansible 批量添加）
+
+### 部署 Kube-OVN（CNI）
+
+待完成。
+
+### 部署 Longhorn（存储）
+
+待完成。
