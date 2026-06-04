@@ -20,8 +20,8 @@ spec:
     # 容器运行时（K8s >= 1.24 自动使用 containerd）
     container_manager: containerd
   cni:
-    # 不安装 CNI，后续手动部署 Kube-OVN
-    type: none
+    # 留空跳过 CNI 安装，后续手动部署 Kube-OVN
+    type: ""
   storage_class:
     local:
       # 不安装默认存储，后续手动部署 Longhorn
