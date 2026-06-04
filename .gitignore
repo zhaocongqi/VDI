@@ -6,6 +6,9 @@
 /kubevirt/
 /longhorn/
 
+# Claude Code 配置（本地使用，不提交到远程）
+.claude/
+
 # CodeGraph 工具缓存
 .codegraph/
 
