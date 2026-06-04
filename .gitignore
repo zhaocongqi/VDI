@@ -1,13 +1,10 @@
 # 子项目目录（独立 Git 仓库，不纳入主仓库跟踪）
-kagent/
-kubekey/
-kube-ovn/
-kube-vip/
-kubevirt/
-longhorn/
-
-# deploy 目录下的部署配置需要跟踪
-!deploy/
+/kagent/
+/kubekey/
+/kube-ovn/
+/kube-vip/
+/kubevirt/
+/longhorn/
 
 # CodeGraph 工具缓存
 .codegraph/
