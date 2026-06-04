@@ -38,3 +38,6 @@ spec:
   image_registry:
     # 不安装私有镜像仓库
     type: ""
+  native:
+    # 根据 inventory 中的定义自动设置节点主机名
+    set_hostname: true
