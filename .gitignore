@@ -6,6 +6,9 @@ kube-vip/
 kubevirt/
 longhorn/
 
+# deploy 目录下的部署配置需要跟踪
+!deploy/
+
 # CodeGraph 工具缓存
 .codegraph/
 
