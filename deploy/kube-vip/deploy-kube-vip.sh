@@ -7,7 +7,7 @@ set -euo pipefail
 
 VIP="${1:-192.168.220.100}"
 INTERFACE="${2:-ens160}"
-MANIFEST="$(dirname "$0")/manifests/kube-vip.yaml"
+MANIFEST="$(dirname "$0")/kube-vip.yaml"
 KUBECONFIG="${KUBECONFIG:-$HOME/.kube/config}"
 
 echo ">>> 部署 kube-vip"
