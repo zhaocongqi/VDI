@@ -98,7 +98,10 @@ deploy/
 │   ├── kubevip-deploy/    # API Server VIP（HA static Pod）
 │   ├── kubeovn-deploy/    # Kube-OVN CNI
 │   ├── longhorn-deploy/   # Longhorn 分布式存储
-│   └── kubevirt-deploy/   # KubeVirt 虚拟化
+│   ├── kubevirt-deploy/   # KubeVirt 虚拟化
+│   └── kagent-deploy/     # kagent AI Agent 框架
+├── kagent/                # kagent Agent CRD 定义
+│   └── agents/            # VDI 专用 Agent（cluster-doctor/vm-manager/storage-ops/network-debug）
 ├── k8s/                   # KubeKey 配置和 inventory
 ├── kube-vip/              # kube-vip manifest 和脚本
 ├── kube-ovn/              # Kube-OVN 本地 Helm chart + values
@@ -106,7 +109,7 @@ deploy/
 └── kubevirt/              # KubeVirt 脚本
 ```
 
-**部署顺序**：os-init → kubekey-deploy-k8s → kubevip-deploy → kubeovn-deploy → longhorn-deploy → kubevirt-deploy
+**部署顺序**：os-init → kubekey-deploy-k8s → kubevip-deploy → kubeovn-deploy → longhorn-deploy → kubevirt-deploy → kagent-deploy
 
 **关键约定**：
 - `deploy/env-config.sh` 是所有部署参数的唯一来源，脚本和 skill 统一 `source` 引用
