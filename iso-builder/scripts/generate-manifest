@@ -1,0 +1,43 @@
+#!/bin/bash
+set -euo pipefail
+
+# 生成构建 manifest 文件
+# 包含版本号、构建时间、组件版本、ISO 大小等元数据
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+WORKSPACE="$(cd "$SCRIPT_DIR/.." && pwd)"
+VERSION="${1:-v1.0.0}"
+ISO_NAME="vdi-offline-${VERSION}"
+
+echo "# VDI 离线 ISO 构建信息"
+echo "# 此文件由构建系统自动生成，请勿手动编辑"
+echo ""
+echo "name: vdi-offline-iso"
+echo "version: \"${VERSION}\""
+echo "buildDate: \"$(date -u '+%Y-%m-%dT%H:%M:%SZ')\""
+echo "buildHost: \"$(hostname)\""
+echo "arch: amd64"
+echo "os: ubuntu-22.04"
+echo ""
+
+# 读取 manifest.yaml 中的组件版本
+if [ -f "${WORKSPACE}/offline/manifest.yaml" ]; then
+    echo "# 组件版本（来自 manifest.yaml）"
+    echo "components:"
+    for comp in kubernetes kube-vip kube-ovn longhorn kubevirt cdi kagent; do
+        ver=$(yq ".components.${comp}.version // \"\"" "${WORKSPACE}/offline/manifest.yaml" 2>/dev/null || echo "")
+        if [ -n "$ver" ]; then
+            echo "  ${comp}: \"${ver}\""
+        fi
+    done
+fi
+echo ""
+
+# ISO 大小和校验和
+ISO_FILE="${WORKSPACE}/dist/${ISO_NAME}.iso"
+if [ -f "$ISO_FILE" ]; then
+    ISO_SIZE=$(du -sm "$ISO_FILE" | cut -f1)
+    ISO_SHA=$(sha256sum "$ISO_FILE" | cut -d' ' -f1)
+    echo "isoSize: \"${ISO_SIZE}MB\""
+    echo "isoSha256: \"${ISO_SHA}\""
+fi

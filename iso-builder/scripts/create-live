@@ -1,0 +1,243 @@
+#!/bin/bash
+set -euo pipefail
+
+# 创建 Ubuntu 22.04 Live 系统
+# 使用 debootstrap 构建最小根文件系统
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+WORKSPACE="$(cd "$SCRIPT_DIR/.." && pwd)"
+ROOTFS="${WORKSPACE}/rootfs"
+ISO_ROOT="${WORKSPACE}/iso_root"
+
+source "${SCRIPT_DIR}/common.sh"
+
+# 配置
+CODENAME="jammy"
+ARCH="amd64"
+MIRROR="http://archive.ubuntu.com/ubuntu"
+
+# Live 系统需要安装的包
+LIVE_PACKAGES=(
+    # 内核与基础系统
+    linux-image-generic
+    systemd
+    bash
+    # SSH（远程调试）
+    openssh-server
+    # TUI 运行时
+    python3
+    python3-yaml
+    whiptail
+    dialog
+    # 网络
+    network-manager
+    iproute2
+    iputils-ping
+    net-tools
+    # 系统工具
+    vim
+    less
+    pciutils
+    usbutils
+    util-linux
+    mount
+    e2fsprogs
+    dosfstools
+    nfs-common
+    curl
+    wget
+    jq
+    ca-certificates
+    gnupg
+    lsb-release
+    # 容器运行时
+    containerd
+    # PXE 服务组件
+    dnsmasq
+    nginx
+    # 部署工具
+    openssh-client
+    rsync
+    chrony
+    sudo
+    # KubeVirt 依赖
+    qemu-kvm
+    libvirt-daemon-system
+    # 系统依赖
+    open-iscsi
+    conntrack
+    socat
+    ipvsadm
+    ebtables
+    ethtool
+    iptables
+)
+
+step "清理旧的根文件系统"
+if [ -d "$ROOTFS" ]; then
+    # 如果有挂载点先卸载
+    mountpoint -q "$ROOTFS/proc" 2>/dev/null && umount "$ROOTFS/proc"  || true
+    mountpoint -q "$ROOTFS/sys"   2>/dev/null && umount "$ROOTFS/sys"   || true
+    mountpoint -q "$ROOTFS/dev"   2>/dev/null && umount "$ROOTFS/dev"   || true
+    rm -rf "$ROOTFS"
+fi
+mkdir -p "$ROOTFS"
+
+step "Stage 1: debootstrap --variant=minbase"
+debootstrap --arch="$ARCH" --variant=minbase "$CODENAME" "$ROOTFS" "$MIRROR"
+
+step "配置 APT 源"
+cat > "${ROOTFS}/etc/apt/sources.list" <<EOF
+deb ${MIRROR} ${CODENAME} main universe
+deb ${MIRROR} ${CODENAME}-updates main universe
+deb ${MIRROR} ${CODENAME}-security main universe
+EOF
+
+step "Stage 2: 安装 Live 系统包"
+chroot "$ROOTFS" apt-get update
+
+# 逐批安装包，避免一次性安装太多导致失败
+BATCH_SIZE=10
+TOTAL=${#LIVE_PACKAGES[@]}
+for ((i=0; i<TOTAL; i+=BATCH_SIZE)); do
+    BATCH=("${LIVE_PACKAGES[@]:i:BATCH_SIZE}")
+    info "安装包 [$((i+1))-$((i+${#BATCH[@]}))/${TOTAL}]: ${BATCH[*]}"
+    chroot "$ROOTFS" apt-get install -y --no-install-recommends "${BATCH[@]}" || {
+        error "包安装失败，尝试逐个安装"
+        for pkg in "${BATCH[@]}"; do
+            chroot "$ROOTFS" apt-get install -y --no-install-recommends "$pkg" || \
+                info "跳过不可用的包: $pkg"
+        done
+    }
+done
+
+step "配置 Live 系统"
+
+# 设置主机名
+echo "vdi-live" > "${ROOTFS}/etc/hostname"
+cat > "${ROOTFS}/etc/hosts" <<EOF
+127.0.0.1 localhost
+127.0.1.1 vdi-live
+
+::1     localhost ip6-localhost ip6-loopback
+ff02::1 ip6-allnodes
+ff02::2 ip6-allrouters
+EOF
+
+# 配置网络接口（DHCP 自动获取）
+mkdir -p "${ROOTFS}/etc/netplan"
+cat > "${ROOTFS}/etc/netplan/01-eth.yaml" <<EOF
+network:
+  version: 2
+  ethernets:
+    id0:
+      match:
+        name: "en*"
+      dhcp4: true
+EOF
+
+# 创建 Live 用户（无密码 sudo）
+chroot "$ROOTFS" bash -c 'useradd -m -s /bin/bash live 2>/dev/null || true'
+chroot "$ROOTFS" bash -c 'echo "live:live" | chpasswd'
+chroot "$ROOTFS" bash -c 'echo "live ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/99-live'
+chmod 440 "${ROOTFS}/etc/sudoers.d/99-live"
+
+# 配置 SSH 允许密码登录
+sed -i 's/#PermitRootLogin.*/PermitRootLogin yes/' "${ROOTFS}/etc/ssh/sshd_config"
+sed -i 's/#PasswordAuthentication.*/PasswordAuthentication yes/' "${ROOTFS}/etc/ssh/sshd_config"
+
+# 创建 VDI 部署日志目录
+mkdir -p "${ROOTFS}/var/log/vdi-deploy"
+
+# 创建 ISO 挂载点
+mkdir -p "${ROOTFS}/cdrom"
+
+# systemd 服务：启动时自动挂载 ISO
+mkdir -p "${ROOTFS}/etc/systemd/system"
+cat > "${ROOTFS}/etc/systemd/system/cdrom-mount.service" <<EOF
+[Unit]
+Description=挂载 VDI 离线 ISO
+After=local-fs.target
+Before=vdi-installer.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/bash -c 'mount /dev/sr0 /cdrom 2>/dev/null || mount -o loop /dev/disk/by-label/VDI-INSTALL /cdrom 2>/dev/null || true'
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# TUI 安装器自启动服务
+cat > "${ROOTFS}/etc/systemd/system/vdi-installer.service" <<EOF
+[Unit]
+Description=VDI 离线部署 TUI 安装器
+After=network-online.target cdrom-mount.service
+Wants=network-online.target
+
+[Service]
+Type=idle
+ExecStartPre=/bin/sleep 3
+ExecStart=/usr/bin/python3 /opt/vdi/tui/installer.py
+StandardInput=tty
+StandardOutput=tty
+StandardError=tty
+TTYPath=/dev/tty1
+User=root
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# 启用服务
+chroot "$ROOTFS" systemctl enable cdrom-mount.service
+chroot "$ROOTFS" systemctl enable vdi-installer.service
+chroot "$ROOTFS" systemctl enable ssh
+
+# tty1 自动登录 root（TUI 需要 root 权限）
+mkdir -p "${ROOTFS}/etc/systemd/system/getty@tty1.service.d"
+cat > "${ROOTFS}/etc/systemd/system/getty@tty1.service.d/autologin.conf" <<EOF
+[Service]
+ExecStart=
+ExecStart=-/sbin/agetty --autologin root --noclear tty1 38400 linux
+EOF
+
+# 自动 source 离线环境变量
+cat > "${ROOTFS}/etc/profile.d/vdi-welcome.sh" <<'WELCOME'
+# VDI Live 系统欢迎信息
+if [ -n "$PS1" ]; then
+    echo ""
+    echo "============================================"
+    echo "  VDI 离线部署 Live 系统"
+    echo "============================================"
+    echo ""
+    echo "  TUI 安装器将自动启动..."
+    echo "  手动启动: python3 /opt/vdi/tui/installer.py"
+    echo "  离线资源: /cdrom/offline/"
+    echo "  部署日志: /var/log/vdi-deploy/"
+    echo ""
+fi
+WELCOME
+
+step "清理根文件系统"
+chroot "$ROOTFS" apt-get clean
+rm -rf "${ROOTFS}/var/lib/apt/lists/"*
+rm -rf "${ROOTFS}/var/cache/apt/"*
+rm -rf "${ROOTFS}/tmp/"*
+
+# 统计大小
+ROOTFS_SIZE=$(du -sm "$ROOTFS" | cut -f1)
+info "根文件系统大小: ${ROOTFS_SIZE}MB"
+
+step "创建 squashfs"
+mkdir -p "${ISO_ROOT}/casper"
+mksquashfs "$ROOTFS" "${ISO_ROOT}/casper/filesystem.squashfs" \
+    -comp xz \
+    -no-progress \
+    -e boot/grub \
+    -e var/cache \
+    -e var/lib/apt/lists
+
+ok "Live 系统创建完成"
+info "squashfs 大小: $(du -sh "${ISO_ROOT}/casper/filesystem.squashfs" | cut -f1)"

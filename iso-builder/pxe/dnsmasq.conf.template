@@ -1,0 +1,19 @@
+# VDI PXE dnsmasq 配置模板
+# 此文件由构建系统提供模板，部署时由 start-pxe.sh 动态生成实际值
+
+interface={{INTERFACE}}
+bind-interfaces
+
+# DHCP 配置
+dhcp-range={{DHCP_START}},{{DHCP_END}},255.255.255.0,12h
+dhcp-boot=pxelinux.0
+dhcp-option=3,{{NODE_IP}}
+dhcp-option=6,{{NODE_IP}}
+
+# TFTP 配置
+enable-tftp
+tftp-root=/srv/tftp
+
+# 日志
+log-dhcp
+log-queries
