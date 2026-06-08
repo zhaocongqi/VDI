@@ -84,6 +84,35 @@ make cluster-up         # 启动 CI 集群
 - **部署方式**：Helm Charts (kagent, kubekey, kube-ovn, longhorn)、Operator 模式 (kubevirt)
 - **Go 版本**：1.24.0 ~ 1.26.4 (各子项目不同)
 
+## 部署目录结构
+
+`deploy/` 目录包含完整的集群部署自动化：
+
+```
+deploy/
+├── env-config.sh          # 共享环境配置（用户名、网段、VIP、版本号）
+├── hosts.template         # Ansible 清单模板（实际 hosts 已 gitignore）
+├── skills/                # AI Skill 定义（按组件拆分）
+│   ├── os-init/           # OS 初始化（swap/内核/防火墙/依赖）
+│   ├── kubekey-deploy-k8s/# K8s 集群部署
+│   ├── kubevip-deploy/    # API Server VIP（HA static Pod）
+│   ├── kubeovn-deploy/    # Kube-OVN CNI
+│   ├── longhorn-deploy/   # Longhorn 分布式存储
+│   └── kubevirt-deploy/   # KubeVirt 虚拟化
+├── k8s/                   # KubeKey 配置和 inventory
+├── kube-vip/              # kube-vip manifest 和脚本
+├── kube-ovn/              # Kube-OVN 本地 Helm chart + values
+├── longhorn/              # Longhorn values.yaml + 脚本
+└── kubevirt/              # KubeVirt 脚本
+```
+
+**部署顺序**：os-init → kubekey-deploy-k8s → kubevip-deploy → kubeovn-deploy → longhorn-deploy → kubevirt-deploy
+
+**关键约定**：
+- `deploy/env-config.sh` 是所有部署参数的唯一来源，脚本和 skill 统一 `source` 引用
+- `deploy/hosts` 和 `deploy/k8s/inventory.yaml` 含敏感信息，已在 `.gitignore` 排除，仅保留 `.template` 模板
+- kube-vip 使用 static Pod 模式分发到每个控制平面节点，不使用 `kubectl apply`
+
 ## 子项目独立 CLAUDE.md
 
 各子项目可能包含自己的 CLAUDE.md 文件，提供更细粒度的开发指南：
