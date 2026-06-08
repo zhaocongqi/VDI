@@ -1,0 +1,33 @@
+# Ansible 节点清单模板
+# 使用方法: cp deploy/hosts.template deploy/hosts
+#          然后替换为实际的 IP 地址和用户名
+#
+# 注意: deploy/hosts 已在 .gitignore 中排除（可能含敏感信息）
+
+[K8s]
+# 第一个节点通常是控制节点（使用 local 连接避免 SSH）
+192.168.220.128 ansible_connection=local
+# 其他节点通过 SSH 连接
+192.168.220.129
+192.168.220.130
+
+[K8s-control]
+# 控制平面节点（用于需要仅在 CP 节点执行的操作）
+192.168.220.128 ansible_connection=local
+192.168.220.129
+192.168.220.130
+
+[K8s-worker]
+# 工作节点（用于需要仅在 Worker 节点执行的操作）
+# 如果所有节点同时作为 Worker，则与 [K8s] 相同
+192.168.220.128 ansible_connection=local
+192.168.220.129
+192.168.220.130
+
+[K8s:vars]
+# SSH 用户名（与 deploy/env-config.sh 中的 ANSIBLE_USER 保持一致）
+ansible_user=zcq
+ansible_become=true
+ansible_become_method=sudo
+# Python 解释器路径（Ubuntu 默认）
+ansible_python_interpreter=/usr/bin/python3
