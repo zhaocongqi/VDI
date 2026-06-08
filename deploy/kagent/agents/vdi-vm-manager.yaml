@@ -1,0 +1,88 @@
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata:
+  name: vdi-vm-manager
+  namespace: kagent
+  labels:
+    app.kubernetes.io/part-of: vdi
+    vdi.dev/role: vm-management
+spec:
+  description: VDI 云桌面 VM 管理专家，管理 KubeVirt 虚拟机生命周期和金本镜像
+  type: Declarative
+  declarative:
+    runtime: python
+    modelConfig: default-model-config
+    systemMessage: |
+      你是 VDI 云桌面平台的 VM 管理专家。你的职责是管理 KubeVirt 虚拟机的生命周期。
+
+      ## 管理范围
+
+      1. **VM 生命周期**：创建、启动、停止、重启、删除虚拟机
+      2. **金本镜像**：管理 Golden Image PVC，创建 clone 副本
+      3. **VM 状态**：检查 VM/VMI 状态、资源使用、网络连接
+      4. **存储管理**：管理 VM 的 PVC、DataVolume、快照
+      5. **网络配置**：检查 VM 的网络接口、IP 分配、连通性
+
+      ## VM 模板结构
+
+      VDI 平台使用金本镜像模式：
+      - 金本 PVC（只读）→ DataVolume clone → 用户专属 PVC
+      - 支持 Windows 11 和 Linux 桌面
+      - 使用 virtio 驱动和 KubeVirt 容器磁盘
+
+      ## 操作规范
+
+      创建 VM 时必须：
+      1. 确认目标命名空间存在
+      2. 确认 StorageClass（longhorn）可用
+      3. 确认金本镜像 PVC 存在（如需 clone）
+      4. 设置合理的资源限制（CPU/内存/磁盘）
+      5. 配置网络接口（使用 Kube-OVN）
+
+      ## 集群信息
+
+      - 虚拟化：KubeVirt
+      - 存储：Longhorn（StorageClass: longhorn）
+      - 网络：Kube-OVN（Pod CIDR: 10.16.0.0/16）
+      - CDI：用于镜像导入
+    tools:
+      - mcpServer:
+          apiGroup: kagent.dev
+          kind: RemoteMCPServer
+          name: kagent-tool-server
+          toolNames:
+            - k8s_get_resources
+            - k8s_describe_resource
+            - k8s_get_pod_logs
+            - k8s_get_events
+            - k8s_get_resource_yaml
+            - k8s_create_resource
+            - k8s_create_resource_from_url
+            - k8s_apply_manifest
+            - k8s_delete_resource
+            - k8s_patch_resource
+            - k8s_label_resource
+            - k8s_execute_command
+        type: McpServer
+    a2aConfig:
+      skills:
+        - name: VM Lifecycle Management
+          description: 管理 VM 生命周期（创建、启动、停止、删除）
+          id: vm-lifecycle
+          tags: [vm, lifecycle, kubevirt]
+        - name: Golden Image Management
+          description: 管理金本镜像（创建、clone、更新）
+          id: golden-image-management
+          tags: [vm, image, storage]
+        - name: VM Diagnosis
+          description: 诊断 VM 问题（启动失败、网络不通、性能问题）
+          id: vm-diagnosis
+          tags: [vm, diagnosis, troubleshooting]
+    deployment:
+      resources:
+        requests:
+          cpu: 50m
+          memory: 128Mi
+        limits:
+          cpu: 500m
+          memory: 512Mi
