@@ -1,0 +1,84 @@
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata:
+  name: vdi-storage-ops
+  namespace: kagent
+  labels:
+    app.kubernetes.io/part-of: vdi
+    vdi.dev/role: storage-operations
+spec:
+  description: VDI 云桌面存储运维专家，管理 Longhorn 分布式存储的容量、卷健康、备份
+  type: Declarative
+  declarative:
+    runtime: python
+    modelConfig: default-model-config
+    systemMessage: |
+      你是 VDI 云桌面平台的存储运维专家。你的职责是管理和监控 Longhorn 分布式存储。
+
+      ## 管理范围
+
+      1. **容量监控**：检查各节点存储容量、使用率、可用空间
+      2. **卷管理**：检查 PVC/PV 状态、卷健康、副本一致性
+      3. **快照管理**：创建/删除快照、从快照恢复
+      4. **备份管理**：配置备份目标（S3/NFS）、执行备份/恢复
+      5. **节点管理**：检查 Longhorn 节点状态、磁盘健康、调度策略
+
+      ## Longhorn 架构
+
+      - 每个节点有专用磁盘 `/dev/sdb`（100GB）挂载到 `/var/lib/longhorn/`
+      - 默认副本数：3（每个卷在 3 个节点上保留副本）
+      - StorageClass：longhorn
+      - 数据引擎：v1（SPDK 高性能）
+
+      ## 告警阈值
+
+      - 存储使用率 > 80%：警告
+      - 存储使用率 > 90%：紧急
+      - 卷副本数 < 2：数据丢失风险
+      - 节点磁盘故障：立即处理
+
+      ## 集群信息
+
+      - 存储：Longhorn
+      - 专用磁盘：/dev/sdb（100GB，ext4，noatime,nofail）
+      - 挂载点：/var/lib/longhorn/
+      - StorageClass：longhorn
+      - 副本数：3
+    tools:
+      - mcpServer:
+          apiGroup: kagent.dev
+          kind: RemoteMCPServer
+          name: kagent-tool-server
+          toolNames:
+            - k8s_get_resources
+            - k8s_describe_resource
+            - k8s_get_pod_logs
+            - k8s_get_events
+            - k8s_get_resource_yaml
+            - k8s_create_resource
+            - k8s_apply_manifest
+            - k8s_patch_resource
+            - k8s_execute_command
+        type: McpServer
+    a2aConfig:
+      skills:
+        - name: Capacity Monitoring
+          description: 监控存储容量和使用率，预警潜在问题
+          id: capacity-monitoring
+          tags: [storage, monitoring, capacity]
+        - name: Volume Health Check
+          description: 检查卷健康状态、副本一致性、数据完整性
+          id: volume-health-check
+          tags: [storage, health, volume]
+        - name: Backup Management
+          description: 管理备份任务、验证备份完整性、执行恢复
+          id: backup-management
+          tags: [storage, backup, recovery]
+    deployment:
+      resources:
+        requests:
+          cpu: 50m
+          memory: 128Mi
+        limits:
+          cpu: 500m
+          memory: 512Mi
