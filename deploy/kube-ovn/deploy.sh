@@ -8,7 +8,14 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CHART_DIR="${SCRIPT_DIR}/chart"
+
+# 离线优先：使用 OFFLINE_CHARTS 中的 chart，否则使用本地 chart 目录
+if [ -n "${OFFLINE_CHARTS:-}" ] && [ -d "${OFFLINE_CHARTS}/kube-ovn" ]; then
+  CHART_DIR="${OFFLINE_CHARTS}/kube-ovn"
+  echo "[离线] 使用本地 Helm chart: ${CHART_DIR}"
+else
+  CHART_DIR="${SCRIPT_DIR}/chart"
+fi
 VALUES_FILE="${SCRIPT_DIR}/values.yaml"
 
 echo "=== Kube-OVN CNI 部署 ==="

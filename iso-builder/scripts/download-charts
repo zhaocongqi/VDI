@@ -1,0 +1,88 @@
+#!/bin/bash
+set -euo pipefail
+
+# 下载 Helm Chart
+# - Kube-OVN: 从本地 deploy/kube-ovn/chart/ 复制
+# - Longhorn: 从远程 helm repo 拉取
+# - kagent: 从源码构建或远程拉取
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+WORKSPACE="$(cd "$SCRIPT_DIR/.." && pwd)"
+VDI_ROOT="$(cd "${WORKSPACE}/.." && pwd)"
+
+source "${SCRIPT_DIR}/common.sh"
+
+MANIFEST="${WORKSPACE}/offline/manifest.yaml"
+CHARTS_DIR="${WORKSPACE}/offline/charts"
+
+require_cmds helm yq
+
+step "下载 Helm Chart"
+
+mkdir -p "$CHARTS_DIR"
+
+# ========== Kube-OVN（本地 chart）==========
+step "Kube-OVN: 复制本地 Helm chart"
+KUBEOVN_SRC="${VDI_ROOT}/deploy/kube-ovn/chart"
+KUBEOVN_DST="${CHARTS_DIR}/kube-ovn"
+
+if [ -d "$KUBEOVN_SRC" ]; then
+    rm -rf "$KUBEOVN_DST"
+    cp -r "$KUBEOVN_SRC" "$KUBEOVN_DST"
+    ok "Kube-OVN chart 已从 deploy/kube-ovn/chart/ 复制"
+else
+    info "deploy/kube-ovn/chart/ 不存在，跳过"
+fi
+
+# ========== Longhorn（远程 chart）==========
+step "Longhorn: 下载远程 Helm chart"
+LH_VERSION=$(yq '.components.longhorn.version' "$MANIFEST" 2>/dev/null || echo "")
+LH_DST="${CHARTS_DIR}/longhorn"
+
+if [ -n "$LH_VERSION" ]; then
+    helm repo add longhorn https://charts.longhorn.io 2>/dev/null || true
+    helm repo update longhorn
+    helm pull "longhorn/longhorn" \
+        --version "${LH_VERSION#v}" \
+        --destination "$CHARTS_DIR"
+    # 解压为目录结构
+    mkdir -p "$LH_DST"
+    tar -xzf "${CHARTS_DIR}/longhorn-${LH_VERSION#v}.tgz" -C "$CHARTS_DIR"
+    ok "Longhorn chart v${LH_VERSION#v} 已下载"
+else
+    info "manifest 中未定义 Longhorn 版本，跳过"
+fi
+
+# ========== kagent（远程 chart 或本地构建）==========
+step "kagent: 准备 Helm chart"
+KAGENT_VERSION=$(yq '.components.kagent.version' "$MANIFEST" 2>/dev/null || echo "")
+KAGENT_DST="${CHARTS_DIR}/kagent"
+
+if [ -n "$KAGENT_VERSION" ]; then
+    # 尝试从 OCI registry 拉取
+    if helm pull "oci://ghcr.io/kagent-dev/charts/kagent" \
+        --version "${KAGENT_VERSION}" \
+        --destination "$CHARTS_DIR" 2>/dev/null; then
+        mkdir -p "$KAGENT_DST"
+        tar -xzf "${CHARTS_DIR}/kagent-${KAGENT_VERSION}.tgz" -C "$CHARTS_DIR"
+        ok "kagent chart ${KAGENT_VERSION} 已从 OCI 拉取"
+    else
+        # 回退：从 kagent 源码构建
+        info "OCI 拉取失败，尝试从 VDI 仓库 kagent/ 子目录构建"
+        KAGENT_SRC="${VDI_ROOT}/kagent/helm"
+        if [ -d "$KAGENT_SRC" ]; then
+            cp -r "$KAGENT_SRC" "$KAGENT_DST"
+            # 构建 chart 依赖
+            if [ -f "${KAGENT_DST}/Chart.yaml" ]; then
+                helm dependency update "$KAGENT_DST" 2>/dev/null || true
+            fi
+            ok "kagent chart 已从源码构建"
+        else
+            info "kagent 源码目录不存在，将使用在线模式"
+        fi
+    fi
+else
+    info "manifest 中未定义 kagent 版本，跳过"
+fi
+
+ok "Helm Chart 下载完成"

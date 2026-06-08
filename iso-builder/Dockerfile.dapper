@@ -1,0 +1,75 @@
+# VDI 离线 ISO 构建环境
+# 基于 Ubuntu 22.04，包含 ISO 构建、镜像下载、TUI 开发所需工具
+FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# 第一层：系统核心工具
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    # ISO 构建工具
+    xorriso \
+    squashfs-tools \
+    debootstrap \
+    grub-pc-bin \
+    grub-efi-amd64-bin \
+    grub-efi-amd64-signed \
+    grub2-common \
+    mtools \
+    dosfstools \
+    isolinux \
+    syslinux-common \
+    # PXE 引导
+    pxelinux \
+    # 运行时工具
+    python3 \
+    python3-yaml \
+    whiptail \
+    dialog \
+    # 网络与下载
+    wget \
+    curl \
+    jq \
+    gpg \
+    ca-certificates \
+    gnupg \
+    lsb-release \
+    # PXE 服务组件
+    dnsmasq \
+    nginx \
+    # 部署工具
+    openssh-client \
+    rsync \
+    # 容器运行时
+    containerd \
+    # 其他工具
+    apt-utils \
+    && rm -rf /var/lib/apt/lists/*
+
+# 安装 skopeo（使用 signed-by 替代废弃的 apt-key）
+RUN . /etc/os-release && \
+    wget -nv "https://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/unstable/xUbuntu_${VERSION_ID}/Release.key" \
+        -O /usr/share/keyrings/kubic.gpg && \
+    echo "deb [signed-by=/usr/share/keyrings/kubic.gpg] https://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/unstable/xUbuntu_${VERSION_ID}/ /" \
+        > /etc/apt/sources.list.d/kubic.list && \
+    apt-get update && apt-get install -y --no-install-recommends skopeo && \
+    rm -rf /var/lib/apt/lists/*
+
+# 安装 yq
+RUN wget -qO /usr/local/bin/yq "https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64" && \
+    chmod +x /usr/local/bin/yq && \
+    yq --version
+
+# 安装 helm
+RUN wget -qO /tmp/helm.tar.gz "https://get.helm.sh/helm-v3.18.5-linux-amd64.tar.gz" && \
+    tar -xzf /tmp/helm.tar.gz -C /tmp && \
+    mv /tmp/linux-amd64/helm /usr/local/bin/helm && \
+    chmod +x /usr/local/bin/helm && \
+    rm -rf /tmp/helm* && \
+    helm version
+
+# Dapper 环境变量
+ENV DAPPER_SOURCE /workspace
+ENV DAPPER_OUTPUT dist
+WORKDIR ${DAPPER_SOURCE}
+
+ENTRYPOINT ["./scripts/entry"]

@@ -26,30 +26,29 @@ if ! systemctl is-active --quiet iscsid 2>/dev/null; then
   sudo systemctl enable --now iscsid
 fi
 
-# 2. 添加 Helm 仓库
-echo "[2/4] 添加 Longhorn Helm 仓库..."
-helm repo add longhorn https://charts.longhorn.io 2>/dev/null || true
-helm repo update
+# 2. 确定 Helm Chart 来源（离线优先）
+VALUES_FILE="${SCRIPT_DIR}/values.yaml"
+
+if [ -n "${OFFLINE_CHARTS:-}" ] && [ -d "${OFFLINE_CHARTS}/longhorn" ]; then
+  # 离线模式：使用本地 chart 目录
+  CHART_REF="${OFFLINE_CHARTS}/longhorn"
+  echo "[2/4] [离线] 使用本地 Helm chart: ${CHART_REF}"
+else
+  # 在线模式：添加远程 Helm 仓库
+  echo "[2/4] 添加 Longhorn Helm 仓库..."
+  helm repo add longhorn https://charts.longhorn.io 2>/dev/null || true
+  helm repo update
+  CHART_REF="longhorn/longhorn"
+fi
 
 # 3. 部署 Longhorn（使用自定义 values）
 echo "[3/4] 执行 helm install..."
-VALUES_FILE="${SCRIPT_DIR}/values.yaml"
+HELM_ARGS=(-n longhorn-system --create-namespace --wait --timeout 10m)
 if [ -f "$VALUES_FILE" ]; then
   echo "    使用自定义 values: ${VALUES_FILE}"
-  helm install longhorn longhorn/longhorn \
-    -n longhorn-system \
-    --create-namespace \
-    -f "$VALUES_FILE" \
-    --wait \
-    --timeout 10m
-else
-  echo "    警告: 未找到 ${VALUES_FILE}，使用默认配置"
-  helm install longhorn longhorn/longhorn \
-    -n longhorn-system \
-    --create-namespace \
-    --wait \
-    --timeout 10m
+  HELM_ARGS+=(-f "$VALUES_FILE")
 fi
+helm install longhorn "$CHART_REF" "${HELM_ARGS[@]}"
 
 # 4. 验证
 echo "[4/4] 验证部署状态..."
