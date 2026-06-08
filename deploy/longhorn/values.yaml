@@ -1,0 +1,78 @@
+# Longhorn 自定义 values（生产环境推荐配置）
+# 用法: helm install longhorn longhorn/longhorn -n longhorn-system -f deploy/longhorn/values.yaml
+
+# ── 默认副本数 ──
+defaultSettings:
+  # 每个卷的默认副本数（建议 ≤ 节点数）
+  defaultReplicaCount: 3
+  # 数据引擎（v1 为 SPDK 高性能，v2 为传统）
+  dataEngine: v1
+  # 自动均衡副本到新节点
+  autoRebalanceReplicas: false
+  # 创建卷时自动挂载到最合适的节点
+  nodeDownPodDeletionPolicy: delete-never
+  # 节点不可达时的策略
+  nodeDrainPolicy: block-if-contains-last-replica
+  # 备份策略（需配置 backupTarget 才生效）
+  backupTarget: ""
+  backupCycle: ""
+  # 存储超配比（1.0 = 不超配）
+  storageOverProvisioningPercentage: 100
+  # 存储最小可用百分比（低于此值告警）
+  storageMinimalAvailablePercentage: 10
+  # 回收间隔（秒）
+  reclaimIntervalCron: "0 2 * * *"
+  # 系统管理组件调度策略
+  systemManagedComponentsNodeSelector: ""
+  systemManagedComponentsTolerations: []
+
+# ── 持久化存储目录 ──
+# 如果配置了专用磁盘挂载到 /var/lib/longhorn，此处无需修改
+longhornManager:
+  tolerations:
+    - key: node-role.kubernetes.io/control-plane
+      operator: Exists
+      effect: NoSchedule
+    - key: node-role.kubernetes.io/etcd
+      operator: Exists
+      effect: NoExecute
+
+longhornDriver:
+  tolerations:
+    - key: node-role.kubernetes.io/control-plane
+      operator: Exists
+      effect: NoSchedule
+    - key: node-role.kubernetes.io/etcd
+      operator: Exists
+      effect: NoExecute
+
+longhornUI:
+  tolerations:
+    - key: node-role.kubernetes.io/control-plane
+      operator: Exists
+      effect: NoSchedule
+
+# ── 资源限制（根据节点资源调整） ──
+longhornManager:
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+# ── Ingress（可选） ──
+ingress:
+  enabled: false
+  # host: longhorn.example.com
+  # tls: true
+  # tlsSecret: longhorn-tls
+
+# ── 监控集成（可选，需 Prometheus Operator） ──
+metrics:
+  serviceMonitor:
+    enabled: false
+
+# ── 全局镜像拉取策略 ──
+imagePullPolicy: IfNotPresent
