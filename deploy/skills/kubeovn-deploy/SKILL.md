@@ -11,15 +11,16 @@ description: 部署 Kube-OVN CNI 插件到 K8s 集群。当用户提到"部署 k
 
 - K8s 集群已部署（节点处于 NotReady 状态）
 - kubeconfig 可用（`~/.kube/config`）
-- kube-vip 或其他 VIP 已部署（可选，但推荐）
+- **kube-vip 已部署（推荐）** — 确保 API Server VIP 稳定
 
 ## 执行流程
 
 ### Step 0: 环境检查
 
-检查 helm 和集群状态：
-
 ```bash
+# 加载共享配置
+source deploy/env-config.sh
+
 # 检查 helm
 if ! command -v helm &>/dev/null; then
   echo "安装 helm..."
@@ -32,13 +33,21 @@ kubectl get nodes -o wide
 echo ""
 echo "CoreDNS 状态:"
 kubectl get pods -n kube-system -l k8s-app=kube-dns
+
+# 验证 Service CIDR 一致性
+echo ""
+echo "网段配置:"
+echo "  K8s Service CIDR: ${SVC_CIDR}（来自 env-config.sh）"
+echo "  Kube-OVN values:  $(grep SVC_CIDR deploy/kube-ovn/chart/values.yaml | head -1)"
 ```
 
 **预期状态**：
 - 节点：NotReady（正常，等待 CNI）
 - CoreDNS：Pending（正常，等待 CNI）
 
-### Step 1: 检查集群状态
+> ⚠️ **网段冲突检查**：确认 Pod CIDR（默认 `10.16.0.0/16`）和 Join CIDR（默认 `100.64.0.0/16`）不与节点物理网络重叠。如有冲突需修改 `deploy/kube-ovn/chart/values.yaml` 中的 `ipv4.POD_CIDR` 和 `ipv4.JOIN_CIDR`。
+
+### Step 1: 确认集群状态
 
 ```bash
 # 确认节点处于 NotReady 状态（正常，等待 CNI）
@@ -56,7 +65,7 @@ bash deploy/kube-ovn/deploy.sh
 
 部署脚本会：
 1. 给 master 节点打 `kube-ovn/role=master` 标签
-2. 使用本地 Helm chart 安装 Kube-OVN
+2. 使用本地 Helm chart + values.yaml 安装 Kube-OVN
 3. 等待所有组件就绪（约 3-5 分钟）
 
 ### Step 3: 验证部署
@@ -87,19 +96,19 @@ kubectl exec -n kube-system -c ovn-central ovn-central-0 -- ovn-nbctl show
 - **kube-ovn-controller**：K8s 控制器，处理 CRD 和 IP 分配
 - **kube-ovn-cni**：CNI 插件，负责 Pod 网络配置
 
-### 默认配置
+### 网段配置（与 env-config.sh 统一管理）
 
-| 配置项 | 值 |
-|--------|-----|
-| OVN Central 模式 | cluster（3 节点 raft HA） |
-| Pod 网段 | 10.16.0.0/16 |
-| Pod 网关 | 10.16.0.1 |
-| Service 网段 | 10.96.0.0/12 |
-| Join 网段 | 100.64.0.0/16 |
-| 网络类型 | geneve |
-| 负载均衡 | 启用 |
-| 网络策略 | 启用 |
-| NAT 网关 | 启用 |
+| 配置项 | 值 | 配置来源 |
+|--------|-----|---------|
+| Pod CIDR | 10.16.0.0/16 | `deploy/kube-ovn/chart/values.yaml` + `env-config.sh` |
+| Service CIDR | 10.96.0.0/12 | `values.yaml` + KubeKey 默认值（须一致） |
+| Join CIDR | 100.64.0.0/16 | `values.yaml` + `env-config.sh` |
+
+> ⚠️ Service CIDR 在 KubeKey config.yaml（隐式 K8s 默认值）和 Kube-OVN values.yaml 两处配置。修改时**必须同步更新两处**。建议通过 `deploy/env-config.sh` 统一管理。
+
+### 离线部署
+
+Kube-OVN 的 Helm chart 已本地存在于 `deploy/kube-ovn/chart/`，无需下载。但容器镜像仍需从 `docker.io/kubeovn` 拉取，离线环境需提前导入镜像。
 
 ## 部署文件说明
 
@@ -108,6 +117,7 @@ kubectl exec -n kube-system -c ovn-central ovn-central-0 -- ovn-nbctl show
 | `deploy/kube-ovn/deploy.sh` | 部署脚本 |
 | `deploy/kube-ovn/values.yaml` | Helm values 配置 |
 | `deploy/kube-ovn/chart/` | 本地 Helm chart（v1.17.0） |
+| `deploy/env-config.sh` | 共享网段配置 |
 
 ## 常见问题
 
@@ -117,10 +127,7 @@ kubectl exec -n kube-system -c ovn-central ovn-central-0 -- ovn-nbctl show
 
 **解决**：
 ```bash
-# 检查 OVN Central 日志
 kubectl logs -n kube-system -l app=ovn-central
-
-# 检查 kube-ovn-controller 日志
 kubectl logs -n kube-system -l app=kube-ovn-controller
 ```
 
@@ -130,10 +137,7 @@ kubectl logs -n kube-system -l app=kube-ovn-controller
 
 **解决**：
 ```bash
-# 检查子网状态
 kubectl get subnet
-
-# 检查 IP 地址池
 kubectl get ip
 ```
 
@@ -143,11 +147,20 @@ kubectl get ip
 
 **解决**：
 ```bash
-# 检查网络策略
 kubectl get networkpolicy
-
-# 检查 OVN 路由
 kubectl exec -n kube-system -c ovn-central ovn-central-0 -- ovn-nbctl lr-route-list
+```
+
+### 4. Service CIDR 不一致导致 DNS 异常
+
+**原因**：kubekey config.yaml 的 Service CIDR 与 Kube-OVN values.yaml 不一致。
+
+**解决**：
+```bash
+# 检查 K8s apiserver 的 service-cluster-ip-range
+ps aux | grep kube-apiserver | grep service-cluster-ip-range
+# 与 Kube-OVN values.yaml 中的 SVC_CIDR 比对
+grep SVC_CIDR deploy/kube-ovn/chart/values.yaml
 ```
 
 ## 后续步骤
