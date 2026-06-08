@@ -8,7 +8,15 @@
 #   - helm 命令可用
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+
 echo "=== Longhorn 分布式存储部署 ==="
+
+# 加载共享配置
+if [ -f "${PROJECT_DIR}/deploy/env-config.sh" ]; then
+  source "${PROJECT_DIR}/deploy/env-config.sh"
+fi
 
 # 1. 检查前置依赖
 echo "[1/4] 检查前置依赖..."
@@ -23,13 +31,25 @@ echo "[2/4] 添加 Longhorn Helm 仓库..."
 helm repo add longhorn https://charts.longhorn.io 2>/dev/null || true
 helm repo update
 
-# 3. 部署 Longhorn
+# 3. 部署 Longhorn（使用自定义 values）
 echo "[3/4] 执行 helm install..."
-helm install longhorn longhorn/longhorn \
-  -n longhorn-system \
-  --create-namespace \
-  --wait \
-  --timeout 10m
+VALUES_FILE="${SCRIPT_DIR}/values.yaml"
+if [ -f "$VALUES_FILE" ]; then
+  echo "    使用自定义 values: ${VALUES_FILE}"
+  helm install longhorn longhorn/longhorn \
+    -n longhorn-system \
+    --create-namespace \
+    -f "$VALUES_FILE" \
+    --wait \
+    --timeout 10m
+else
+  echo "    警告: 未找到 ${VALUES_FILE}，使用默认配置"
+  helm install longhorn longhorn/longhorn \
+    -n longhorn-system \
+    --create-namespace \
+    --wait \
+    --timeout 10m
+fi
 
 # 4. 验证
 echo "[4/4] 验证部署状态..."
@@ -41,6 +61,6 @@ echo "--- Longhorn Pods ---"
 kubectl get pods -n longhorn-system -o wide
 echo ""
 echo "--- 节点状态 ---"
-kubectl get nodes -o wide
+kubectl get nodes.longhorn.io -n longhorn-system 2>/dev/null || true
 echo ""
 echo "=== 部署完成 ==="

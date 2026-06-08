@@ -18,9 +18,10 @@ description: 部署 Longhorn 分布式存储到 K8s 集群。当用户提到"部
 
 ### Step 0: 环境检查
 
-检查 helm、kubectl 和集群状态：
-
 ```bash
+# 加载共享配置（设置 ANSIBLE_USER 等变量）
+source deploy/env-config.sh
+
 # 检查 helm
 if ! command -v helm &>/dev/null; then
   echo "安装 helm..."
@@ -45,8 +46,10 @@ kubectl get nodes -o wide
 Longhorn 依赖 `open-iscsi`，在每个节点上检查并安装：
 
 ```bash
-# 方式一：Ansible 批量安装（推荐，需要 deploy/hosts 文件）
-ansible -i deploy/hosts all -m shell -a "apt-get install -y open-iscsi && systemctl enable --now iscsid" -u zcq --become
+source deploy/env-config.sh
+
+# 方式一：Ansible 批量安装（推荐）
+ansible -i deploy/hosts all -m shell -a "apt-get install -y open-iscsi && systemctl enable --now iscsid" --become
 
 # 方式二：手动在每个节点执行
 sudo apt-get install -y open-iscsi
@@ -55,29 +58,47 @@ sudo systemctl enable --now iscsid
 
 验证安装：
 ```bash
-ansible -i deploy/hosts all -m shell -a "dpkg -l | grep open-iscsi && systemctl is-active iscsid && lsmod | grep iscsi_tcp" -u zcq
+ansible -i deploy/hosts all -m shell -a "dpkg -l | grep open-iscsi && systemctl is-active iscsid && lsmod | grep iscsi_tcp"
 ```
 
 ### Step 2: 配置专用存储盘（推荐）
 
-Longhorn 默认使用根分区 `/var/lib/longhorn/`。生产环境建议添加专用磁盘：
+Longhorn 默认使用根分区 `/var/lib/longhorn/`。生产环境建议添加专用磁盘。
+
+> ⚠️ **警告**：以下操作会**格式化指定磁盘**，磁盘上的所有数据将丢失！执行前请确认磁盘正确且无重要数据。
 
 ```bash
+source deploy/env-config.sh
+DISK="${LONGHORN_DISK:-/dev/sdb}"
+
 # 1. 扫描新磁盘（热添加后需要）
-ansible -i deploy/hosts all -m shell -a "for host in /sys/class/scsi_host/host*/scan; do echo '- - -' > \$host; done" -u zcq --become
+ansible -i deploy/hosts all -m shell -a "for host in /sys/class/scsi_host/host*/scan; do echo '- - -' > \$host; done" --become
 
-# 2. 检查磁盘
-ansible -i deploy/hosts all -m shell -a "lsblk -d -o NAME,SIZE,TYPE,MOUNTPOINT" -u zcq
+# 2. 检查磁盘（确认目标磁盘存在且未被挂载）
+ansible -i deploy/hosts all -m shell -a "lsblk -d -o NAME,SIZE,TYPE,MOUNTPOINT | grep -E 'sdb|nvme'" --become
 
-# 3. 格式化磁盘（以 /dev/sdb 为例）
-ansible -i deploy/hosts all -m shell -a "mkfs.ext4 /dev/sdb" -u zcq --become
+# 3. ⚠️ 格式化磁盘（会清除所有数据，请二次确认！）
+read -rp "确认格式化所有节点的 ${DISK}? [y/N] " CONFIRM
+if [[ "$CONFIRM" =~ ^[Yy]$ ]]; then
+  ansible -i deploy/hosts all -m shell -a "mkfs.ext4 ${DISK}" --become
+else
+  echo "跳过格式化"
+  exit 0
+fi
 
 # 4. 挂载到 Longhorn 目录
-ansible -i deploy/hosts all -m shell -a "mkdir -p /var/lib/longhorn && mount /dev/sdb /var/lib/longhorn" -u zcq --become
+ansible -i deploy/hosts all -m shell -a "mkdir -p /var/lib/longhorn && mount ${DISK} /var/lib/longhorn" --become
 
-# 5. 持久化挂载（写入 /etc/fstab）
-ansible -i deploy/hosts all -m shell -a "echo '/dev/sdb /var/lib/longhorn ext4 defaults,noatime 0 2' >> /etc/fstab" -u zcq --become
+# 5. 持久化挂载（幂等写入 fstab）
+ansible -i deploy/hosts all -m shell -a "
+  grep -q '${DISK}' /etc/fstab || echo '${DISK} /var/lib/longhorn ext4 defaults,noatime,nofail 0 2' >> /etc/fstab
+" --become
 ```
+
+**安全性说明**：
+- `nofail` 选项：如果磁盘故障，节点仍可正常启动（不会卡在挂载等待）
+- 幂等检查：`grep -q` 确保 fstab 不会出现重复条目
+- 格式化前有交互确认，防止误操作
 
 ### Step 3: 部署 Longhorn
 
@@ -88,12 +109,14 @@ bash deploy/longhorn/deploy.sh
 部署脚本会：
 1. 检查 iscsid 服务状态
 2. 添加 Longhorn Helm 仓库
-3. 执行 `helm install`（约 2-5 分钟）
+3. 使用 `deploy/longhorn/values.yaml` 自定义配置执行 `helm install`
 4. 验证部署状态
 
 ### Step 4: 验证部署
 
 ```bash
+source deploy/env-config.sh
+
 # 1. 检查 Pod 状态（所有 Pod 应为 Running）
 kubectl get pods -n longhorn-system -o wide
 
@@ -104,7 +127,7 @@ kubectl get nodes.longhorn.io -n longhorn-system
 kubectl get sc
 
 # 4. 验证存储盘挂载
-ansible -i deploy/hosts all -m shell -a "df -Th /var/lib/longhorn" -u zcq
+ansible -i deploy/hosts all -m shell -a "df -Th /var/lib/longhorn"
 
 # 5. 检查存储容量
 kubectl get nodes.longhorn.io -n longhorn-system -o yaml | grep -E "storageAvailable:|storageMaximum:"
@@ -159,6 +182,15 @@ kubectl delete pod test-longhorn-pod
 kubectl delete pvc test-longhorn-pvc
 ```
 
+## 部署文件说明
+
+| 文件 | 说明 |
+|------|------|
+| `deploy/longhorn/deploy.sh` | Longhorn 部署脚本（自动引用 values.yaml） |
+| `deploy/longhorn/values.yaml` | 自定义 Helm values（副本数、资源限制等） |
+| `deploy/hosts` | Ansible 节点清单（批量配置用） |
+| `deploy/env-config.sh` | 共享环境配置（用户名、磁盘路径等） |
+
 ## 常见问题
 
 ### 1. Pod 卡在 ContainerCreating
@@ -167,11 +199,9 @@ kubectl delete pvc test-longhorn-pvc
 
 **解决**：
 ```bash
-# 检查事件
+source deploy/env-config.sh
 kubectl describe pod <pod-name> -n longhorn-system
-
-# 检查 iscsi
-ansible -i deploy/hosts all -m shell -a "systemctl status iscsid" -u zcq
+ansible -i deploy/hosts all -m shell -a "systemctl status iscsid"
 ```
 
 ### 2. 存储容量显示为 0
@@ -180,10 +210,7 @@ ansible -i deploy/hosts all -m shell -a "systemctl status iscsid" -u zcq
 
 **解决**：
 ```bash
-# 重启 Longhorn Manager
 kubectl delete pod -n longhorn-system -l app=longhorn-manager
-
-# 等待 30 秒后重新检查
 sleep 30
 kubectl get nodes.longhorn.io -n longhorn-system -o yaml | grep storageAvailable
 ```
@@ -197,13 +224,6 @@ kubectl get nodes.longhorn.io -n longhorn-system -o yaml | grep storageAvailable
 kubectl patch settings.longhorn.io -n longhorn-system deleting-confirmation-flag --type=merge -p '{"value": "true"}'
 helm uninstall longhorn -n longhorn-system
 ```
-
-## 部署文件说明
-
-| 文件 | 说明 |
-|------|------|
-| `deploy/longhorn/deploy.sh` | Longhorn 部署脚本 |
-| `deploy/hosts` | Ansible 节点清单（批量配置用） |
 
 ## 后续步骤
 
