@@ -1,0 +1,93 @@
+#!/bin/bash
+set -euo pipefail
+
+# 离线容器镜像加载脚本
+# [部署时] 将 OCI 格式镜像导入到 containerd 的 k8s.io 命名空间
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# 离线资源路径
+OFFLINE_BASE="${OFFLINE_BASE:-/cdrom/offline}"
+OFFLINE_IMAGES="${OFFLINE_IMAGES:-${OFFLINE_BASE}/images}"
+
+# 日志文件
+LOG_DIR="/var/log/vdi-deploy"
+mkdir -p "$LOG_DIR"
+LOG_FILE="${LOG_DIR}/images.log"
+
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOG_FILE"
+}
+
+# 导入指定组件的镜像
+load_component_images() {
+    local component=$1
+    local comp_dir="${OFFLINE_IMAGES}/${component}"
+
+    if [ ! -d "$comp_dir" ]; then
+        log "[WARN] 镜像目录不存在: ${comp_dir}"
+        return 0
+    fi
+
+    log "导入组件镜像: ${component}"
+
+    # 遍历 OCI 目录，使用 ctr 导入
+    for oci_dir in "$comp_dir"/*/; do
+        [ ! -d "$oci_dir" ] && continue
+
+        if [ -f "${oci_dir}/manifest.json" ]; then
+            # OCI 目录格式 → ctr images import
+            local oci_name
+            oci_name=$(basename "$oci_dir")
+
+            # 尝试从 oci-index 读取原始镜像名
+            local image_name=""
+            if command -v skopeo &>/dev/null; then
+                image_name=$(skopeo inspect "oci:${oci_dir}" 2>/dev/null | \
+                    jq -r '.Docker.reference.digest // ""' 2>/dev/null || true)
+            fi
+
+            log "  导入: ${oci_name}"
+            if ctr -n k8s.io images import "${oci_dir}" 2>/dev/null; then
+                log "  [OK] ${oci_name}"
+            elif command -v skopeo &>/dev/null; then
+                # 回退到 skopeo copy
+                skopeo copy "oci:${oci_dir}" "containers-storage:${oci_name}" 2>/dev/null && \
+                    log "  [OK] ${oci_name} (via skopeo)" || \
+                    log "  [FAIL] ${oci_name}"
+            else
+                log "  [FAIL] ${oci_name}"
+            fi
+        fi
+    done
+
+    log "组件 ${component} 镜像导入完成"
+}
+
+# 导入全部组件镜像
+load_all_images() {
+    log "导入全部离线镜像..."
+
+    for comp_dir in "${OFFLINE_IMAGES}"/*/; do
+        [ ! -d "$comp_dir" ] && continue
+        local component
+        component=$(basename "$comp_dir")
+        load_component_images "$component"
+    done
+
+    log "全部镜像导入完成"
+    # 显示已导入的镜像
+    ctr -n k8s.io images ls 2>/dev/null | head -20 | tee -a "$LOG_FILE"
+}
+
+# 主入口
+COMPONENT="${1:-all}"
+
+case "$COMPONENT" in
+    all)
+        load_all_images
+        ;;
+    *)
+        load_component_images "$COMPONENT"
+        ;;
+esac

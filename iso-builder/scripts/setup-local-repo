@@ -1,0 +1,35 @@
+#!/bin/bash
+set -euo pipefail
+
+# 配置本地 APT 仓库
+# [部署时] 将 ISO 中的 deb 包配置为本地 APT 源
+
+OFFLINE_BASE="${OFFLINE_BASE:-/cdrom/offline}"
+OFFLINE_PACKAGES="${OFFLINE_PACKAGES:-${OFFLINE_BASE}/packages/deb}"
+
+DEB_DIR="${OFFLINE_PACKAGES}"
+
+if [ ! -d "$DEB_DIR" ]; then
+    echo "[WARN] 离线 deb 包目录不存在: ${DEB_DIR}"
+    exit 0
+fi
+
+echo "配置本地 APT 仓库..."
+
+# 生成 Packages 索引（如果不存在）
+if [ ! -f "${DEB_DIR}/Packages.gz" ]; then
+    cd "$DEB_DIR"
+    dpkg-scanpackages . /dev/null 2>/dev/null | gzip -9c > Packages.gz
+fi
+
+# 写入 APT 源配置
+cat > /etc/apt/sources.list.d/vdi-offline.list <<EOF
+deb [trusted=yes] file://${DEB_DIR} ./
+EOF
+
+# 更新索引
+apt-get update -o Dir::Etc::sourcelist="/etc/apt/sources.list.d/vdi-offline.list" \
+    -o Dir::Etc::sourceparts="-" -o APT::Get::List-Cleanup="0"
+
+echo "[OK] 本地 APT 仓库已配置"
+echo "  源: file://${DEB_DIR}"
