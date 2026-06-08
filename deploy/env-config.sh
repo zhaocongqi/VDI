@@ -43,6 +43,29 @@ NTP_SERVER="${NTP_SERVER:-ntp.aliyun.com}"
 # ── Ansible 清单文件 ──
 ANSIBLE_HOSTS_FILE="${ANSIBLE_HOSTS_FILE:-deploy/hosts}"
 
+# ── 离线环境变量（ISO 模式自动设置）──
+# 当检测到 ISO 挂载点时，自动配置离线资源路径。
+# 在线部署模式下这些变量为空，不影响原有行为。
+if [ -z "${OFFLINE_BASE:-}" ]; then
+    if [ -d /cdrom/offline ]; then
+        export OFFLINE_BASE="/cdrom/offline"
+    elif [ -d /mnt/iso/offline ]; then
+        export OFFLINE_BASE="/mnt/iso/offline"
+    fi
+fi
+
+if [ -n "${OFFLINE_BASE:-}" ]; then
+    export OFFLINE_BINARIES="${OFFLINE_BASE}/binaries"
+    export OFFLINE_IMAGES="${OFFLINE_BASE}/images"
+    export OFFLINE_CHARTS="${OFFLINE_BASE}/charts"
+    export OFFLINE_MANIFESTS="${OFFLINE_BASE}/k8s-manifests"
+    export OFFLINE_PACKAGES="${OFFLINE_BASE}/packages/deb"
+
+    # 将离线工具加入 PATH
+    export PATH="${OFFLINE_BINARIES}:${PATH}"
+fi
+
+# ── 输出配置摘要 ──
 echo "[env-config] 配置已加载"
 echo "  ANSIBLE_USER    = ${ANSIBLE_USER}"
 echo "  K8S_VERSION     = ${K8S_VERSION}"
@@ -51,3 +74,6 @@ echo "  POD_CIDR        = ${POD_CIDR}"
 echo "  VIP             = ${VIP}"
 echo "  LONGHORN_DISK   = ${LONGHORN_DISK}"
 echo "  KUBEVIRT_VERSION= ${KUBEVIRT_VERSION}"
+if [ -n "${OFFLINE_BASE:-}" ]; then
+    echo "  OFFLINE_BASE    = ${OFFLINE_BASE} [离线模式]"
+fi

@@ -79,7 +79,12 @@ kubectl create namespace ${NAMESPACE} --dry-run=client -o yaml | kubectl apply -
 
 # 3. 部署 KubeVirt Operator
 echo "[3/5] 部署 KubeVirt Operator..."
-kubectl apply -f "https://github.com/kubevirt/kubevirt/releases/download/${VERSION}/kubevirt-operator.yaml"
+if [ -n "${OFFLINE_MANIFESTS:-}" ] && [ -f "${OFFLINE_MANIFESTS}/kubevirt-operator.yaml" ]; then
+  echo "    [离线] 使用本地 manifest"
+  kubectl apply -f "${OFFLINE_MANIFESTS}/kubevirt-operator.yaml"
+else
+  kubectl apply -f "https://github.com/kubevirt/kubevirt/releases/download/${VERSION}/kubevirt-operator.yaml"
+fi
 
 # 4. 等待 Operator 就绪
 echo "[4/5] 等待 Operator 就绪..."
@@ -87,7 +92,12 @@ kubectl wait --for=condition=Available deployment/virt-operator -n ${NAMESPACE} 
 
 # 5. 部署 KubeVirt CR
 echo "[5/5] 部署 KubeVirt CR..."
-kubectl apply -f "https://github.com/kubevirt/kubevirt/releases/download/${VERSION}/kubevirt-cr.yaml"
+if [ -n "${OFFLINE_MANIFESTS:-}" ] && [ -f "${OFFLINE_MANIFESTS}/kubevirt-cr.yaml" ]; then
+  echo "    [离线] 使用本地 manifest"
+  kubectl apply -f "${OFFLINE_MANIFESTS}/kubevirt-cr.yaml"
+else
+  kubectl apply -f "https://github.com/kubevirt/kubevirt/releases/download/${VERSION}/kubevirt-cr.yaml"
+fi
 
 echo ""
 echo "=== 等待 KubeVirt 组件就绪 ==="
