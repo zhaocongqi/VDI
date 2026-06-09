@@ -104,7 +104,7 @@ if [ -n "${{OFFLINE_BASE:-}}" ]; then
     export PATH="${{OFFLINE_BINARIES}}:${{PATH}}"
 fi
 
-echo "[env-config] 配置已加载"
+echo "[env-config] loaded"
 """
         path = os.path.join(self.output_dir, "env-config.sh")
         with open(path, "w") as f:
@@ -221,7 +221,7 @@ PROMPT 0
 TIMEOUT 30
 
 LABEL install
-    MENU LABEL ^安装 VDI Worker
+    MENU LABEL ^Install VDI Worker
     KERNEL /vmlinuz
     APPEND initrd=/initrd boot=casper auto=true url=http://{node_ip}:8080/preseed.cfg ---
 """

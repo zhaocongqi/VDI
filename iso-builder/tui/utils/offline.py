@@ -62,7 +62,7 @@ class OfflineManager:
 
         checksum_file = os.path.join(self.base_dir, "checksums.sha256")
         if not os.path.exists(checksum_file):
-            logger.warning("checksums.sha256 不存在，跳过校验")
+            logger.warning("checksums.sha256 not found, skipping verification")
             return True
 
         try:
@@ -75,10 +75,10 @@ class OfflineManager:
                 logger.info("离线资源校验通过")
                 return True
             else:
-                logger.error(f"校验失败: {result.stderr}")
+                logger.error(f"Verification failed: {result.stderr}")
                 return False
         except Exception as e:
-            logger.error(f"校验异常: {e}")
+            logger.error(f"Verification exception: {e}")
             return False
 
     def load_images(self, component="all"):
@@ -93,7 +93,7 @@ class OfflineManager:
                 logger.info(f"镜像导入完成: {component}")
                 return True
             except subprocess.CalledProcessError as e:
-                logger.error(f"镜像导入失败: {e.stderr}")
+                logger.error(f"Image import failed: {e.stderr}")
                 return False
         return False
 
@@ -109,7 +109,7 @@ class OfflineManager:
                 logger.info("本地 APT 仓库配置完成")
                 return True
             except subprocess.CalledProcessError as e:
-                logger.error(f"APT 仓库配置失败: {e.stderr}")
+                logger.error(f"APT repo setup failed: {e.stderr}")
                 return False
         return False
 
@@ -124,5 +124,5 @@ class OfflineManager:
             with open(manifest_path, "r") as f:
                 return yaml.safe_load(f)
         except Exception as e:
-            logger.error(f"读取 manifest 失败: {e}")
+            logger.error(f"Failed to read manifest: {e}")
             return None
