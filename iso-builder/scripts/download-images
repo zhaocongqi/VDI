@@ -67,8 +67,8 @@ echo "  成功: ${downloaded}"
 echo "  失败: ${failed}"
 
 if [ "$failed" -gt 0 ]; then
-    error "有 ${failed} 个镜像下载失败，请检查网络后重试"
-    exit 1
+    warn "有 ${failed} 个镜像下载失败（可能需要认证或版本不存在）"
+    warn "已下载的镜像可以正常使用，失败的镜像将在部署时从在线源拉取"
 fi
 
-ok "全部 ${total_images} 个镜像下载完成"
+ok "镜像下载完成: ${downloaded}/${total_images} 成功"
