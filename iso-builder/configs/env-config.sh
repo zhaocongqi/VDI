@@ -49,7 +49,7 @@ if [ -n "${OFFLINE_BASE:-}" ]; then
     # 将离线工具加入 PATH
     export PATH="${OFFLINE_BINARIES}:${PATH}"
 
-    echo "[离线模式] 资源路径: ${OFFLINE_BASE}"
+    echo "[Offline] Resource path: ${OFFLINE_BASE}"
 fi
 
 # ========== Ansible 清单 ==========

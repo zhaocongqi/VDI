@@ -82,12 +82,12 @@ PROMPT 0
 TIMEOUT 30
 
 LABEL install
-    MENU LABEL ^安装 VDI 集群
+    MENU LABEL ^Install VDI Cluster
     KERNEL /casper/vmlinuz
     APPEND initrd=/casper/initrd boot=casper quiet splash ---
 
 LABEL shell
-    MENU LABEL ^进入 Live Shell
+    MENU LABEL ^Live Shell
     KERNEL /casper/vmlinuz
     APPEND initrd=/casper/initrd boot=casper text ---
 EOF
@@ -102,17 +102,17 @@ set timeout=30
 set color_normal=white/black
 set color_highlight=black/light-gray
 
-menuentry "安装 VDI 集群" {
+menuentry "Install VDI Cluster" {
     linux /casper/vmlinuz boot=casper quiet splash ---
     initrd /casper/initrd
 }
 
-menuentry "进入 Live Shell" {
+menuentry "Live Shell" {
     linux /casper/vmlinuz boot=casper text ---
     initrd /casper/initrd
 }
 
-menuentry "安装 VDI 集群（安全模式）" {
+menuentry "Install VDI Cluster (Safe Mode)" {
     linux /casper/vmlinuz boot=casper nomodeset text ---
     initrd /casper/initrd
 }
