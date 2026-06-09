@@ -40,7 +40,8 @@ for comp in $COMPONENTS; do
         safe_name=$(echo "$image" | sed 's|[/:]|_|g')
         dest="${comp_dir}/${safe_name}"
 
-        if [ -f "${dest}/manifest.json" ] || [ -f "${dest}.tar" ]; then
+        # OCI 格式使用 index.json，tar 格式使用 manifest.json
+        if [ -f "${dest}/index.json" ] || [ -f "${dest}/manifest.json" ] || [ -f "${dest}.tar" ]; then
             info "已存在: ${image}"
             downloaded=$((downloaded + 1))
             continue
