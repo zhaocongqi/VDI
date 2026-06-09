@@ -14,23 +14,23 @@ class JoinConfigScreen:
 
         返回: dict 或 None（用户取消）
         """
-        wt = Whiptail(title="添加节点配置", height=20, width=60)
+        wt = Whiptail(title="Join Node Configuration", height=20, width=60)
         config = {}
 
         wt.msgbox(
-            "添加节点模式\n\n"
-            "本机将作为 Worker 节点加入已有的 VDI 集群。\n"
-            "请确保 Master 节点已部署完成并可访问。\n\n"
-            "需要以下信息：\n"
-            "  - Master 节点 IP 地址\n"
-            "  - Join Token（在 Master 上执行 kubeadm token create 获取）"
+            "Join Node Mode\n\n"
+            "This node will join an existing VDI cluster as a Worker.\n"
+            "Ensure the Master node is deployed and accessible.\n\n"
+            "Required information:\n"
+            "  - Master node IP address\n"
+            "  - Join Token (run 'kubeadm token create' on Master)"
         )
 
         # Master IP
         while True:
             master_ip = wt.inputbox(
-                "请输入 Master 节点 IP 地址：\n\n"
-                "Master 节点已部署完成，可以通过此 IP 访问。",
+                "Enter Master node IP address:\n\n"
+                "The Master node must be deployed and reachable.",
                 default=""
             )
             if master_ip is None:
@@ -39,11 +39,11 @@ class JoinConfigScreen:
             if valid:
                 config["master_ip"] = master_ip
                 break
-            wt.msgbox(f"IP 地址格式错误: {msg}")
+            wt.msgbox(f"Invalid IP address: {msg}")
 
         # Master SSH 端口
         ssh_port = wt.inputbox(
-            "请输入 Master SSH 端口：",
+            "Enter Master SSH port:",
             default="22"
         )
         if ssh_port is None:
@@ -52,8 +52,8 @@ class JoinConfigScreen:
 
         # Join Token
         token = wt.inputbox(
-            "请输入 Join Token：\n\n"
-            "在 Master 节点上执行以下命令获取：\n"
+            "Enter Join Token:\n\n"
+            "Get it from Master node:\n"
             "  kubeadm token create --print-join-command",
             default=""
         )
@@ -63,10 +63,10 @@ class JoinConfigScreen:
 
         # Join 方式选择
         join_method = wt.radiolist(
-            "请选择 Join 方式：",
+            "Select join method:",
             [
-                ("kk", "使用 KubeKey join（推荐）", "ON"),
-                ("kubeadm", "使用 kubeadm join", "OFF"),
+                ("kk", "KubeKey join (recommended)", "ON"),
+                ("kubeadm", "kubeadm join", "OFF"),
             ]
         )
         if join_method is None:

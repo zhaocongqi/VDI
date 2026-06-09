@@ -18,31 +18,31 @@ class ErrorScreen:
 
         返回: 用户选择（retry/skip/log/exit）
         """
-        wt = Whiptail(title="✗ 部署失败", height=22, width=70)
+        wt = Whiptail(title="Deploy Failed", height=22, width=70)
 
         # 构建错误信息
-        message = f"错误信息: {self.error_message}\n\n"
+        message = f"Error: {self.error_message}\n\n"
 
         # 可能的原因和建议
         if self.solution:
-            message += f"建议操作:\n{self.solution}\n\n"
+            message += f"Suggestion:\n{self.solution}\n\n"
         else:
             message += (
-                "建议操作:\n"
-                "1. 检查网络连接和节点可达性\n"
-                "2. 检查磁盘空间和资源是否充足\n"
-                "3. 查看详细日志获取更多信息\n\n"
+                "Suggested actions:\n"
+                "1. Check network connectivity and node reachability\n"
+                "2. Check disk space and resource availability\n"
+                "3. Check detailed logs for more information\n\n"
             )
 
-        message += f"日志文件: {self.log_file}"
+        message += f"Log File: {self.log_file}"
 
         choice = wt.menu(
             message,
             [
-                ("1", "重试 - 重新执行失败的步骤"),
-                ("2", "跳过 - 跳过此步骤继续"),
-                ("3", "查看日志 - 打开日志文件"),
-                ("4", "退出 - 退出安装器"),
+                ("1", "Retry - Re-run the failed step"),
+                ("2", "Skip - Skip this step and continue"),
+                ("3", "View Log - Open log file"),
+                ("4", "Exit - Quit the installer"),
             ]
         )
 
@@ -58,7 +58,7 @@ class ErrorScreen:
 
     def _show_log(self):
         """显示日志内容"""
-        wt = Whiptail(title="部署日志", height=25, width=80)
+        wt = Whiptail(title="Deploy Log", height=25, width=80)
         try:
             with open(self.log_file, "r") as f:
                 # 读取最后 50 行
@@ -66,4 +66,4 @@ class ErrorScreen:
                 content = "".join(lines[-50:])
             wt.msgbox(content, height=25, width=80)
         except FileNotFoundError:
-            wt.msgbox(f"日志文件不存在: {self.log_file}")
+            wt.msgbox(f"Log file not found: {self.log_file}")
