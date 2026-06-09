@@ -28,7 +28,7 @@ SERVICE="${1:-all}"
 
 # ========== DHCP 服务 (dnsmasq) ==========
 setup_dhcp() {
-    echo ">>> 配置 DHCP 服务 (dnsmasq)"
+    echo ">>> Configuring DHCP (dnsmasq)"
 
     cat > /etc/dnsmasq.d/vdi-pxe.conf <<EOF
 # VDI PXE DHCP/TFTP 配置
@@ -54,12 +54,12 @@ log-queries
 log-facility=${LOG_DIR}/dnsmasq.log
 EOF
 
-    echo "    dnsmasq 配置已生成: /etc/dnsmasq.d/vdi-pxe.conf"
+    echo "    dnsmasq config generated: /etc/dnsmasq.d/vdi-pxe.conf"
 }
 
 # ========== TFTP 服务 ==========
 setup_tftp() {
-    echo ">>> 配置 TFTP 服务"
+    echo ">>> Configuring TFTP"
 
     # 复制 PXE 引导文件
     if [ -d /usr/lib/PXELINUX ]; then
@@ -93,23 +93,23 @@ PROMPT 0
 TIMEOUT 30
 
 LABEL install
-    MENU LABEL ^安装 VDI Worker 节点
+    MENU LABEL ^Install VDI Worker
     KERNEL /vmlinuz
     APPEND initrd=/initrd boot=casper auto=true url=http://${NODE_IP}:8080/preseed.cfg text ---
 
 LABEL shell
-    MENU LABEL ^进入 Live Shell
+    MENU LABEL ^Live Shell
     KERNEL /vmlinuz
     APPEND initrd=/initrd boot=casper text ---
 EOF
 
-    echo "    TFTP 根目录: ${TFTP_ROOT}"
-    echo "    引导文件已配置"
+    echo "    TFTP root: ${TFTP_ROOT}"
+    echo "    Boot files configured"
 }
 
 # ========== HTTP 服务 ==========
 setup_http() {
-    echo ">>> 配置 HTTP 服务"
+    echo ">>> Configuring HTTP"
 
     # 将 ISO 内容通过 HTTP 提供
     if [ -d /cdrom ]; then
@@ -167,7 +167,7 @@ PRESEED
 # Worker 节点安装后自动执行脚本
 set -euo pipefail
 
-echo ">>> Worker 节点安装后初始化"
+echo ">>> Worker post-install init"
 
 # 配置离线环境
 if [ -d /cdrom/offline ]; then
@@ -176,14 +176,14 @@ if [ -d /cdrom/offline ]; then
 fi
 
 # 从 PXE Server 获取 join 命令
-echo ">>> 获取集群加入命令"
+echo ">>> Getting cluster join command"
 JOIN_CMD=$(curl -sf http://WORKER_JOIN_URL/join-command.sh 2>/dev/null || echo "")
 
 if [ -n "$JOIN_CMD" ]; then
-    echo ">>> 执行加入集群"
+    echo ">>> Joining cluster"
     bash -c "$JOIN_CMD"
 else
-    echo ">>> 警告: 无法获取 join 命令，请手动加入集群"
+    echo ">>> Warning: Cannot get join command, join manually"
 fi
 
 # 回报状态
@@ -192,33 +192,33 @@ WORKEREOF
 
     sed -i "s/NODE_IP/${NODE_IP}/g" "${HTTP_ROOT}/worker-setup.sh"
 
-    echo "    HTTP 根目录: ${HTTP_ROOT}"
-    echo "    preseed.cfg 已生成"
+    echo "    HTTP root: ${HTTP_ROOT}"
+    echo "    preseed.cfg generated"
 }
 
 # ========== 启动服务 ==========
 start_services() {
-    echo ">>> 启动 PXE 服务"
+    echo ">>> Starting PXE service"
 
     # 停止已有服务
     systemctl stop dnsmasq 2>/dev/null || true
     pkill -f "python3 -m http.server" 2>/dev/null || true
 
     # 启动 dnsmasq (DHCP + TFTP)
-    echo "    启动 dnsmasq (DHCP + TFTP)..."
+    echo "    Starting dnsmasq (DHCP + TFTP)..."
     dnsmasq --conf-dir=/etc/dnsmasq.d --keep-in-foreground &
     DNSMASQ_PID=$!
     echo "    dnsmasq PID: ${DNSMASQ_PID}"
 
     # 启动 HTTP 服务
-    echo "    启动 HTTP 服务 (端口 8080)..."
+    echo "    Starting HTTP (port 8080)..."
     cd "${HTTP_ROOT}"
     python3 -m http.server 8080 &
     HTTP_PID=$!
     echo "    HTTP PID: ${HTTP_PID}"
 
     # 生成 join 命令
-    echo ">>> 从 Master 获取 Join 命令"
+    echo ">>> Getting join command from master"
     JOIN_COMMAND=""
     if command -v kubectl &>/dev/null; then
         JOIN_COMMAND=$(kubeadm token create --print-join-command 2>/dev/null || echo "")
@@ -228,7 +228,7 @@ start_services() {
         echo "#!/bin/bash" > "${HTTP_ROOT}/join-command.sh"
         echo "$JOIN_COMMAND" >> "${HTTP_ROOT}/join-command.sh"
         chmod +x "${HTTP_ROOT}/join-command.sh"
-        echo "    join-command.sh 已生成"
+        echo "    join-command.sh generated"
     fi
 
     # 保存环境信息
@@ -240,16 +240,16 @@ EOF
 
     echo ""
     echo "============================================"
-    echo "  PXE 服务器已启动"
+    echo "  PXE Server Started"
     echo "============================================"
-    echo "  DHCP 范围: ${DHCP_START} - ${DHCP_END}"
-    echo "  TFTP 目录: ${TFTP_ROOT}"
-    echo "  HTTP 端口: http://${NODE_IP}:8080"
+    echo "  DHCP range: ${DHCP_START} - ${DHCP_END}"
+    echo "  TFTP dir: ${TFTP_ROOT}"
+    echo "  HTTP: http://${NODE_IP}:8080"
     echo "  dnsmasq PID: ${DNSMASQ_PID}"
     echo "  HTTP PID: ${HTTP_PID}"
     echo ""
-    echo "  Worker 节点设置 PXE 网络启动即可自动安装"
-    echo "  日志: ${LOG_DIR}/dnsmasq.log"
+    echo "  Worker nodes: set PXE boot to auto-install"
+    echo "  Log: ${LOG_DIR}/dnsmasq.log"
     echo "============================================"
 
     # 保存 PID 文件
@@ -257,7 +257,7 @@ EOF
     echo "${HTTP_PID}" > "${PXE_ROOT}/http.pid"
 
     # 等待（前台运行）
-    echo ">>> PXE 服务运行中，按 Ctrl+C 停止"
+    echo ">>> PXE service running, press Ctrl+C to stop"
     wait
 }
 
@@ -274,7 +274,7 @@ case "$SERVICE" in
         start_services
         ;;
     *)
-        echo "用法: $0 [dhcp|tftp|http|start|all]"
+        echo "Usage: $0 [dhcp|tftp|http|start|all]"
         exit 1
         ;;
 esac

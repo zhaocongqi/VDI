@@ -8,16 +8,16 @@ OFFLINE_BASE="${OFFLINE_BASE:-/cdrom/offline}"
 CHECKSUM_FILE="${OFFLINE_BASE}/checksums.sha256"
 
 if [ ! -f "$CHECKSUM_FILE" ]; then
-    echo "[WARN] 校验和文件不存在: ${CHECKSUM_FILE}"
+    echo "[WARN] Checksum file not found: ${CHECKSUM_FILE}"
     exit 0
 fi
 
-echo "校验离线资源完整性..."
+echo "Verifying offline resources..."
 
 if sha256sum -c "$CHECKSUM_FILE" --quiet 2>/dev/null; then
-    echo "✓ 离线包验证通过"
+    echo "[OK] Offline pack verified"
     exit 0
 else
-    echo "✗ 离线包损坏，请重新获取 ISO" >&2
+    echo "[FAIL] Offline pack corrupted, re-download ISO" >&2
     exit 1
 fi

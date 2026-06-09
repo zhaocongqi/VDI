@@ -10,11 +10,11 @@ OFFLINE_PACKAGES="${OFFLINE_PACKAGES:-${OFFLINE_BASE}/packages/deb}"
 DEB_DIR="${OFFLINE_PACKAGES}"
 
 if [ ! -d "$DEB_DIR" ]; then
-    echo "[WARN] 离线 deb 包目录不存在: ${DEB_DIR}"
+    echo "[WARN] Offline deb dir not found: ${DEB_DIR}"
     exit 0
 fi
 
-echo "配置本地 APT 仓库..."
+echo "Setting up local APT repo..."
 
 # 生成 Packages 索引（如果不存在）
 if [ ! -f "${DEB_DIR}/Packages.gz" ]; then
@@ -31,5 +31,5 @@ EOF
 apt-get update -o Dir::Etc::sourcelist="/etc/apt/sources.list.d/vdi-offline.list" \
     -o Dir::Etc::sourceparts="-" -o APT::Get::List-Cleanup="0"
 
-echo "[OK] 本地 APT 仓库已配置"
-echo "  源: file://${DEB_DIR}"
+echo "[OK] Local APT repo configured"
+echo "  Source: file://${DEB_DIR}"
