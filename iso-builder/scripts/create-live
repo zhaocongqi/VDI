@@ -111,6 +111,23 @@ for ((i=0; i<TOTAL; i+=BATCH_SIZE)); do
     }
 done
 
+# 确保 initrd 已生成（chroot 环境中可能失败）
+step "确保 initrd 已生成"
+KERNEL_VERSION=$(ls "${ROOTFS}/boot/vmlinuz-"* 2>/dev/null | head -1 | sed 's|.*/vmlinuz-||')
+if [ -n "$KERNEL_VERSION" ]; then
+    if [ ! -f "${ROOTFS}/boot/initrd.img-${KERNEL_VERSION}" ]; then
+        info "生成 initrd.img-${KERNEL_VERSION}..."
+        chroot "$ROOTFS" update-initramfs -c -k "$KERNEL_VERSION" 2>&1 || \
+            warn "initrd 生成失败，ISO 可能无法启动"
+    fi
+    # 验证 initrd 是否存在
+    if [ -f "${ROOTFS}/boot/initrd.img-${KERNEL_VERSION}" ]; then
+        ok "initrd.img-${KERNEL_VERSION} 已就绪"
+    else
+        warn "initrd.img-${KERNEL_VERSION} 不存在"
+    fi
+fi
+
 step "配置 Live 系统"
 
 # 设置主机名
