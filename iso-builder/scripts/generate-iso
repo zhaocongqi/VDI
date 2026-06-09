@@ -22,8 +22,17 @@ mkdir -p "${ISO_ROOT}"/{boot/grub,efi/boot,isolinux,casper,offline,scripts,confi
 step "复制内核和 initrd"
 ROOTFS="${WORKSPACE}/rootfs"
 
-KERNEL=$(ls "${ROOTFS}"/boot/vmlinuz-* 2>/dev/null | head -1)
-INITRD=$(ls "${ROOTFS}"/boot/initrd.img-* 2>/dev/null | head -1)
+# 查找实际内核文件（跳过符号链接）
+KERNEL=$(find "${ROOTFS}/boot" -name "vmlinuz-*" -type f 2>/dev/null | head -1)
+INITRD=$(find "${ROOTFS}/boot" -name "initrd.img-*" -type f 2>/dev/null | head -1)
+
+# 如果 initrd 不存在，尝试生成
+if [ -z "$INITRD" ] && [ -n "$KERNEL" ]; then
+    info "initrd 不存在，尝试在 chroot 中生成..."
+    KERNEL_VERSION=$(basename "$KERNEL" | sed 's/vmlinuz-//')
+    chroot "$ROOTFS" update-initramfs -c -k "$KERNEL_VERSION" 2>/dev/null || true
+    INITRD=$(find "${ROOTFS}/boot" -name "initrd.img-${KERNEL_VERSION}" -type f 2>/dev/null | head -1)
+fi
 
 if [ -n "$KERNEL" ] && [ -n "$INITRD" ]; then
     cp "$KERNEL" "${ISO_ROOT}/casper/vmlinuz"
@@ -31,6 +40,8 @@ if [ -n "$KERNEL" ] && [ -n "$INITRD" ]; then
     ok "内核和 initrd 已复制"
 else
     error "未找到内核文件，请先执行 create-live"
+    error "KERNEL: ${KERNEL:-未找到}"
+    error "INITRD: ${INITRD:-未找到}"
     exit 1
 fi
 
