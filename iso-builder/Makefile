@@ -9,6 +9,9 @@ DIST_DIR ?= dist
 # 构建镜像名称
 BUILDER_IMAGE ?= vdi-iso-builder
 
+# Docker 网络模式（解决桥接网络 DNS 问题）
+DOCKER_NET ?= --network host
+
 # 默认目标：完整构建
 .PHONY: all
 all: iso
@@ -18,12 +21,13 @@ all: iso
 # 构建 Dapper 构建环境镜像
 .PHONY: build-builder
 build-builder:
-	docker build -f Dockerfile.dapper -t $(BUILDER_IMAGE) .
+	docker build $(DOCKER_NET) -f Dockerfile.dapper -t $(BUILDER_IMAGE) .
 
 # 进入构建容器（调试用）
 .PHONY: shell
 shell: build-builder
 	docker run --rm -it \
+		$(DOCKER_NET) \
 		-v $(shell pwd):/workspace \
 		-v /var/run/docker.sock:/var/run/docker.sock \
 		--privileged \
@@ -36,6 +40,7 @@ shell: build-builder
 .PHONY: download
 download: build-builder
 	docker run --rm \
+		$(DOCKER_NET) \
 		-v $(shell pwd):/workspace \
 		$(BUILDER_IMAGE) \
 		bash -c './scripts/download-resources'
@@ -44,6 +49,7 @@ download: build-builder
 .PHONY: download-images
 download-images: build-builder
 	docker run --rm \
+		$(DOCKER_NET) \
 		-v $(shell pwd):/workspace \
 		$(BUILDER_IMAGE) \
 		bash -c './scripts/download-images'
@@ -52,6 +58,7 @@ download-images: build-builder
 .PHONY: download-binaries
 download-binaries: build-builder
 	docker run --rm \
+		$(DOCKER_NET) \
 		-v $(shell pwd):/workspace \
 		$(BUILDER_IMAGE) \
 		bash -c './scripts/download-binaries'
@@ -60,6 +67,7 @@ download-binaries: build-builder
 .PHONY: download-packages
 download-packages: build-builder
 	docker run --rm \
+		$(DOCKER_NET) \
 		-v $(shell pwd):/workspace \
 		$(BUILDER_IMAGE) \
 		bash -c './scripts/download-packages'
@@ -68,6 +76,7 @@ download-packages: build-builder
 .PHONY: download-charts
 download-charts: build-builder
 	docker run --rm \
+		$(DOCKER_NET) \
 		-v $(shell pwd):/workspace \
 		$(BUILDER_IMAGE) \
 		bash -c './scripts/download-charts'
@@ -76,6 +85,7 @@ download-charts: build-builder
 .PHONY: download-manifests
 download-manifests: build-builder
 	docker run --rm \
+		$(DOCKER_NET) \
 		-v $(shell pwd):/workspace \
 		$(BUILDER_IMAGE) \
 		bash -c './scripts/download-manifests'
@@ -87,6 +97,7 @@ download-manifests: build-builder
 iso: build-builder
 	@echo "=== 开始构建 VDI 离线 ISO $(VERSION) ==="
 	docker run --rm \
+		$(DOCKER_NET) \
 		-v $(shell pwd):/workspace \
 		--privileged \
 		--cap-add SYS_ADMIN \
@@ -98,6 +109,7 @@ iso: build-builder
 .PHONY: live-only
 live-only: build-builder
 	docker run --rm \
+		$(DOCKER_NET) \
 		-v $(shell pwd):/workspace \
 		--privileged \
 		--cap-add SYS_ADMIN \
