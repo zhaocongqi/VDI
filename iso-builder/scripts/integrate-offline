@@ -13,6 +13,9 @@ source "${SCRIPT_DIR}/common.sh"
 
 step "集成离线资源到 ISO"
 
+# 确保 ISO 输出目录存在
+mkdir -p "${ISO_ROOT}"/{offline,scripts,configs}
+
 # 步骤 1：复制离线资源
 step "复制离线资源包"
 if [ -d "${WORKSPACE}/offline" ]; then

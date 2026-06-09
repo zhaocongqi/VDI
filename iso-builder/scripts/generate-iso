@@ -45,7 +45,18 @@ else
     exit 1
 fi
 
-# 步骤 2：生成 isolinux 配置（BIOS 启动）
+# 步骤 2：创建 squashfs（必须在 integrate-tui/integrate-offline 之后）
+step "创建 squashfs"
+mkdir -p "${ISO_ROOT}/casper"
+mksquashfs "$ROOTFS" "${ISO_ROOT}/casper/filesystem.squashfs" \
+    -comp xz \
+    -no-progress \
+    -e boot/grub \
+    -e var/cache \
+    -e var/lib/apt/lists
+ok "squashfs 已创建 ($(du -sh "${ISO_ROOT}/casper/filesystem.squashfs" | cut -f1))"
+
+# 步骤 3：生成 isolinux 配置（BIOS 启动）
 step "配置 isolinux (BIOS 启动)"
 ISOLINUX_DIR="${ISO_ROOT}/isolinux"
 
@@ -79,7 +90,7 @@ LABEL shell
     APPEND initrd=/casper/initrd boot=casper text ---
 EOF
 
-# 步骤 3：生成 GRUB 配置（UEFI 启动）
+# 步骤 4：生成 GRUB 配置（UEFI 启动）
 step "配置 GRUB (UEFI 启动)"
 GRUB_DIR="${ISO_ROOT}/boot/grub"
 
@@ -105,7 +116,7 @@ menuentry "安装 VDI 集群（安全模式）" {
 }
 GRUBEOF
 
-# 步骤 4：创建 EFI 分区镜像
+# 步骤 5：创建 EFI 分区镜像
 step "创建 EFI 分区"
 EFI_DIR="${WORKSPACE}/tmp/efi"
 mkdir -p "${EFI_DIR}/EFI/BOOT"
@@ -136,12 +147,12 @@ mcopy -i "${ISO_ROOT}/efi/boot/efiboot.img" \
     "${EFI_DIR}/EFI/BOOT/BOOTX64.EFI" "::EFI/BOOT/BOOTX64.EFI"
 rm -rf "${WORKSPACE}/tmp/efi"
 
-# 步骤 5：创建 .disk/info（ISO 元数据）
+# 步骤 6：创建 .disk/info（ISO 元数据）
 step "写入 ISO 元数据"
 echo "VDI Offline Install ${VERSION} - amd64 ($(date '+%Y-%m-%d %H:%M:%S'))" > "${ISO_ROOT}/.disk/info"
 echo "${ISO_NAME}" > "${ISO_ROOT}/.disk/base_installable"
 
-# 步骤 6：查找 isohdpfx.bin 用于 isohybrid
+# 步骤 7：查找 isohdpfx.bin 用于 isohybrid
 ISOHYBRID_MBR=""
 for path in \
     /usr/lib/ISOLINUX/isohdpfx.bin \
@@ -153,7 +164,7 @@ for path in \
     fi
 done
 
-# 步骤 7：使用 xorriso 打包
+# 步骤 8：使用 xorriso 打包
 step "生成 ISO 镜像"
 mkdir -p "${DIST_DIR}"
 
