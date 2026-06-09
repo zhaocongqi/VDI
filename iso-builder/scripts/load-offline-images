@@ -25,11 +25,11 @@ load_component_images() {
     local comp_dir="${OFFLINE_IMAGES}/${component}"
 
     if [ ! -d "$comp_dir" ]; then
-        log "[WARN] 镜像目录不存在: ${comp_dir}"
+        log "[WARN] Image dir not found: ${comp_dir}"
         return 0
     fi
 
-    log "导入组件镜像: ${component}"
+    log "Importing component images: ${component}"
 
     # 遍历 OCI 目录，使用 ctr 导入
     for oci_dir in "$comp_dir"/*/; do
@@ -47,7 +47,7 @@ load_component_images() {
                     jq -r '.Docker.reference.digest // ""' 2>/dev/null || true)
             fi
 
-            log "  导入: ${oci_name}"
+            log "  Import: ${oci_name}"
             if ctr -n k8s.io images import "${oci_dir}" 2>/dev/null; then
                 log "  [OK] ${oci_name}"
             elif command -v skopeo &>/dev/null; then
@@ -61,12 +61,12 @@ load_component_images() {
         fi
     done
 
-    log "组件 ${component} 镜像导入完成"
+    log "Component ${component} images imported"
 }
 
 # 导入全部组件镜像
 load_all_images() {
-    log "导入全部离线镜像..."
+    log "Importing all offline images..."
 
     for comp_dir in "${OFFLINE_IMAGES}"/*/; do
         [ ! -d "$comp_dir" ] && continue
@@ -75,7 +75,7 @@ load_all_images() {
         load_component_images "$component"
     done
 
-    log "全部镜像导入完成"
+    log "All images imported"
     # 显示已导入的镜像
     ctr -n k8s.io images ls 2>/dev/null | head -20 | tee -a "$LOG_FILE"
 }
