@@ -21,6 +21,7 @@ LIVE_PACKAGES=(
     # 内核与基础系统
     linux-image-generic
     initramfs-tools
+    casper
     systemd
     bash
     # SSH（远程调试）
@@ -187,30 +188,11 @@ ExecStart=/bin/bash -c 'mount /dev/sr0 /cdrom 2>/dev/null || mount -o loop /dev/
 WantedBy=multi-user.target
 EOF
 
-# TUI 安装器自启动服务
-cat > "${ROOTFS}/etc/systemd/system/vdi-installer.service" <<EOF
-[Unit]
-Description=VDI 离线部署 TUI 安装器
-After=network-online.target cdrom-mount.service
-Wants=network-online.target
-
-[Service]
-Type=idle
-ExecStartPre=/bin/sleep 3
-ExecStart=/usr/bin/python3 /opt/vdi/tui/installer.py
-StandardInput=tty
-StandardOutput=tty
-StandardError=tty
-TTYPath=/dev/tty1
-User=root
-
-[Install]
-WantedBy=multi-user.target
-EOF
+# TUI 安装器：通过 autologin 后的 profile 自动启动（避免与 getty TTY 冲突）
+# 不再使用独立的 vdi-installer.service，改为 profile.d 脚本在 tty1 自动登录后直接启动
 
 # 启用服务
 chroot "$ROOTFS" systemctl enable cdrom-mount.service
-chroot "$ROOTFS" systemctl enable vdi-installer.service
 chroot "$ROOTFS" systemctl enable ssh
 
 # tty1 自动登录 root（TUI 需要 root 权限）
@@ -221,20 +203,23 @@ ExecStart=
 ExecStart=-/sbin/agetty --autologin root --noclear tty1 38400 linux
 EOF
 
-# 自动 source 离线环境变量
+# 自动 source 离线环境变量 + TUI 自动启动
 cat > "${ROOTFS}/etc/profile.d/vdi-welcome.sh" <<'WELCOME'
-# VDI Live 系统欢迎信息
+# VDI Live 系统欢迎信息 + TUI 自动启动
 if [ -n "$PS1" ]; then
     echo ""
     echo "============================================"
     echo "  VDI 离线部署 Live 系统"
     echo "============================================"
     echo ""
-    echo "  TUI 安装器将自动启动..."
-    echo "  手动启动: python3 /opt/vdi/tui/installer.py"
     echo "  离线资源: /cdrom/offline/"
     echo "  部署日志: /var/log/vdi-deploy/"
     echo ""
+
+    # 仅在 tty1 且为 root 时自动启动 TUI 安装器
+    if [ "$(tty 2>/dev/null)" = "/dev/tty1" ] && [ "$(id -u)" -eq 0 ]; then
+        exec python3 /opt/vdi/tui/installer.py
+    fi
 fi
 WELCOME
 
@@ -248,14 +233,7 @@ rm -rf "${ROOTFS}/tmp/"*
 ROOTFS_SIZE=$(du -sm "$ROOTFS" | cut -f1)
 info "根文件系统大小: ${ROOTFS_SIZE}MB"
 
-step "创建 squashfs"
-mkdir -p "${ISO_ROOT}/casper"
-mksquashfs "$ROOTFS" "${ISO_ROOT}/casper/filesystem.squashfs" \
-    -comp xz \
-    -no-progress \
-    -e boot/grub \
-    -e var/cache \
-    -e var/lib/apt/lists
+# 预创建 ISO 输出目录（integrate-* 脚本需要）
+mkdir -p "${ISO_ROOT}"
 
-ok "Live 系统创建完成"
-info "squashfs 大小: $(du -sh "${ISO_ROOT}/casper/filesystem.squashfs" | cut -f1)"
+ok "Live 系统根文件系统创建完成"
