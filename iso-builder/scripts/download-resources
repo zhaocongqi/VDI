@@ -21,16 +21,27 @@ echo "  VDI 离线资源下载"
 echo "  清单: $MANIFEST"
 echo "============================================"
 
-# 按顺序执行各下载脚本
+# 按顺序执行各下载脚本（允许部分失败）
+failed_scripts=()
 for script in download-images download-binaries download-packages download-charts download-manifests; do
     if [ -f "${SCRIPT_DIR}/${script}" ]; then
         echo ""
         step "执行 ${script}"
-        "${SCRIPT_DIR}/${script}"
+        if "${SCRIPT_DIR}/${script}"; then
+            ok "${script} 完成"
+        else
+            warn "${script} 部分失败，继续执行"
+            failed_scripts+=("$script")
+        fi
     else
         info "脚本不存在: ${SCRIPT_DIR}/${script}，跳过"
     fi
 done
+
+if [ ${#failed_scripts[@]} -gt 0 ]; then
+    warn "以下脚本有部分失败: ${failed_scripts[*]}"
+    warn "已下载的资源可以正常使用"
+fi
 
 # 生成校验和
 step "生成校验和文件"
