@@ -14,7 +14,7 @@ class NetworkConfigScreen:
 
         返回: dict 或 None（用户取消）
         """
-        wt = Whiptail(title="网络配置", height=20, width=60)
+        wt = Whiptail(title="Network Configuration", height=20, width=60)
         config = {}
 
         # 尝试自动检测当前 IP
@@ -23,8 +23,9 @@ class NetworkConfigScreen:
         # 本机 IP 地址
         while True:
             ip = wt.inputbox(
-                "请输入本机 IP 地址：\n\n"
-                "此 IP 将用于集群节点通信和 API Server 访问。",
+                "Enter this node IP address:\n\n"
+                "This IP will be used for cluster communication\n"
+                "and API Server access.",
                 default=default_ip
             )
             if ip is None:
@@ -33,12 +34,12 @@ class NetworkConfigScreen:
             if valid:
                 config["node_ip"] = ip
                 break
-            wt.msgbox(f"IP 地址格式错误: {msg}\n\n请重新输入。")
+            wt.msgbox(f"Invalid IP address: {msg}\n\nPlease try again.")
 
         # 子网掩码/前缀
         netmask = wt.inputbox(
-            "请输入子网掩码（CIDR 前缀长度）：\n\n"
-            "例如: 24 表示 255.255.255.0",
+            "Enter subnet mask (CIDR prefix length):\n\n"
+            "Example: 24 means 255.255.255.0",
             default="24"
         )
         if netmask is None:
@@ -48,21 +49,21 @@ class NetworkConfigScreen:
         # 网关
         default_gw = self._detect_gateway()
         gateway = wt.inputbox(
-            "请输入网关地址：",
+            "Enter gateway address:",
             default=default_gw
         )
         if gateway is None:
             return None
         valid, msg = validate_ip(gateway)
         if not valid:
-            wt.msgbox(f"网关地址错误: {msg}")
+            wt.msgbox(f"Invalid gateway: {msg}")
             # 允许继续，网关可能在后续配置
         config["gateway"] = gateway
 
         # DNS
         dns = wt.inputbox(
-            "请输入 DNS 服务器地址：\n\n"
-            "离线环境可填写网关地址或内部 DNS。",
+            "Enter DNS server address:\n\n"
+            "In offline mode, use gateway or internal DNS.",
             default=gateway
         )
         if dns is None:
@@ -71,14 +72,14 @@ class NetworkConfigScreen:
 
         # 主机名
         hostname = wt.inputbox(
-            "请输入主机名：",
+            "Enter hostname:",
             default="vdi-node-01"
         )
         if hostname is None:
             return None
         valid, msg = validate_hostname(hostname)
         if not valid:
-            wt.msgbox(f"主机名格式错误: {msg}\n使用默认值 vdi-node-01")
+            wt.msgbox(f"Invalid hostname: {msg}\nUsing default: vdi-node-01")
             hostname = "vdi-node-01"
         config["hostname"] = hostname
 

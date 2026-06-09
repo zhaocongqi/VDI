@@ -5,10 +5,10 @@ from utils.whiptail_wrapper import Whiptail
 logger = logging.getLogger("vdi-installer")
 
 MODE_NAMES = {
-    1: "全新安装（安装 OS + 部署 VDI 集群）",
-    2: "追加部署（在已有 OS 上部署 VDI 集群）",
-    3: "添加节点（Worker 加入已有集群）",
-    4: "PXE 服务（启动 PXE 服务器）",
+    1: "Fresh Install (OS + VDI Cluster)",
+    2: "Append Deploy (VDI Cluster on existing OS)",
+    3: "Join Node (Worker join existing cluster)",
+    4: "PXE Server (Start PXE service)",
 }
 
 
@@ -17,68 +17,68 @@ class ConfirmScreen:
 
     def __init__(self, config):
         self.config = config
-        self.wt = Whiptail(title="配置确认", height=25, width=70)
+        self.wt = Whiptail(title="Confirm Configuration", height=25, width=70)
 
     def show(self):
         """显示配置摘要并请求确认
 
         返回: True=确认, False=取消
         """
-        mode = self.config.get("mode", "未知")
+        mode = self.config.get("mode", "Unknown")
         lines = [
-            f"部署模式: {MODE_NAMES.get(mode, mode)}",
+            f"Deployment Mode: {MODE_NAMES.get(mode, mode)}",
             "",
-            "--- 网络配置 ---",
-            f"  主机名:       {self.config.get('hostname', '-')}",
-            f"  本机 IP:      {self.config.get('node_ip', '-')}/{self.config.get('netmask', '24')}",
-            f"  网关:         {self.config.get('gateway', '-')}",
-            f"  DNS:          {self.config.get('dns', '-')}",
+            "--- Network ---",
+            f"  Hostname:       {self.config.get('hostname', '-')}",
+            f"  Node IP:        {self.config.get('node_ip', '-')}/{self.config.get('netmask', '24')}",
+            f"  Gateway:        {self.config.get('gateway', '-')}",
+            f"  DNS:            {self.config.get('dns', '-')}",
         ]
 
         if mode in (1, 2, 4):
             lines.extend([
                 "",
-                "--- 集群配置 ---",
-                f"  节点角色:     {self.config.get('role', '-')}",
-                f"  VIP:          {self.config.get('vip', '-')}",
-                f"  VIP 接口:     {self.config.get('vip_interface', '-')}",
-                f"  Pod CIDR:     {self.config.get('pod_cidr', '-')}",
-                f"  Service CIDR: {self.config.get('svc_cidr', '-')}",
-                f"  K8s 版本:     {self.config.get('k8s_version', '-')}",
+                "--- Cluster ---",
+                f"  Node Role:      {self.config.get('role', '-')}",
+                f"  VIP:            {self.config.get('vip', '-')}",
+                f"  VIP Interface:  {self.config.get('vip_interface', '-')}",
+                f"  Pod CIDR:       {self.config.get('pod_cidr', '-')}",
+                f"  Service CIDR:   {self.config.get('svc_cidr', '-')}",
+                f"  K8s Version:    {self.config.get('k8s_version', '-')}",
             ])
 
         if mode in (1, 2):
             lines.extend([
                 "",
-                "--- 存储配置 ---",
-                f"  Longhorn 磁盘: {self.config.get('longhorn_disk', '-')}",
-                f"  数据目录:      {self.config.get('longhorn_data_dir', '-')}",
-                f"  副本数:        {self.config.get('longhorn_replicas', '3')}",
+                "--- Storage ---",
+                f"  LH Disk:        {self.config.get('longhorn_disk', '-')}",
+                f"  Data Dir:       {self.config.get('longhorn_data_dir', '-')}",
+                f"  Replicas:       {self.config.get('longhorn_replicas', '3')}",
             ])
 
         if mode == 3:
             lines.extend([
                 "",
-                "--- Join 配置 ---",
-                f"  Master IP:    {self.config.get('master_ip', '-')}",
-                f"  Join 方式:    {self.config.get('join_method', '-')}",
+                "--- Join Config ---",
+                f"  Master IP:      {self.config.get('master_ip', '-')}",
+                f"  Join Method:    {self.config.get('join_method', '-')}",
             ])
 
         if mode == 4:
             lines.extend([
                 "",
-                "--- PXE 配置 ---",
-                f"  DHCP 范围:    {self.config.get('dhcp_start', '-')}-{self.config.get('dhcp_end', '-')}",
-                f"  Worker 数量:  {self.config.get('worker_count', '-')}",
+                "--- PXE Config ---",
+                f"  DHCP Range:     {self.config.get('dhcp_start', '-')}-{self.config.get('dhcp_end', '-')}",
+                f"  Worker Count:   {self.config.get('worker_count', '-')}",
             ])
 
         lines.extend([
             "",
-            "离线资源: " + (
-                "已检测到 (/cdrom/offline)" if self.config.get("offline_available") else "未检测到"
+            "Offline Resources: " + (
+                "Detected (/cdrom/offline)" if self.config.get("offline_available") else "Not detected"
             ),
             "",
-            "确认以上配置无误后，将开始自动部署。",
+            "Confirm the above configuration to start deployment.",
         ])
 
         message = "\n".join(lines)

@@ -13,34 +13,34 @@ logger = logging.getLogger("vdi-installer")
 # 部署步骤定义（按模式）
 DEPLOY_STEPS = {
     1: [  # 全新安装
-        ("系统初始化", "os-init"),
-        ("部署 K8s 集群", "kubekey-deploy-k8s"),
-        ("部署 kube-vip", "kubevip-deploy"),
-        ("部署 Kube-OVN", "kubeovn-deploy"),
-        ("部署 Longhorn", "longhorn-deploy"),
-        ("部署 KubeVirt", "kubevirt-deploy"),
-        ("部署 kagent", "kagent-deploy"),
+        ("System Init", "os-init"),
+        ("Deploy K8s Cluster", "kubekey-deploy-k8s"),
+        ("Deploy kube-vip", "kubevip-deploy"),
+        ("Deploy Kube-OVN", "kubeovn-deploy"),
+        ("Deploy Longhorn", "longhorn-deploy"),
+        ("Deploy KubeVirt", "kubevirt-deploy"),
+        ("Deploy kagent", "kagent-deploy"),
     ],
     2: [  # 追加部署（同模式 1 但跳过 OS 安装）
-        ("系统初始化", "os-init"),
-        ("部署 K8s 集群", "kubekey-deploy-k8s"),
-        ("部署 kube-vip", "kubevip-deploy"),
-        ("部署 Kube-OVN", "kubeovn-deploy"),
-        ("部署 Longhorn", "longhorn-deploy"),
-        ("部署 KubeVirt", "kubevirt-deploy"),
-        ("部署 kagent", "kagent-deploy"),
+        ("System Init", "os-init"),
+        ("Deploy K8s Cluster", "kubekey-deploy-k8s"),
+        ("Deploy kube-vip", "kubevip-deploy"),
+        ("Deploy Kube-OVN", "kubeovn-deploy"),
+        ("Deploy Longhorn", "longhorn-deploy"),
+        ("Deploy KubeVirt", "kubevirt-deploy"),
+        ("Deploy kagent", "kagent-deploy"),
     ],
     3: [  # 添加节点
-        ("加载离线镜像", "load-images"),
-        ("加入集群", "join-cluster"),
-        ("验证节点状态", "verify-join"),
+        ("Load Offline Images", "load-images"),
+        ("Join Cluster", "join-cluster"),
+        ("Verify Node Status", "verify-join"),
     ],
     4: [  # PXE 服务
-        ("获取 Join Token", "get-join-token"),
-        ("配置 DHCP 服务", "setup-dhcp"),
-        ("配置 TFTP 服务", "setup-tftp"),
-        ("配置 HTTP 服务", "setup-http"),
-        ("启动 PXE 服务", "start-pxe"),
+        ("Get Join Token", "get-join-token"),
+        ("Setup DHCP Service", "setup-dhcp"),
+        ("Setup TFTP Service", "setup-tftp"),
+        ("Setup HTTP Service", "setup-http"),
+        ("Start PXE Service", "start-pxe"),
     ],
 }
 
@@ -64,7 +64,7 @@ class ProgressScreen:
         """
         total = len(self.steps)
         if total == 0:
-            logger.warning(f"模式 {mode} 无部署步骤定义")
+            logger.warning(f"No deploy steps defined for mode {mode}")
             return True
 
         # 使用 gauge 进度条显示
@@ -83,22 +83,22 @@ class ProgressScreen:
                 success = deploy_engine.execute_step(step_id, mode, config)
 
                 if not success:
-                    logger.error(f"步骤失败: {step_name}")
+                    logger.error(f"Step failed: {step_name}")
                     self._stop_gauge(gauge_proc)
                     from screens.error import ErrorScreen
                     ErrorScreen(
-                        f"部署失败: {step_name}\n\n"
-                        f"查看日志: {self.log_file}"
+                        f"Deploy failed: {step_name}\n\n"
+                        f"Check log: {self.log_file}"
                     ).show()
                     return False
 
             # 完成
-            self._update_gauge(gauge_proc, 100, "部署完成", total, total)
+            self._update_gauge(gauge_proc, 100, "Deploy Complete", total, total)
             self._stop_gauge(gauge_proc)
             return True
 
         except Exception as e:
-            logger.exception("部署过程异常")
+            logger.exception("Deploy process exception")
             self._stop_gauge(gauge_proc)
             return False
 
@@ -106,9 +106,9 @@ class ProgressScreen:
         """启动 whiptail gauge 进程"""
         proc = subprocess.Popen(
             ["whiptail",
-             "--title", "部署进度",
-             "--backtitle", "VDI 集群离线部署",
-             "--gauge", "正在准备...", "20", "70", "0"],
+             "--title", "Deploy Progress",
+             "--backtitle", "VDI Cluster Offline Deploy",
+             "--gauge", "Preparing...", "20", "70", "0"],
             stdin=subprocess.PIPE,
             text=True
         )
@@ -117,17 +117,17 @@ class ProgressScreen:
     def _update_gauge(self, proc, percent, current_name, step_idx, total):
         """更新 gauge 进度"""
         # 构建进度文本
-        lines = [f"正在执行: {current_name}", ""]
+        lines = [f"Running: {current_name}", ""]
 
         for i, (name, _) in enumerate(self.steps):
             if i < step_idx:
-                lines.append(f"  ✓ {name}")
+                lines.append(f"  [OK] {name}")
             elif i == step_idx:
-                lines.append(f"  ● {name} ...")
+                lines.append(f"  --> {name} ...")
             else:
-                lines.append(f"  ○ {name}")
+                lines.append(f"      {name}")
 
-        lines.extend(["", f"日志: {self.log_file}"])
+        lines.extend(["", f"Log: {self.log_file}"])
 
         # gauge 格式：XXX PERCENT\n 描述文本
         msg = f"XXX\n{percent}\n" + "\n".join(lines) + "\nXXX\n"

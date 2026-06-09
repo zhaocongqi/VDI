@@ -14,22 +14,22 @@ class PXEConfigScreen:
 
         返回: dict 或 None（用户取消）
         """
-        wt = Whiptail(title="PXE 服务配置", height=20, width=60)
+        wt = Whiptail(title="PXE Service Configuration", height=20, width=60)
         config = {}
 
         wt.msgbox(
-            "PXE 网络安装模式\n\n"
-            "本机将配置为 PXE 服务器，提供以下服务：\n"
-            "  - DHCP：为 Worker 节点分配 IP\n"
-            "  - TFTP：提供网络引导文件\n"
-            "  - HTTP：提供 ISO 内容和安装配置\n\n"
-            "Master 节点必须已部署完成。"
+            "PXE Network Install Mode\n\n"
+            "This node will be configured as a PXE server:\n"
+            "  - DHCP: Assign IPs to Worker nodes\n"
+            "  - TFTP: Provide network boot files\n"
+            "  - HTTP: Serve ISO content and install config\n\n"
+            "Master node must be deployed first."
         )
 
         # DHCP 起始 IP
         dhcp_start = wt.inputbox(
-            "请输入 DHCP 分配起始 IP：\n\n"
-            "Worker 节点将从此 IP 开始自动分配。",
+            "Enter DHCP start IP:\n\n"
+            "Worker nodes will get IPs starting from this address.",
             default="192.168.220.200"
         )
         if dhcp_start is None:
@@ -38,8 +38,8 @@ class PXEConfigScreen:
 
         # DHCP 结束 IP
         dhcp_end = wt.inputbox(
-            "请输入 DHCP 分配结束 IP：\n\n"
-            "DHCP 地址池范围。",
+            "Enter DHCP end IP:\n\n"
+            "DHCP address pool range.",
             default="192.168.220.250"
         )
         if dhcp_end is None:
@@ -48,8 +48,8 @@ class PXEConfigScreen:
 
         # 预期 Worker 数量
         worker_count = wt.inputbox(
-            "请输入预期 Worker 节点数量：\n\n"
-            "用于预分配 DHCP 地址和生成配置。",
+            "Enter expected number of Worker nodes:\n\n"
+            "Used to pre-allocate DHCP addresses and generate configs.",
             default="3"
         )
         if worker_count is None:
@@ -58,8 +58,8 @@ class PXEConfigScreen:
 
         # Worker 主机名前缀
         hostname_prefix = wt.inputbox(
-            "请输入 Worker 节点主机名前缀：\n\n"
-            "节点将命名为 vdi-worker-01, vdi-worker-02, ...",
+            "Enter Worker hostname prefix:\n\n"
+            "Nodes will be named: vdi-worker-01, vdi-worker-02, ...",
             default="vdi-worker"
         )
         if hostname_prefix is None:
