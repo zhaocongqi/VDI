@@ -18,6 +18,7 @@
 *~
 .DS_Store
 Thumbs.db
+image.png
 
 # IDE 配置
 .vscode/
