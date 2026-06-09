@@ -127,6 +127,57 @@ verify:
 		echo "checksums.sha256 不存在，请先执行 make download"; \
 	fi
 
+# ========== 测试 ==========
+
+# 使用 QEMU 本地启动 ISO 测试（自动检测图形/VNC 模式）
+.PHONY: test-iso
+test-iso:
+	@if [ ! -f $(DIST_DIR)/$(ISO_NAME).iso ]; then \
+		echo "✗ ISO 不存在，请先执行 make iso"; \
+		exit 1; \
+	fi
+	@echo "=== 启动 QEMU 测试 $(ISO_NAME).iso ==="
+	@if [ -n "$$DISPLAY" ] || [ -n "$$WAYLAND_DISPLAY" ]; then \
+		echo "  模式: 图形窗口 | 内存: 2GB | CPU: 2核"; \
+		echo "  关闭: 直接关闭 QEMU 窗口"; \
+		echo ""; \
+		qemu-system-x86_64 \
+			$$(test -w /dev/kvm && echo -enable-kvm) \
+			-m 2048 -smp 2 \
+			-cdrom $(DIST_DIR)/$(ISO_NAME).iso -boot d \
+			-net nic -net user; \
+	else \
+		echo "  模式: VNC | 内存: 2GB | CPU: 2核"; \
+		echo "  连接: vncviewer localhost:5900"; \
+		echo "  关闭: Ctrl+C 停止 QEMU"; \
+		echo ""; \
+		qemu-system-x86_64 \
+			$$(test -w /dev/kvm && echo -enable-kvm) \
+			-m 2048 -smp 2 \
+			-cdrom $(DIST_DIR)/$(ISO_NAME).iso -boot d \
+			-net nic -net user \
+			-vnc :0; \
+	fi
+
+# 使用 QEMU 启动 ISO 测试（串口控制台模式，无需图形界面）
+.PHONY: test-iso-console
+test-iso-console:
+	@if [ ! -f $(DIST_DIR)/$(ISO_NAME).iso ]; then \
+		echo "✗ ISO 不存在，请先执行 make iso"; \
+		exit 1; \
+	fi
+	@echo "=== 启动 QEMU 串口控制台测试 ==="
+	@echo "  退出: Ctrl+A 然后 X"
+	@echo ""
+	qemu-system-x86_64 \
+		$$(test -w /dev/kvm && echo -enable-kvm) \
+		-m 2048 \
+		-smp 2 \
+		-cdrom $(DIST_DIR)/$(ISO_NAME).iso \
+		-boot d \
+		-nographic \
+		-net nic -net user
+
 # ========== 清理 ==========
 
 # 清理构建产物
@@ -172,6 +223,10 @@ help:
 	@echo "  make verify            校验离线资源完整性"
 	@echo "  make clean             清理构建产物"
 	@echo "  make distclean         清理全部（含下载资源）"
+	@echo ""
+	@echo "ISO 测试（需要 qemu-system-x86）:"
+	@echo "  make test-iso          QEMU 图形模式启动 ISO"
+	@echo "  make test-iso-console  QEMU 串口控制台模式启动 ISO"
 	@echo ""
 	@echo "变量:"
 	@echo "  VERSION=$(VERSION)     ISO 版本号"
