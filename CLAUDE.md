@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目概览
 
-本仓库是一个自研云桌面 (VDI) 平台的全栈技术集合，包含五个独立的 Kubernetes 子项目，每个子项目拥有独立的 Git 仓库。顶层架构文档 `云桌面产品技术架构图.md` 描述了七层技术栈。
+本仓库是一个自研云桌面 (VDI) 平台的全栈技术集合，包含六个独立的 Kubernetes 子项目，每个子项目拥有独立的 Git 仓库。顶层架构文档 `云桌面产品技术架构图.md` 描述了七层技术栈。
 
 **七层架构**：
 - L1 客户端层：Web 客户端、Tauri 原生客户端
@@ -19,15 +19,24 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 | 子项目 | 定位 | 语言 |
 |--------|------|------|
+| `iso-builder/` | VDI 离线 ISO 构建系统（Dapper + TUI + PXE） | Shell, Python |
 | `kagent/` | CNCF：Kubernetes 原生 AI Agent 框架 | Go, Python, TypeScript |
 | `kubekey/` | KubeSphere：K8s 集群生命周期管理工具 | Go |
 | `kube-ovn/` | CNCF Sandbox：基于 OVN 的网络虚拟化 | Go |
 | `kubevirt/` | CNCF：Kubernetes VM 管理插件 | Go |
 | `longhorn/` | CNCF Incubating：分布式块存储 | Go (代码在其他仓库) |
 
-**组件协作关系**：KubeKey 负责集群部署 → Kube-OVN 提供网络层 → Longhorn 提供存储层 → KubeVirt 运行 Windows 桌面 VM → kagent 提供 AI 驱动的监控与自愈能力。
+**组件协作关系**：KubeKey 负责集群部署 → Kube-OVN 提供网络层 → Longhorn 提供存储层 → KubeVirt 运行 Windows 桌面 VM → kagent 提供 AI 驱动的监控与自愈能力。iso-builder 提供离线 ISO 构建能力。
 
 ## 各子项目构建命令速查
+
+### iso-builder (`cd iso-builder`)
+```bash
+make iso               # 完整构建离线 ISO（下载 + 打包）
+make download          # 仅下载离线资源
+make shell             # 进入构建容器调试
+make verify            # 校验离线资源完整性
+```
 
 ### kagent (`cd kagent`)
 ```bash
@@ -115,10 +124,12 @@ deploy/
 - `deploy/env-config.sh` 是所有部署参数的唯一来源，脚本和 skill 统一 `source` 引用
 - `deploy/hosts` 和 `deploy/k8s/inventory.yaml` 含敏感信息，已在 `.gitignore` 排除，仅保留 `.template` 模板
 - kube-vip 使用 static Pod 模式分发到每个控制平面节点，不使用 `kubectl apply`
+- 离线部署：`deploy/env-config.sh` 自动检测 `OFFLINE_BASE`，一套脚本支持在线和离线两种模式
 
 ## 子项目独立 CLAUDE.md
 
 各子项目可能包含自己的 CLAUDE.md 文件，提供更细粒度的开发指南：
+- `iso-builder/CLAUDE.md` — 构建系统、TUI 安装器、PXE 服务、离线资源管理
 - `kagent/CLAUDE.md` — 架构详解、语言约定、测试模式
 - `kube-ovn/CLAUDE.md` — 项目结构、构建命令、编码规范
 
