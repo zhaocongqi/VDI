@@ -23,6 +23,11 @@ ok() {
     echo -e "${GREEN}[OK] $1${NC}"
 }
 
+# 警告
+warn() {
+    echo -e "${YELLOW}[WARN] $1${NC}" >&2
+}
+
 # 错误
 error() {
     echo -e "${RED}[ERROR] $1${NC}" >&2
