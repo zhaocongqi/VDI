@@ -20,6 +20,7 @@ MIRROR="http://archive.ubuntu.com/ubuntu"
 LIVE_PACKAGES=(
     # 内核与基础系统
     linux-image-generic
+    initramfs-tools
     systemd
     bash
     # SSH（远程调试）
