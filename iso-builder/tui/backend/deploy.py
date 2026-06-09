@@ -73,7 +73,7 @@ class DeployEngine:
         # 通用部署步骤
         script_path = self._resolve_script(step_id)
         if not script_path:
-            logger.error(f"未找到脚本: {step_id}")
+            logger.error(f"Script not found: {step_id}")
             return False
 
         return self._run_script(script_path, step_id)
@@ -117,21 +117,21 @@ class DeployEngine:
                 logger.info(f"步骤 {step_id} 执行成功")
                 return True
             else:
-                logger.error(f"步骤 {step_id} 失败 (exit code {result.returncode})")
+                logger.error(f"Step {step_id} failed (exit code {result.returncode})")
                 return False
 
         except subprocess.TimeoutExpired:
-            logger.error(f"步骤 {step_id} 超时")
+            logger.error(f"Step {step_id} timed out")
             return False
         except Exception as e:
-            logger.error(f"步骤 {step_id} 异常: {e}")
+            logger.error(f"Step {step_id} exception: {e}")
             return False
 
     def _load_offline_images(self, mode, config):
         """加载离线容器镜像"""
         script = "/cdrom/scripts/load-offline-images"
         if not os.path.exists(script):
-            logger.warning("离线镜像加载脚本不存在，跳过")
+            logger.warning("Offline image loader not found, skipping")
             return True
 
         component = "all" if mode in (1, 2, 4) else "worker"
@@ -146,7 +146,7 @@ class DeployEngine:
                 )
             return result.returncode == 0
         except Exception as e:
-            logger.error(f"镜像加载异常: {e}")
+            logger.error(f"Image loading exception: {e}")
             return False
 
     def _join_cluster(self, config):
@@ -168,7 +168,7 @@ class DeployEngine:
                     )
                 return result.returncode == 0
             except Exception as e:
-                logger.error(f"加入集群异常: {e}")
+                logger.error(f"Cluster join exception: {e}")
                 return False
         else:
             # 使用 kubeadm join
@@ -185,7 +185,7 @@ class DeployEngine:
                     )
                 return result.returncode == 0
             except Exception as e:
-                logger.error(f"加入集群异常: {e}")
+                logger.error(f"Cluster join exception: {e}")
                 return False
 
     def _verify_join(self):
@@ -217,7 +217,7 @@ class DeployEngine:
         """配置 PXE 服务"""
         script = "/cdrom/pxe/start-pxe.sh"
         if not os.path.exists(script):
-            logger.warning("PXE 启动脚本不存在")
+            logger.warning("PXE startup script not found")
             return True
 
         log_file = os.path.join(self.log_dir, f"pxe-{service}.log")
@@ -230,7 +230,7 @@ class DeployEngine:
                 )
             return result.returncode == 0
         except Exception as e:
-            logger.error(f"PXE 配置异常: {e}")
+            logger.error(f"PXE config exception: {e}")
             return False
 
     def _get_kk_path(self):
