@@ -48,9 +48,11 @@ fi
 # 步骤 2：创建 squashfs（必须在 integrate-tui/integrate-offline 之后）
 step "创建 squashfs"
 mkdir -p "${ISO_ROOT}/casper"
+rm -f "${ISO_ROOT}/casper/filesystem.squashfs"
 mksquashfs "$ROOTFS" "${ISO_ROOT}/casper/filesystem.squashfs" \
     -comp xz \
     -no-progress \
+    -noappend \
     -e boot/grub \
     -e var/cache \
     -e var/lib/apt/lists
