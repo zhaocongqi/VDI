@@ -4,6 +4,10 @@ FROM ubuntu:22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
+# 使用阿里云镜像源（加速国内构建）
+RUN sed -i 's|archive.ubuntu.com|mirrors.aliyun.com|g' /etc/apt/sources.list && \
+    sed -i 's|security.ubuntu.com|mirrors.aliyun.com|g' /etc/apt/sources.list
+
 # 第一层：系统核心工具
 RUN apt-get update && apt-get install -y --no-install-recommends \
     # ISO 构建工具
