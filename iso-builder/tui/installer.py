@@ -62,10 +62,11 @@ class VDIInstaller:
             # 步骤 2：选择部署模式
             self.mode = WelcomeScreen().show()
             if self.mode is None:
-                self.logger.info("用户取消选择")
+                self.logger.info("User cancelled mode selection")
                 return 0
 
-            self.logger.info(f"选择部署模式: {self.mode}")
+            self.logger.info(f"Selected deploy mode: {self.mode}")
+            self.config["mode"] = self.mode
 
             # 步骤 3：根据模式收集配置
             if not self._collect_config():
@@ -73,7 +74,7 @@ class VDIInstaller:
 
             # 步骤 4：确认配置
             if not ConfirmScreen(self.config).show():
-                self.logger.info("用户取消确认")
+                self.logger.info("User cancelled confirmation")
                 return 0
 
             # 步骤 5：生成配置文件
@@ -90,16 +91,16 @@ class VDIInstaller:
                 return 1
 
         except Exception as e:
-            self.logger.exception("安装器异常退出")
+            self.logger.exception("Installer exited with exception")
             ErrorScreen(str(e)).show()
             return 1
 
     def _check_offline_resources(self):
         """检查离线资源完整性"""
-        self.logger.info("检查离线资源...")
+        self.logger.info("Checking offline resources...")
         if not self.offline.is_available():
             # 非离线环境也允许继续（用于开发测试）
-            self.logger.warning("离线资源不可用，继续在线模式")
+            self.logger.warning("Offline resources not available, continuing in online mode")
         return True
 
     def _collect_config(self):
@@ -147,8 +148,8 @@ class VDIInstaller:
             return True
 
         except Exception as e:
-            self.logger.exception("配置收集异常")
-            ErrorScreen(f"配置收集失败: {e}").show()
+            self.logger.exception("Config collection exception")
+            ErrorScreen(f"Config collection failed: {e}").show()
             return False
 
     def _execute_deploy(self):
@@ -158,14 +159,14 @@ class VDIInstaller:
             result = progress.run(self.deploy_engine, self.mode, self.config)
             return result
         except Exception as e:
-            self.logger.exception("部署执行异常")
-            ErrorScreen(f"部署失败: {e}").show()
+            self.logger.exception("Deploy execution exception")
+            ErrorScreen(f"Deploy failed: {e}").show()
             return False
 
     def _handle_interrupt(self, signum, frame):
         """处理中断信号"""
-        self.logger.info(f"收到信号 {signum}，退出安装器")
-        print("\n\n安装器已取消。")
+        self.logger.info(f"Received signal {signum}, exiting installer")
+        print("\n\nInstaller cancelled.")
         sys.exit(130)
 
 
@@ -173,19 +174,31 @@ def main():
     """主入口"""
     # 检查是否在 TTY 环境中
     if not sys.stdin.isatty():
-        print("错误: 此程序需要在 TTY 环境中运行", file=sys.stderr)
+        print("Error: This program requires a TTY environment", file=sys.stderr)
         sys.exit(1)
+
+    # 检查 TERM 环境变量（whiptail/newt 依赖）
+    term = os.environ.get("TERM")
+    if not term or term == "dumb":
+        os.environ["TERM"] = "linux"
+        print(f"TERM not set, auto-set to linux", file=sys.stderr)
 
     # 检查 whiptail 是否可用
     try:
         subprocess.run(["which", "whiptail"], check=True,
                        capture_output=True)
     except subprocess.CalledProcessError:
-        print("错误: whiptail 未安装，请执行: apt-get install whiptail",
+        print("Error: whiptail not installed, run: apt-get install whiptail",
               file=sys.stderr)
         sys.exit(1)
 
-    installer = VDIInstaller()
+    try:
+        installer = VDIInstaller()
+    except Exception as e:
+        print(f"Error: Installer init failed: {e}", file=sys.stderr)
+        print("Check /var/log/vdi-deploy/installer.log for details", file=sys.stderr)
+        sys.exit(1)
+
     sys.exit(installer.run())
 
 
