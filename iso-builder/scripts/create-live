@@ -175,7 +175,7 @@ mkdir -p "${ROOTFS}/cdrom"
 mkdir -p "${ROOTFS}/etc/systemd/system"
 cat > "${ROOTFS}/etc/systemd/system/cdrom-mount.service" <<EOF
 [Unit]
-Description=挂载 VDI 离线 ISO
+Description=Mount VDI Offline ISO
 After=local-fs.target
 Before=vdi-installer.service
 
