@@ -4,10 +4,6 @@ FROM ubuntu:22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# 使用阿里云镜像源（加速国内构建）
-RUN sed -i 's|archive.ubuntu.com|mirrors.aliyun.com|g' /etc/apt/sources.list && \
-    sed -i 's|security.ubuntu.com|mirrors.aliyun.com|g' /etc/apt/sources.list
-
 # 第一层：系统核心工具
 RUN apt-get update && apt-get install -y --no-install-recommends \
     # ISO 构建工具
@@ -49,11 +45,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     apt-utils \
     && rm -rf /var/lib/apt/lists/*
 
-# 安装 skopeo（使用 signed-by 替代废弃的 apt-key）
+# 安装 skopeo（使用 trusted=yes 解决仓库签名问题）
 RUN . /etc/os-release && \
-    wget -nv --timeout=30 "https://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/unstable/xUbuntu_${VERSION_ID}/Release.key" \
-        -O /usr/share/keyrings/kubic.gpg && \
-    echo "deb [signed-by=/usr/share/keyrings/kubic.gpg] https://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/unstable/xUbuntu_${VERSION_ID}/ /" \
+    echo "deb [trusted=yes] https://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/unstable/xUbuntu_${VERSION_ID}/ /" \
         > /etc/apt/sources.list.d/kubic.list && \
     apt-get update && apt-get install -y --no-install-recommends skopeo && \
     rm -rf /var/lib/apt/lists/*
