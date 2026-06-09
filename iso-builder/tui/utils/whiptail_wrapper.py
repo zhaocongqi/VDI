@@ -1,17 +1,39 @@
 """whiptail TUI 组件封装
 
-通过 subprocess 调用 whiptail，提供与 Ubuntu Server 安装器一致的外观。
+通过 os.system() + shell 重定向调用 whiptail。
+关键：不能用 subprocess.PIPE 捕获 stdout，因为 whiptail 的 SLang 库
+会将 TUI 转义码写入 stdout，与用户选择结果混合在一起导致解析失败。
+
+解决方案：
+- 使用 shell 重定向将 stdout（选择结果）写入临时文件
+- SLang 通过 stdin fd（终端）渲染 TUI，不受 stdout 重定向影响
+- stderr 重定向到 /dev/tty，确保错误信息可见
 """
-import subprocess
+import os
+import re
+import shlex
+import tempfile
 import logging
 
 logger = logging.getLogger("vdi-installer")
+
+# ANSI 转义码匹配模式（用于清理输出）
+# 覆盖：CSI 序列、CSI ? 序列、两字节 ESC 序列、控制字符
+ANSI_RE = re.compile(r'\x1b\[\??[0-9;]*[a-zA-Z]|\x1b[\(\)][B0UK]|\x1b[><]|\x1b.|[\x00-\x1f\x7f]')
+
+
+def _strip_ansi(text):
+    """移除 ANSI 转义码和控制字符，返回纯文本"""
+    cleaned = ANSI_RE.sub('', text)
+    # 二次清理：移除残留的非打印字符（ASCII 0-31, 127）
+    cleaned = ''.join(c for c in cleaned if c >= ' ' or c in '\t\n')
+    return cleaned.strip()
 
 
 class Whiptail:
     """whiptail 调用封装"""
 
-    def __init__(self, title="VDI 离线部署", backtitle="VDI 集群离线部署工具 v1.0",
+    def __init__(self, title="VDI Offline Deploy", backtitle="VDI Cluster Offline Installer v1.0",
                  height=20, width=70):
         self.title = title
         self.backtitle = backtitle
@@ -20,26 +42,55 @@ class Whiptail:
         self.list_height = 10
 
     def _run(self, args, input_data=None):
-        """执行 whiptail 命令"""
+        """执行 whiptail 命令
+
+        使用 os.system() + shell 重定向：
+        - stdout → 临时文件（捕获用户选择结果）
+        - stderr → /dev/tty（错误信息显示在终端）
+        - stdin → 终端（用户交互 + SLang TUI 渲染）
+        """
         cmd = [
             "whiptail",
+            "--notags",
+            "--clear",
             "--title", self.title,
             "--backtitle", self.backtitle,
             *args
         ]
 
+        tmpfile = tempfile.mktemp(prefix='.whiptail_')
+
+        # 构建 shell 命令：stdout → 文件，stderr → 终端
+        shell_cmd = ' '.join(shlex.quote(c) for c in cmd)
+        full_cmd = f'{shell_cmd} >{shlex.quote(tmpfile)} 2>/dev/tty'
+
         try:
-            result = subprocess.run(
-                cmd,
-                input=input_data,
-                capture_output=True,
-                text=True
-            )
-            # whiptail 返回 0 表示确定，1 表示取消，255 表示 ESC
-            return result.returncode, result.stdout
-        except FileNotFoundError:
-            logger.error("whiptail 未安装")
+            retcode = os.system(full_cmd)
+
+            # 转换 os.system() 的返回值格式
+            if os.WIFEXITED(retcode):
+                retcode = os.WEXITSTATUS(retcode)
+            else:
+                retcode = 255
+
+            # 从临时文件读取选择结果
+            output = ""
+            if os.path.exists(tmpfile):
+                with open(tmpfile) as f:
+                    raw = f.read()
+                # 清理 ANSI 转义码（SLang 可能将部分渲染码写入 stdout）
+                output = _strip_ansi(raw)
+
+            return retcode, output
+
+        except Exception as e:
+            logger.error(f"whiptail call exception: {e}")
             return 255, ""
+        finally:
+            try:
+                os.unlink(tmpfile)
+            except OSError:
+                pass
 
     def msgbox(self, message, height=None, width=None):
         """消息框"""
