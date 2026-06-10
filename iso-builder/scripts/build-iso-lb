@@ -87,8 +87,25 @@ lb config noauto \
     --chroot-filesystem squashfs \
     --initramfs live-boot \
     --initsystem systemd \
-    --bootappend-live "console=ttyS0,115200 console=tty0"
+    --bootappend-live "boot=live live-media-path=/casper console=ttyS0,115200 console=tty0"
 ok "lb config 完成"
+
+# 将项目级配置同步到 config/ 目录（lb config noauto 不自动复制）
+step "同步 hooks 和 package-lists 到 config/"
+if [ -d "${LB_DIR}/hooks" ]; then
+    for hook in "${LB_DIR}"/hooks/*/*.hook.chroot "${LB_DIR}"/hooks/*/*.hook.binary; do
+        [ -f "$hook" ] && cp "$hook" "${LB_DIR}/config/hooks/" && chmod +x "${LB_DIR}/config/hooks/$(basename "$hook")"
+    done
+    ok "Hooks 已同步"
+fi
+if [ -d "${LB_DIR}/package-lists" ]; then
+    cp "${LB_DIR}"/package-lists/*.chroot "${LB_DIR}/config/package-lists/" 2>/dev/null || true
+    ok "Package lists 已同步"
+fi
+if [ -d "${LB_DIR}/includes.chroot" ]; then
+    rsync -a "${LB_DIR}/includes.chroot/" "${LB_DIR}/config/includes.chroot/"
+    ok "Includes 已同步"
+fi
 
 # Bootstrap 阶段（debootstrap）
 step "Bootstrap 阶段"
@@ -97,6 +114,29 @@ lb bootstrap
 # Chroot 阶段（安装包 + 运行 hooks）
 step "Chroot 阶段"
 lb chroot
+
+# 手动执行 chroot hooks（绕过 live-build hook 发现机制，直接在 chroot 中执行）
+step "执行 chroot hooks"
+CHROOT_DIR="${LB_DIR}/chroot"
+HOOKS_DIR="${LB_DIR}/hooks/normal"
+if [ -d "${HOOKS_DIR}" ]; then
+    for hook in "${HOOKS_DIR}"/*.hook.chroot; do
+        [ -f "$hook" ] || continue
+        hook_name="$(basename "$hook")"
+        info "执行 hook: ${hook_name}"
+        cp "$hook" "${CHROOT_DIR}/tmp/${hook_name}"
+        chmod +x "${CHROOT_DIR}/tmp/${hook_name}"
+        if chroot "${CHROOT_DIR}" "/tmp/${hook_name}"; then
+            ok "Hook 成功: ${hook_name}"
+        else
+            error "Hook 失败: ${hook_name}"
+            exit 1
+        fi
+        rm -f "${CHROOT_DIR}/tmp/${hook_name}"
+    done
+else
+    info "无 chroot hooks 需要执行"
+fi
 
 ok "live-build chroot 阶段完成"
 
@@ -177,17 +217,17 @@ SERIAL 0 115200
 LABEL install
     MENU LABEL ^Install VDI Cluster
     KERNEL /casper/vmlinuz
-    APPEND initrd=/casper/initrd boot=casper console=ttyS0,115200 console=tty0 ---
+    APPEND initrd=/casper/initrd boot=live live-media-path=/casper console=ttyS0,115200 console=tty0 ---
 
 LABEL shell
     MENU LABEL ^Live Shell
     KERNEL /casper/vmlinuz
-    APPEND initrd=/casper/initrd boot=casper text console=ttyS0,115200 console=tty0 ---
+    APPEND initrd=/casper/initrd boot=live live-media-path=/casper text console=ttyS0,115200 console=tty0 ---
 
 LABEL safe
     MENU LABEL ^Safe Mode
     KERNEL /casper/vmlinuz
-    APPEND initrd=/casper/initrd boot=casper nomodeset text console=ttyS0,115200 console=tty0 ---
+    APPEND initrd=/casper/initrd boot=live live-media-path=/casper nomodeset text console=ttyS0,115200 console=tty0 ---
 EOF
 
 # GRUB（UEFI + 串口）
@@ -203,17 +243,17 @@ set color_normal=white/black
 set color_highlight=black/light-gray
 
 menuentry "Install VDI Cluster" {
-    linux /casper/vmlinuz boot=casper console=ttyS0,115200 console=tty0 ---
+    linux /casper/vmlinuz boot=live live-media-path=/casper console=ttyS0,115200 console=tty0 ---
     initrd /casper/initrd
 }
 
 menuentry "Live Shell" {
-    linux /casper/vmlinuz boot=casper text console=ttyS0,115200 console=tty0 ---
+    linux /casper/vmlinuz boot=live live-media-path=/casper text console=ttyS0,115200 console=tty0 ---
     initrd /casper/initrd
 }
 
 menuentry "Install VDI Cluster (Safe Mode)" {
-    linux /casper/vmlinuz boot=casper nomodeset text console=ttyS0,115200 console=tty0 ---
+    linux /casper/vmlinuz boot=live live-media-path=/casper nomodeset text console=ttyS0,115200 console=tty0 ---
     initrd /casper/initrd
 }
 GRUBEOF
