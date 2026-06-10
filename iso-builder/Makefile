@@ -167,6 +167,30 @@ test-iso-console:
 		-nographic \
 		-net nic -net user
 
+# ========== 截图 ==========
+
+# QEMU 截图配置
+SCREENSHOT_NAME ?=
+QEMU_MONITOR_SOCK ?= /tmp/vdi-qemu-monitor.sock
+
+# QEMU 截图模式（VGA + VNC + monitor socket，后台运行）
+# 用途：捕获 whiptail TUI 界面截图
+# 注意：不适用于 -nographic 模式（无 VGA 帧缓冲）
+.PHONY: test-iso-screenshot
+test-iso-screenshot:
+	@bash scripts/qemu-screenshot.sh start "$(DIST_DIR)/$(ISO_NAME).iso"
+
+# 截取当前 QEMU VGA 帧（需要先启动 test-iso-screenshot）
+# 示例: make screenshot SCREENSHOT_NAME=welcome
+.PHONY: screenshot
+screenshot:
+	@bash scripts/qemu-screenshot.sh capture "$(SCREENSHOT_NAME)"
+
+# 停止后台 QEMU 实例
+.PHONY: stop-qemu
+stop-qemu:
+	@bash scripts/qemu-screenshot.sh stop
+
 # ========== 清理 ==========
 
 # 清理构建产物
@@ -216,6 +240,11 @@ help:
 	@echo "ISO 测试（需要 qemu-system-x86）:"
 	@echo "  make test-iso          QEMU 图形模式启动 ISO"
 	@echo "  make test-iso-console  QEMU 串口控制台模式启动 ISO"
+	@echo ""
+	@echo "TUI 截图（需要 qemu-system-x86 + socat）:"
+	@echo "  make test-iso-screenshot  后台启动 QEMU（VGA+VNC+monitor）"
+	@echo "  make screenshot NAME=名称 截取当前 VGA 帧"
+	@echo "  make stop-qemu            停止后台 QEMU"
 	@echo ""
 	@echo "变量:"
 	@echo "  VERSION=$(VERSION)     ISO 版本号"
