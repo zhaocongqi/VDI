@@ -61,6 +61,7 @@ class Whiptail:
         tmpfile = tempfile.mktemp(prefix='.whiptail_')
 
         # 构建 shell 命令：stdout → 文件，stderr → 终端
+        # 注意：SLang 可能将 TUI 渲染混入 stdout，_extract_tag 负责清理
         shell_cmd = ' '.join(shlex.quote(c) for c in cmd)
         full_cmd = f'{shell_cmd} >{shlex.quote(tmpfile)} 2>/dev/tty'
 
@@ -124,8 +125,39 @@ class Whiptail:
 
         rc, output = self._run(args)
         if rc == 0:
-            return output.strip()
+            return self._extract_tag(output, items)
         return None
+
+    def _extract_tag(self, output, items):
+        """从 whiptail 输出中鲁棒地提取选择 tag
+
+        SLang 可能在 stdout 中混入 TUI 渲染文本，
+        需要从清理后的输出中精确提取有效 tag。
+        """
+        tags = {tag for tag, _ in items}
+        cleaned = output.strip()
+
+        # 1. 整个输出就是有效 tag（正常情况）
+        if cleaned in tags:
+            return cleaned
+
+        # 2. 从输出末尾逐行查找有效 tag
+        for line in reversed(cleaned.split('\n')):
+            line = line.strip()
+            if line in tags:
+                return line
+
+        # 3. 从输出中查找独立的有效 tag（前后非数字字符）
+        import re
+        for match in re.finditer(r'(?:^|\s|[^\d])(\d+)(?:\s|$|[^\d])', cleaned):
+            candidate = match.group(1)
+            if candidate in tags:
+                return candidate
+
+        # 4. 兜底：返回最后一行
+        logger.warning(f"无法从 whiptail 输出中提取有效 tag: {repr(cleaned[:200])}")
+        last = cleaned.split('\n')[-1].strip() if cleaned else None
+        return last
 
     def inputbox(self, text, default="", height=None, width=None):
         """输入框
@@ -169,8 +201,11 @@ class Whiptail:
 
         rc, output = self._run(args)
         if rc == 0:
-            # whiptail 返回 "tag1" "tag2" 格式
-            return [item.strip('"') for item in output.split() if item.strip('"')]
+            # whiptail 返回 "tag1" "tag2" 格式，提取引号内的 tag
+            tags = {tag for tag, _, _ in items}
+            result = [item.strip('"') for item in output.split()
+                      if item.strip('"') in tags]
+            return result if result else None
         return None
 
     def radiolist(self, text, items, height=None, width=None):
