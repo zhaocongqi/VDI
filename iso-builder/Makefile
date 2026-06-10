@@ -176,6 +176,7 @@ QEMU_MONITOR_SOCK ?= /tmp/vdi-qemu-monitor.sock
 # QEMU 截图模式（VGA + VNC + monitor socket，后台运行）
 # 用途：捕获 whiptail TUI 界面截图
 # 注意：不适用于 -nographic 模式（无 VGA 帧缓冲）
+# 依赖：qemu-system-x86_64, socat, ffmpeg（推荐，解决 screendump 帧缓冲滞后）
 .PHONY: test-iso-screenshot
 test-iso-screenshot:
 	@bash scripts/qemu-screenshot.sh start "$(DIST_DIR)/$(ISO_NAME).iso"
@@ -241,9 +242,9 @@ help:
 	@echo "  make test-iso          QEMU 图形模式启动 ISO"
 	@echo "  make test-iso-console  QEMU 串口控制台模式启动 ISO"
 	@echo ""
-	@echo "TUI 截图（需要 qemu-system-x86 + socat）:"
+	@echo "TUI 截图（需要 qemu-system-x86 + socat + ffmpeg）:"
 	@echo "  make test-iso-screenshot  后台启动 QEMU（VGA+VNC+monitor）"
-	@echo "  make screenshot NAME=名称 截取当前 VGA 帧"
+	@echo "  make screenshot NAME=名称 截取当前 VGA 帧（VNC 截图，解决 screendump 滞后）"
 	@echo "  make stop-qemu            停止后台 QEMU"
 	@echo ""
 	@echo "变量:"
