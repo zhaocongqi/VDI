@@ -203,6 +203,15 @@ ExecStart=
 ExecStart=-/sbin/agetty --autologin root --noclear tty1 38400 linux
 EOF
 
+# 串口控制台自动登录 root（QEMU -nographic / 物理串口）
+mkdir -p "${ROOTFS}/etc/systemd/system/serial-getty@ttyS0.service.d"
+cat > "${ROOTFS}/etc/systemd/system/serial-getty@ttyS0.service.d/autologin.conf" <<EOF
+[Service]
+ExecStart=
+ExecStart=-/sbin/agetty --autologin root --noclear ttyS0 115200 linux
+EOF
+chroot "$ROOTFS" systemctl enable serial-getty@ttyS0.service 2>/dev/null || true
+
 # 自动 source 离线环境变量 + TUI 自动启动
 cat > "${ROOTFS}/etc/profile.d/vdi-welcome.sh" <<'WELCOME'
 # VDI Live system welcome + TUI auto-start
@@ -216,8 +225,9 @@ if [ -n "$PS1" ]; then
     echo "  Deploy Logs:       /var/log/vdi-deploy/"
     echo ""
 
-    # Only auto-start TUI on tty1 as root
-    if [ "$(tty 2>/dev/null)" = "/dev/tty1" ] && [ "$(id -u)" -eq 0 ]; then
+    # Auto-start TUI on tty1 (graphical) or ttyS0 (serial console) as root
+    CURRENT_TTY="$(tty 2>/dev/null)"
+    if [ "$(id -u)" -eq 0 ] && { [ "$CURRENT_TTY" = "/dev/tty1" ] || [ "$CURRENT_TTY" = "/dev/ttyS0" ]; }; then
         export TERM="${TERM:-linux}"
         python3 /opt/vdi/tui/installer.py
         echo ""
