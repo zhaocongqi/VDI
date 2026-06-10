@@ -223,7 +223,7 @@ TIMEOUT 30
 LABEL install
     MENU LABEL ^Install VDI Worker
     KERNEL /vmlinuz
-    APPEND initrd=/initrd boot=casper auto=true url=http://{node_ip}:8080/preseed.cfg ---
+    APPEND initrd=/initrd boot=live live-media-path=/casper auto=true url=http://{node_ip}:8080/preseed.cfg ---
 """
         with open(os.path.join(pxelinux_dir, "default"), "w") as f:
             f.write(pxelinux_content)
