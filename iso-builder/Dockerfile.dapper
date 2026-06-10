@@ -1,23 +1,31 @@
 # VDI 离线 ISO 构建环境
-# 基于 Ubuntu 22.04，包含 ISO 构建、镜像下载、TUI 开发所需工具
+# 基于 Ubuntu 22.04，使用 live-build + Dapper
 FROM ubuntu:22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# 第一层：系统核心工具
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    # ISO 构建工具
+# 先安装新版 live-build（Debian bookworm 20230502，比 Ubuntu 22.04 自带的 3.0 兼容性好很多）
+# 需要先装 debootstrap 满足依赖，再用 apt-get -f 修复剩余依赖
+RUN apt-get update && apt-get install -y --no-install-recommends wget debootstrap \
+    && wget -qO /tmp/live-build.deb "http://mirrors.aliyun.com/debian/pool/main/l/live-build/live-build_20230502_all.deb" \
+    && dpkg -i /tmp/live-build.deb \
+    && apt-get install -y -f --no-install-recommends \
+    && rm -f /tmp/live-build.deb
+
+# ISO 构建工具
+RUN apt-get install -y -f --no-install-recommends \
     xorriso \
     squashfs-tools \
-    debootstrap \
+    isolinux \
+    syslinux-common \
     grub-pc-bin \
     grub-efi-amd64-bin \
-    grub-efi-amd64-signed \
     grub2-common \
     mtools \
     dosfstools \
-    isolinux \
-    syslinux-common \
+    # UEFI 签名引导
+    grub-efi-amd64-signed \
+    shim-signed \
     # PXE 引导
     pxelinux \
     # 运行时工具
