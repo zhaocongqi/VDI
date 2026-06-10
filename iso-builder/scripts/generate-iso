@@ -78,18 +78,25 @@ fi
 
 cat > "${ISOLINUX_DIR}/isolinux.cfg" <<EOF
 DEFAULT install
-PROMPT 0
-TIMEOUT 30
+PROMPT 1
+TIMEOUT 50
+CONSOLE 0
+SERIAL 0 115200
 
 LABEL install
     MENU LABEL ^Install VDI Cluster
     KERNEL /casper/vmlinuz
-    APPEND initrd=/casper/initrd boot=casper quiet splash ---
+    APPEND initrd=/casper/initrd boot=casper console=ttyS0,115200 console=tty0 ---
 
 LABEL shell
     MENU LABEL ^Live Shell
     KERNEL /casper/vmlinuz
-    APPEND initrd=/casper/initrd boot=casper text ---
+    APPEND initrd=/casper/initrd boot=casper text console=ttyS0,115200 console=tty0 ---
+
+LABEL safe
+    MENU LABEL ^Safe Mode
+    KERNEL /casper/vmlinuz
+    APPEND initrd=/casper/initrd boot=casper nomodeset text console=ttyS0,115200 console=tty0 ---
 EOF
 
 # 步骤 4：生成 GRUB 配置（UEFI 启动）
@@ -97,23 +104,28 @@ step "配置 GRUB (UEFI 启动)"
 GRUB_DIR="${ISO_ROOT}/boot/grub"
 
 cat > "${GRUB_DIR}/grub.cfg" <<'GRUBEOF'
+# Serial + graphics terminal support
+serial --unit=0 --speed=115200
+terminal_input serial console
+terminal_output serial console
+
 set default=0
 set timeout=30
 set color_normal=white/black
 set color_highlight=black/light-gray
 
 menuentry "Install VDI Cluster" {
-    linux /casper/vmlinuz boot=casper quiet splash ---
+    linux /casper/vmlinuz boot=casper console=ttyS0,115200 console=tty0 ---
     initrd /casper/initrd
 }
 
 menuentry "Live Shell" {
-    linux /casper/vmlinuz boot=casper text ---
+    linux /casper/vmlinuz boot=casper text console=ttyS0,115200 console=tty0 ---
     initrd /casper/initrd
 }
 
 menuentry "Install VDI Cluster (Safe Mode)" {
-    linux /casper/vmlinuz boot=casper nomodeset text ---
+    linux /casper/vmlinuz boot=casper nomodeset text console=ttyS0,115200 console=tty0 ---
     initrd /casper/initrd
 }
 GRUBEOF
@@ -131,8 +143,8 @@ if command -v grub-mkimage &>/dev/null; then
         -d /usr/lib/grub/x86_64-efi \
         linux normal iso9660 part_msdos part_gpt fat \
         search search_fs_file search_fs_uuid search_label \
-        gfxterm gfxterm_background gfxterm_menu halt reboot \
-        configfile echo ls cat chain loadenv
+        serial terminal gfxterm gfxterm_background gfxterm_menu \
+        halt reboot configfile echo ls cat chain loadenv
     ok "GRUB EFI 引导已创建"
 else
     info "grub-mkimage 不可用，尝试直接复制"
