@@ -18,6 +18,7 @@
 *~
 .DS_Store
 Thumbs.db
+desktop.ini
 image.png
 
 # IDE 配置
@@ -25,6 +26,7 @@ image.png
 .idea/
 *.swp
 *.swo
+*.sublime-workspace
 
 # 构建产物（通用）
 *.o
@@ -34,6 +36,20 @@ image.png
 *.exe
 *.bin
 
+# 镜像文件
+*.iso
+*.qcow2
+*.img
+*.raw
+*.vmdk
+
+# 压缩包
+*.tar.gz
+*.tar.bz2
+*.tar.xz
+*.zip
+*.tgz
+
 # 日志文件
 *.log
 
@@ -41,6 +57,17 @@ image.png
 .env
 .env.local
 .env.*.local
+
+# 敏感文件（证书、密钥）
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+
+# 进程与 socket 文件
+*.pid
+*.sock
 
 # 部署敏感配置（含 SSH 密码等，仅保留 .template 模板）
 deploy/k8s/inventory.yaml
