@@ -1,5 +1,5 @@
 # VDI 离线 ISO 构建系统
-# 使用 Dapper 在容器中构建，确保可重复性
+# 使用 Dapper + live-build 在容器中构建，确保可重复性
 
 # 版本信息
 VERSION ?= v1.0.0
@@ -92,29 +92,18 @@ download-manifests: build-builder
 
 # ========== ISO 构建 ==========
 
-# 完整 ISO 构建（下载资源 + 创建 Live 系统 + 集成离线资源 + 打包）
+# 完整 ISO 构建（live-build：下载资源 + 自动构建）
 .PHONY: iso
 iso: build-builder
-	@echo "=== 开始构建 VDI 离线 ISO $(VERSION) ==="
+	@echo "=== 开始构建 VDI 离线 ISO $(VERSION) (live-build) ==="
 	docker run --rm \
 		$(DOCKER_NET) \
 		-v $(shell pwd):/workspace \
 		--privileged \
 		--cap-add SYS_ADMIN \
 		$(BUILDER_IMAGE) \
-		bash -c './scripts/build-iso "$(VERSION)"'
+		bash -c './scripts/build-iso-lb "$(VERSION)"'
 	@echo "=== 构建完成: $(DIST_DIR)/$(ISO_NAME).iso ==="
-
-# 仅创建 Live 系统基础 ISO（不含离线资源）
-.PHONY: live-only
-live-only: build-builder
-	docker run --rm \
-		$(DOCKER_NET) \
-		-v $(shell pwd):/workspace \
-		--privileged \
-		--cap-add SYS_ADMIN \
-		$(BUILDER_IMAGE) \
-		bash -c './scripts/create-live'
 
 # ========== 校验 ==========
 
@@ -184,7 +173,8 @@ test-iso-console:
 .PHONY: clean
 clean:
 	rm -rf $(DIST_DIR)
-	rm -rf rootfs iso_root tmp
+	cd lb-config && lb clean --purge 2>/dev/null || true
+	rm -rf lb-config/build.log
 	@echo "✓ 清理完成"
 
 # 清理全部（包括下载的离线资源）
@@ -204,11 +194,10 @@ distclean: clean
 
 .PHONY: help
 help:
-	@echo "VDI 离线 ISO 构建系统"
+	@echo "VDI 离线 ISO 构建系统 (Dapper + live-build)"
 	@echo ""
 	@echo "构建目标:"
-	@echo "  make iso               完整构建离线 ISO（下载 + 打包）"
-	@echo "  make live-only         仅创建 Live 系统基础 ISO"
+	@echo "  make iso               完整构建离线 ISO（live-build）"
 	@echo ""
 	@echo "资源下载（需要互联网）:"
 	@echo "  make download          下载全部离线资源"

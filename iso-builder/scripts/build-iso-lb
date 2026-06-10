@@ -1,0 +1,284 @@
+#!/bin/bash
+set -euo pipefail
+
+# VDI 离线 ISO 主构建脚本（live-build 混合模式）
+# 使用 live-build 完成 bootstrap + chroot 阶段
+# 使用自定义脚本完成 binary 阶段（绕过 live-build 3.0 兼容性问题）
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+WORKSPACE="$(cd "$SCRIPT_DIR/.." && pwd)"
+VERSION="${1:-v1.0.0}"
+ISO_NAME="vdi-offline-${VERSION}"
+DIST_DIR="${WORKSPACE}/dist"
+LB_DIR="${WORKSPACE}/lb-config"
+
+source "${SCRIPT_DIR}/common.sh"
+
+echo "============================================"
+echo "  VDI 离线 ISO 构建 (live-build hybrid)"
+echo "  版本: ${VERSION}"
+echo "  时间: $(date '+%Y-%m-%d %H:%M:%S')"
+echo "============================================"
+
+# 步骤 1：准备输出目录
+step "准备输出目录"
+mkdir -p "${DIST_DIR}"
+
+# 步骤 2：检查离线资源
+step "检查离线资源"
+if [ ! -f "${WORKSPACE}/offline/checksums.sha256" ]; then
+    step "下载离线资源"
+    "${SCRIPT_DIR}/download-resources"
+else
+    info "离线资源已存在，跳过下载"
+fi
+
+# 步骤 3：校验离线资源
+step "校验离线资源完整性"
+if ! sha256sum -c "${WORKSPACE}/offline/checksums.sha256" --quiet 2>/dev/null; then
+    error "离线资源校验失败，请执行 make distclean && make download 重新下载"
+    exit 1
+fi
+ok "离线资源校验通过"
+
+# 步骤 4：同步 TUI 代码到 includes.chroot
+step "同步 TUI 代码到 live-build includes"
+mkdir -p "${LB_DIR}/includes.chroot/opt/vdi/tui"
+if [ -d "${WORKSPACE}/tui" ]; then
+    rsync -a --delete "${WORKSPACE}/tui/" "${LB_DIR}/includes.chroot/opt/vdi/tui/"
+    chmod +x "${LB_DIR}/includes.chroot/opt/vdi/tui/installer.py"
+    ok "TUI 代码已同步"
+fi
+
+# 步骤 5：live-build bootstrap + chroot 阶段
+step "运行 live-build (bootstrap + chroot)"
+export WORKSPACE
+export VERSION
+cd "${LB_DIR}"
+
+# 清理旧构建
+lb clean --purge 2>/dev/null || true
+
+# 配置
+lb config noauto \
+    --distribution jammy \
+    --architectures amd64 \
+    --binary-images iso-hybrid \
+    --bootloader syslinux \
+    --debian-installer none \
+    --memtest none \
+    --iso-application "VDI Offline Deploy" \
+    --iso-publisher "VDI" \
+    --iso-volume "VDI-INSTALL" \
+    --parent-distribution jammy \
+    --parent-mirror-bootstrap "http://mirrors.aliyun.com/ubuntu" \
+    --parent-mirror-chroot "http://mirrors.aliyun.com/ubuntu" \
+    --parent-mirror-chroot-security "http://mirrors.aliyun.com/ubuntu" \
+    --parent-mirror-binary "http://mirrors.aliyun.com/ubuntu" \
+    --parent-mirror-binary-security "http://mirrors.aliyun.com/ubuntu" \
+    --mirror-bootstrap "http://mirrors.aliyun.com/ubuntu" \
+    --mirror-chroot "http://mirrors.aliyun.com/ubuntu" \
+    --mirror-chroot-security "http://mirrors.aliyun.com/ubuntu" \
+    --mirror-binary "http://mirrors.aliyun.com/ubuntu" \
+    --mirror-binary-security "http://mirrors.aliyun.com/ubuntu" \
+    --archive-areas "main universe" \
+    --security true \
+    --backports false \
+    --chroot-filesystem squashfs \
+    --initramfs live-boot \
+    --initsystem systemd \
+    --bootappend-live "console=ttyS0,115200 console=tty0"
+ok "lb config 完成"
+
+# Bootstrap 阶段（debootstrap）
+step "Bootstrap 阶段"
+lb bootstrap
+
+# Chroot 阶段（安装包 + 运行 hooks）
+step "Chroot 阶段"
+lb chroot
+
+ok "live-build chroot 阶段完成"
+
+# 步骤 6：准备 ISO 目录（使用 live-build 的 chroot 产物）
+step "准备 ISO 目录结构"
+ISO_ROOT="${LB_DIR}/binary"
+mkdir -p "${ISO_ROOT}"/{boot/grub,efi/boot,isolinux,casper,offline,scripts,configs,metadata,.disk}
+
+# 复制内核和 initrd
+ROOTFS="${LB_DIR}/chroot"
+KERNEL=$(find "${ROOTFS}/boot" -name "vmlinuz-*" -type f 2>/dev/null | head -1)
+INITRD=$(find "${ROOTFS}/boot" -name "initrd.img-*" -type f 2>/dev/null | head -1)
+
+if [ -n "$KERNEL" ] && [ -n "$INITRD" ]; then
+    cp "$KERNEL" "${ISO_ROOT}/casper/vmlinuz"
+    cp "$INITRD" "${ISO_ROOT}/casper/initrd"
+    ok "内核和 initrd 已复制"
+else
+    error "未找到内核文件"
+    exit 1
+fi
+
+# 创建 squashfs
+step "创建 squashfs"
+rm -f "${ISO_ROOT}/casper/filesystem.squashfs"
+mksquashfs "$ROOTFS" "${ISO_ROOT}/casper/filesystem.squashfs" \
+    -comp xz -no-progress -noappend \
+    -e boot/grub -e var/cache -e var/lib/apt/lists
+ok "squashfs 已创建 ($(du -sh "${ISO_ROOT}/casper/filesystem.squashfs" | cut -f1))"
+
+# 步骤 7：集成离线资源（binary hook 逻辑内联）
+step "集成离线资源"
+if [ -d "${WORKSPACE}/offline" ]; then
+    rsync -a --exclude='.gitkeep' "${WORKSPACE}/offline/" "${ISO_ROOT}/offline/"
+fi
+VDI_DEPLOY="${WORKSPACE}/../deploy"
+if [ -d "$VDI_DEPLOY" ]; then
+    rsync -a --exclude='hosts' --exclude='k8s/inventory.yaml' --exclude='.git' \
+        "${VDI_DEPLOY}/" "${ISO_ROOT}/scripts/deploy/"
+fi
+if [ -d "${WORKSPACE}/configs" ]; then
+    rsync -a "${WORKSPACE}/configs/" "${ISO_ROOT}/configs/"
+fi
+mkdir -p "${ISO_ROOT}/scripts"
+for script in load-offline-images setup-local-repo verify-offline-pack; do
+    [ -f "${WORKSPACE}/scripts/${script}" ] && cp "${WORKSPACE}/scripts/${script}" "${ISO_ROOT}/scripts/"
+done
+if [ -d "${WORKSPACE}/tui" ]; then
+    rsync -a "${WORKSPACE}/tui/" "${ISO_ROOT}/tui/"
+fi
+ok "离线资源集成完成"
+
+# 步骤 8：配置 bootloader（复用原有 generate-iso 的逻辑）
+step "配置 bootloader"
+ISOLINUX_DIR="${ISO_ROOT}/isolinux"
+
+# 复制 isolinux 引导文件
+if [ -d /usr/lib/ISOLINUX ]; then
+    cp /usr/lib/ISOLINUX/isolinux.bin "${ISOLINUX_DIR}/"
+    cp /usr/lib/syslinux/modules/bios/ldlinux.c32 "${ISOLINUX_DIR}/" 2>/dev/null || true
+    cp /usr/lib/syslinux/modules/bios/libcom32.c32 "${ISOLINUX_DIR}/" 2>/dev/null || true
+    cp /usr/lib/syslinux/modules/bios/libutil.c32 "${ISOLINUX_DIR}/" 2>/dev/null || true
+    cp /usr/lib/ISOLINUX/isohdpfx.bin "${DIST_DIR}/" 2>/dev/null || \
+        cp /usr/lib/syslinux/mbr/isohdpfx.bin "${DIST_DIR}/" 2>/dev/null || true
+elif [ -d /usr/lib/syslinux ]; then
+    cp /usr/lib/syslinux/isolinux.bin "${ISOLINUX_DIR}/"
+    cp /usr/lib/syslinux/ldlinux.c32 "${ISOLINUX_DIR}/" 2>/dev/null || true
+fi
+
+# isolinux.cfg（串口控制台）
+cat > "${ISOLINUX_DIR}/isolinux.cfg" <<EOF
+DEFAULT install
+PROMPT 1
+TIMEOUT 50
+CONSOLE 0
+SERIAL 0 115200
+
+LABEL install
+    MENU LABEL ^Install VDI Cluster
+    KERNEL /casper/vmlinuz
+    APPEND initrd=/casper/initrd boot=casper console=ttyS0,115200 console=tty0 ---
+
+LABEL shell
+    MENU LABEL ^Live Shell
+    KERNEL /casper/vmlinuz
+    APPEND initrd=/casper/initrd boot=casper text console=ttyS0,115200 console=tty0 ---
+
+LABEL safe
+    MENU LABEL ^Safe Mode
+    KERNEL /casper/vmlinuz
+    APPEND initrd=/casper/initrd boot=casper nomodeset text console=ttyS0,115200 console=tty0 ---
+EOF
+
+# GRUB（UEFI + 串口）
+GRUB_DIR="${ISO_ROOT}/boot/grub"
+cat > "${GRUB_DIR}/grub.cfg" <<'GRUBEOF'
+serial --unit=0 --speed=115200
+terminal_input serial console
+terminal_output serial console
+
+set default=0
+set timeout=30
+set color_normal=white/black
+set color_highlight=black/light-gray
+
+menuentry "Install VDI Cluster" {
+    linux /casper/vmlinuz boot=casper console=ttyS0,115200 console=tty0 ---
+    initrd /casper/initrd
+}
+
+menuentry "Live Shell" {
+    linux /casper/vmlinuz boot=casper text console=ttyS0,115200 console=tty0 ---
+    initrd /casper/initrd
+}
+
+menuentry "Install VDI Cluster (Safe Mode)" {
+    linux /casper/vmlinuz boot=casper nomodeset text console=ttyS0,115200 console=tty0 ---
+    initrd /casper/initrd
+}
+GRUBEOF
+
+# EFI 分区镜像
+EFI_DIR="${WORKSPACE}/tmp/efi"
+mkdir -p "${EFI_DIR}/EFI/BOOT"
+if command -v grub-mkimage &>/dev/null; then
+    grub-mkimage -O x86_64-efi \
+        -o "${EFI_DIR}/EFI/BOOT/BOOTX64.EFI" \
+        -p "/boot/grub" \
+        -d /usr/lib/grub/x86_64-efi \
+        linux normal iso9660 part_msdos part_gpt fat \
+        search search_fs_file search_fs_uuid search_label \
+        serial terminal gfxterm gfxterm_background gfxterm_menu \
+        halt reboot configfile echo ls cat chain loadenv
+fi
+
+dd if=/dev/zero of="${ISO_ROOT}/efi/boot/efiboot.img" bs=1M count=8 2>/dev/null
+mkfs.vfat -F 12 "${ISO_ROOT}/efi/boot/efiboot.img"
+mmd -i "${ISO_ROOT}/efi/boot/efiboot.img" ::EFI ::EFI/BOOT
+mcopy -i "${ISO_ROOT}/efi/boot/efiboot.img" \
+    "${EFI_DIR}/EFI/BOOT/BOOTX64.EFI" "::EFI/BOOT/BOOTX64.EFI"
+rm -rf "${WORKSPACE}/tmp/efi"
+
+# ISO 元数据
+echo "VDI Offline Install ${VERSION} - amd64 ($(date '+%Y-%m-%d %H:%M:%S'))" > "${ISO_ROOT}/.disk/info"
+echo "${ISO_NAME}" > "${ISO_ROOT}/.disk/base_installable"
+ok "Bootloader 配置完成"
+
+# 步骤 9：xorriso 打包
+step "生成 ISO 镜像"
+ISOHYBRID_MBR=""
+for path in /usr/lib/ISOLINUX/isohdpfx.bin /usr/lib/syslinux/mbr/isohdpfx.bin /usr/lib/syslinux/isohdpfx.bin; do
+    [ -f "$path" ] && ISOHYBRID_MBR="$path" && break
+done
+
+XORRISO_ARGS=(
+    -as mkisofs
+    -o "${DIST_DIR}/${ISO_NAME}.iso"
+    -V "VDI-INSTALL"
+    -R -J
+    -b isolinux/isolinux.bin
+    -c isolinux/boot.cat
+    -no-emul-boot
+    -boot-load-size 4
+    -boot-info-table
+    -eltorito-alt-boot
+    -e efi/boot/efiboot.img
+    -no-emul-boot
+)
+if [ -n "$ISOHYBRID_MBR" ]; then
+    XORRISO_ARGS+=(-isohybrid-mbr "$ISOHYBRID_MBR" -isohybrid-gpt-basdat)
+fi
+XORRISO_ARGS+=("${ISO_ROOT}")
+xorriso "${XORRISO_ARGS[@]}"
+
+# 步骤 10：生成校验和和 manifest
+sha256sum "${DIST_DIR}/${ISO_NAME}.iso" > "${DIST_DIR}/${ISO_NAME}.iso.sha256"
+"${SCRIPT_DIR}/generate-manifest" "${VERSION}" > "${DIST_DIR}/${ISO_NAME}.manifest"
+
+echo ""
+echo "============================================"
+ok "构建完成!"
+echo "  ISO: ${DIST_DIR}/${ISO_NAME}.iso"
+echo "  大小: $(du -sh "${DIST_DIR}/${ISO_NAME}.iso" | cut -f1)"
+echo "  SHA256: ${DIST_DIR}/${ISO_NAME}.iso.sha256"
+echo "============================================"
