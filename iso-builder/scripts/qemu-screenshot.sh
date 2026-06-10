@@ -5,6 +5,16 @@
 # 根因：QEMU -nographic 模式无 VGA 设备，screendump 无法捕获 whiptail 渲染
 # 方案：使用 VGA + VNC + monitor socket，通过 HMP screendump 捕获帧缓冲
 #
+# 已知限制（VGA 帧缓冲机制）：
+#   QEMU -vga std 模式下，Linux 内核启动流程：
+#     1. BIOS/GRUB → VGA text mode (80x25)
+#     2. kernel 加载 vesafb/fbcon → 切换到图形帧缓冲
+#     3. fbcon 在帧缓冲上渲染 whiptail TUI
+#   screendump 捕获的是 QEMU 虚拟 VGA 设备的帧缓冲内存快照。
+#   当 fbcon 使用 dirty region tracking 时，部分更新可能写入
+#   QEMU 不追踪的内存区域，导致截图内容滞后或不完整。
+#   VNC 客户端看到的是同一份帧缓冲，不存在此差异。
+#
 # 用法:
 #   ./scripts/qemu-screenshot.sh start [ISO文件]   # 后台启动 QEMU
 #   ./scripts/qemu-screenshot.sh capture [名称]     # 截取当前帧
@@ -227,6 +237,8 @@ case "${1:-help}" in
         echo ""
         echo "限制:"
         echo "  不适用于 -nographic 模式（该模式无 VGA 设备）"
+        echo "  screendump 捕获 VGA 帧缓冲快照，fbcon dirty region 可能导致截图滞后"
+        echo "  VNC 客户端看到的是实时帧缓冲，截图如有差异请以 VNC 为准"
         echo "  依赖: qemu-system-x86_64, socat, ImageMagick（可选）"
         ;;
 esac
