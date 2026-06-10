@@ -24,7 +24,7 @@
 #   ./scripts/qemu-screenshot.sh capture [名称]     # 截取当前帧
 #   ./scripts/qemu-screenshot.sh stop               # 停止 QEMU
 #
-# 依赖: qemu-system-x86_64, socat, ffmpeg（推荐）或 ImageMagick（备选）
+# 依赖: qemu-system-x86_64, socat, vncsnapshot（推荐）或 ImageMagick（备选）
 
 set -euo pipefail
 
@@ -53,9 +53,9 @@ check_deps() {
         exit 1
     fi
 
-    # 可选依赖检查（VNC 截图需要 ffmpeg）
-    if ! command -v ffmpeg &>/dev/null; then
-        info "提示: 安装 ffmpeg 可使用更可靠的 VNC 截图: apt install ffmpeg"
+    # 可选依赖检查（VNC 截图需要 vncsnapshot）
+    if ! command -v vncsnapshot &>/dev/null; then
+        info "提示: 安装 vncsnapshot 可使用更可靠的 VNC 截图: apt install vncsnapshot"
     fi
 }
 
@@ -167,16 +167,25 @@ capture_screenshot() {
 
     # 策略 1：VNC 截图（推荐，解决 screendump dirty region 问题）
     # VNC 协议持续追踪屏幕更新，不存在 screendump 的帧缓冲滞后问题
-    if command -v ffmpeg &>/dev/null; then
-        local vnc_display_num="${VNC_DISPLAY#:}"
-        local vnc_port=$((5900 + vnc_display_num))
+    if command -v vncsnapshot &>/dev/null; then
+        local vnc_display="${VNC_DISPLAY}"
 
-        info "使用 VNC 截图 (端口: ${vnc_port})"
+        info "使用 VNC 截图 (Display: ${vnc_display})"
 
-        # 通过 ffmpeg 从 VNC 流捕获单帧
-        # -frames:v 1 只捕获一帧，-y 覆盖已有文件
-        if ffmpeg -f vnc -i "localhost:${vnc_port}" -frames:v 1 -y "$png_path" 2>/dev/null; then
-            ok "截图已保存: $png_path"
+        # 通过 vncsnapshot 从 VNC 服务捕获单帧
+        # -quiet 减少输出，:0 对应 VNC_DISPLAY
+        if vncsnapshot -quiet "${vnc_display}" "${shot_dir}/${name}.ppm" 2>/dev/null; then
+            # vncsnapshot 输出 PPM 格式，需要转换为 PNG
+            if command -v convert &>/dev/null; then
+                convert "${shot_dir}/${name}.ppm" "$png_path" 2>/dev/null && rm -f "${shot_dir}/${name}.ppm"
+                ok "截图已保存: $png_path"
+            elif command -v pnmtopng &>/dev/null; then
+                pnmtopng "${shot_dir}/${name}.ppm" > "$png_path" 2>/dev/null && rm -f "${shot_dir}/${name}.ppm"
+                ok "截图已保存: $png_path"
+            else
+                ok "截图已保存: ${shot_dir}/${name}.ppm"
+                info "安装 ImageMagick 可自动转 PNG: apt install imagemagick"
+            fi
             return 0
         else
             err "VNC 截图失败，回退到 screendump"
@@ -207,7 +216,7 @@ capture_screenshot() {
         err "  1. VGA 帧缓冲未激活（确认未使用 -nographic）"
         err "  2. Live 系统尚未启动完成，帧缓冲无内容"
         err "  3. QEMU monitor 通信失败"
-        err "建议: 安装 ffmpeg 以使用更可靠的 VNC 截图"
+        err "建议: 安装 vncsnapshot 以使用更可靠的 VNC 截图"
         exit 1
     fi
 
@@ -265,16 +274,16 @@ case "${1:-help}" in
         echo "  $0 capture                → docs/screenshots/screenshot-20260610-143022.png"
         echo ""
         echo "截图策略（按优先级）:"
-        echo "  1. VNC 截图（推荐）：通过 ffmpeg 从 VNC 流捕获，解决 screendump 帧缓冲滞后问题"
+        echo "  1. VNC 截图（推荐）：通过 vncsnapshot 从 VNC 服务捕获，解决 screendump 帧缓冲滞后问题"
         echo "  2. screendump（备选）：QEMU HMP 命令，捕获 VGA 帧缓冲内存快照"
         echo ""
         echo "工作原理:"
         echo "  QEMU -vga std 提供 VGA 帧缓冲 → Linux fbcon 渲染 whiptail TUI"
-        echo "  → ffmpeg 从 VNC 流捕获单帧（或 screendump 捕获帧缓冲像素）→ PNG"
+        echo "  → vncsnapshot 从 VNC 服务捕获单帧（或 screendump 捕获帧缓冲像素）→ PPM → PNG"
         echo ""
         echo "限制:"
         echo "  不适用于 -nographic 模式（该模式无 VGA 设备）"
-        echo "  screendump 存在 fbcon dirty region 滞后问题，建议安装 ffmpeg"
-        echo "  依赖: qemu-system-x86_64, socat, ffmpeg（推荐）或 ImageMagick（备选）"
+        echo "  screendump 存在 fbcon dirty region 滞后问题，建议安装 vncsnapshot"
+        echo "  依赖: qemu-system-x86_64, socat, vncsnapshot（推荐）或 ImageMagick（备选）"
         ;;
 esac
