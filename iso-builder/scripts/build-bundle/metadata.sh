@@ -3,7 +3,8 @@ set -euo pipefail
 
 # 生成 cache/bundle/metadata.yaml 结构化索引
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SELF="${BASH_SOURCE[0]}"
+SCRIPT_DIR="$(cd "$(dirname "$SELF")" && pwd)"
 WORKSPACE="$(cd "$SCRIPT_DIR/../.." && pwd)"
 VERSION="${1:-v1.0.0}"
 

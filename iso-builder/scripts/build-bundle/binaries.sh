@@ -3,7 +3,8 @@ set -euo pipefail
 
 # 下载二进制工具
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SELF="${BASH_SOURCE[0]}"
+SCRIPT_DIR="$(cd "$(dirname "$SELF")" && pwd)"
 WORKSPACE="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 source "${SCRIPT_DIR}/../common.sh"

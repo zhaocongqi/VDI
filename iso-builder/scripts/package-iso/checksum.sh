@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-WORKSPACE="$(cd "$(dirname "$0")/../.." && pwd)"
+WORKSPACE="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 VERSION="${1:-v1.0.0}"
 ISO_NAME="vdi-offline-${VERSION}"
 
