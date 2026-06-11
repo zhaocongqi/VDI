@@ -1,5 +1,6 @@
 # VDI 离线 ISO 构建系统
-# 使用 Dapper + live-build 在容器中构建，确保可重复性
+# 三阶段 pipeline: build-rootfs → build-bundle → package-iso
+# 参考 Harvester 的分层构建架构
 
 # 版本信息
 VERSION ?= v1.0.0
@@ -9,243 +10,187 @@ DIST_DIR ?= dist
 # 构建镜像名称
 BUILDER_IMAGE ?= vdi-iso-builder
 
-# Docker 网络模式（解决桥接网络 DNS 问题）
+# Docker 网络模式
 DOCKER_NET ?= --network host
 
-# 默认目标：完整构建
-.PHONY: all
-all: iso
+# 通用 Docker 运行参数
+DOCKER_RUN = docker run --rm \
+	$(DOCKER_NET) \
+	-v $(shell pwd):/workspace \
+	-v /var/run/docker.sock:/var/run/docker.sock \
+	--privileged \
+	--cap-add SYS_ADMIN
 
 # ========== 构建环境 ==========
 
-# 构建 Dapper 构建环境镜像
 .PHONY: build-builder
 build-builder:
 	docker build $(DOCKER_NET) -f Dockerfile.dapper -t $(BUILDER_IMAGE) .
 
-# 进入构建容器（调试用）
 .PHONY: shell
 shell: build-builder
 	docker run --rm -it \
 		$(DOCKER_NET) \
 		-v $(shell pwd):/workspace \
-		-v /var/run/docker.sock:/var/run/docker.sock \
 		--privileged \
 		$(BUILDER_IMAGE) \
 		bash
 
-# ========== 资源下载 ==========
+# ========== 三阶段 pipeline ==========
 
-# 下载全部离线资源（需要互联网）
-.PHONY: download
-download: build-builder
-	docker run --rm \
-		$(DOCKER_NET) \
-		-v $(shell pwd):/workspace \
-		$(BUILDER_IMAGE) \
-		bash -c './scripts/download-resources'
-
-# 仅下载容器镜像
-.PHONY: download-images
-download-images: build-builder
-	docker run --rm \
-		$(DOCKER_NET) \
-		-v $(shell pwd):/workspace \
-		$(BUILDER_IMAGE) \
-		bash -c './scripts/download-images'
-
-# 仅下载二进制工具
-.PHONY: download-binaries
-download-binaries: build-builder
-	docker run --rm \
-		$(DOCKER_NET) \
-		-v $(shell pwd):/workspace \
-		$(BUILDER_IMAGE) \
-		bash -c './scripts/download-binaries'
-
-# 仅下载系统包
-.PHONY: download-packages
-download-packages: build-builder
-	docker run --rm \
-		$(DOCKER_NET) \
-		-v $(shell pwd):/workspace \
-		$(BUILDER_IMAGE) \
-		bash -c './scripts/download-packages'
-
-# 下载 Helm Chart
-.PHONY: download-charts
-download-charts: build-builder
-	docker run --rm \
-		$(DOCKER_NET) \
-		-v $(shell pwd):/workspace \
-		$(BUILDER_IMAGE) \
-		bash -c './scripts/download-charts'
-
-# 下载 K8s Manifest
-.PHONY: download-manifests
-download-manifests: build-builder
-	docker run --rm \
-		$(DOCKER_NET) \
-		-v $(shell pwd):/workspace \
-		$(BUILDER_IMAGE) \
-		bash -c './scripts/download-manifests'
-
-# ========== ISO 构建 ==========
-
-# 完整 ISO 构建（live-build：下载资源 + 自动构建）
 .PHONY: iso
 iso: build-builder
-	@echo "=== 开始构建 VDI 离线 ISO $(VERSION) (live-build) ==="
-	docker run --rm \
-		$(DOCKER_NET) \
-		-v $(shell pwd):/workspace \
-		--privileged \
-		--cap-add SYS_ADMIN \
-		$(BUILDER_IMAGE) \
-		bash -c './scripts/build-iso-lb "$(VERSION)"'
+	@echo "=== 开始构建 VDI 离线 ISO $(VERSION) ==="
+	$(DOCKER_RUN) $(BUILDER_IMAGE) \
+		bash -c './scripts/build-rootfs/entry "$(VERSION)" && \
+		          ./scripts/build-bundle/entry "$(VERSION)" && \
+		          ./scripts/package-iso/entry "$(VERSION)"'
 	@echo "=== 构建完成: $(DIST_DIR)/$(ISO_NAME).iso ==="
+
+.PHONY: build-rootfs
+build-rootfs: build-builder
+	$(DOCKER_RUN) $(BUILDER_IMAGE) \
+		bash -c './scripts/build-rootfs/entry "$(VERSION)"'
+
+.PHONY: build-bundle
+build-bundle: build-builder
+	$(DOCKER_RUN) $(BUILDER_IMAGE) \
+		bash -c './scripts/build-bundle/entry "$(VERSION)"'
+
+.PHONY: download
+download: build-bundle
+
+.PHONY: package-iso
+package-iso: build-builder
+	$(DOCKER_RUN) $(BUILDER_IMAGE) \
+		bash -c './scripts/package-iso/entry "$(VERSION)"'
+
+# ========== 增量构建 ==========
+
+.PHONY: package-iso-only
+package-iso-only: build-builder
+	$(DOCKER_RUN) $(BUILDER_IMAGE) \
+		bash -c './scripts/package-iso/entry "$(VERSION)"'
+
+.PHONY: build-bundle-only
+build-bundle-only: build-builder
+	$(DOCKER_RUN) $(BUILDER_IMAGE) \
+		bash -c './scripts/build-bundle/entry "$(VERSION)"'
+
+# ========== 资源下载（细粒度，占位）==========
+
+.PHONY: download-images download-binaries download-packages download-charts download-manifests
+download-images download-binaries download-packages download-charts download-manifests: build-builder
+	@echo "请使用 make build-bundle 下载全部资源"
 
 # ========== 校验 ==========
 
-# 校验离线资源完整性
 .PHONY: verify
 verify:
-	@if [ -f offline/checksums.sha256 ]; then \
-		sha256sum -c offline/checksums.sha256 --quiet && echo "✓ 校验通过" || echo "✗ 校验失败"; \
+	@if [ -f cache/bundle/checksums.sha256 ]; then \
+		sha256sum -c cache/bundle/checksums.sha256 --quiet && echo "OK" || echo "FAIL"; \
+	elif [ -f offline/checksums.sha256 ]; then \
+		sha256sum -c offline/checksums.sha256 --quiet && echo "OK" || echo "FAIL"; \
 	else \
-		echo "checksums.sha256 不存在，请先执行 make download"; \
+		echo "checksums.sha256 not found"; \
 	fi
 
 # ========== 测试 ==========
 
-# 使用 QEMU 本地启动 ISO 测试（自动检测图形/VNC 模式）
 .PHONY: test-iso
 test-iso:
-	@if [ ! -f $(DIST_DIR)/$(ISO_NAME).iso ]; then \
-		echo "✗ ISO 不存在，请先执行 make iso"; \
-		exit 1; \
-	fi
+	@if [ ! -f $(DIST_DIR)/$(ISO_NAME).iso ]; then echo "ISO not found"; exit 1; fi
 	@echo "=== 启动 QEMU 测试 $(ISO_NAME).iso ==="
 	@if [ -n "$$DISPLAY" ] || [ -n "$$WAYLAND_DISPLAY" ]; then \
-		echo "  模式: 图形窗口 | 内存: 2GB | CPU: 2核"; \
-		echo "  关闭: 直接关闭 QEMU 窗口"; \
-		echo ""; \
-		qemu-system-x86_64 \
-			$$(test -w /dev/kvm && echo -enable-kvm) \
-			-m 2048 -smp 2 \
-			-cdrom $(DIST_DIR)/$(ISO_NAME).iso -boot d \
+		qemu-system-x86_64 $$(test -w /dev/kvm && echo -enable-kvm) \
+			-m 2048 -smp 2 -cdrom $(DIST_DIR)/$(ISO_NAME).iso -boot d \
 			-net nic -net user; \
 	else \
-		echo "  模式: VNC | 内存: 2GB | CPU: 2核"; \
-		echo "  连接: vncviewer localhost:5900"; \
-		echo "  关闭: Ctrl+C 停止 QEMU"; \
-		echo ""; \
-		qemu-system-x86_64 \
-			$$(test -w /dev/kvm && echo -enable-kvm) \
-			-m 2048 -smp 2 \
-			-cdrom $(DIST_DIR)/$(ISO_NAME).iso -boot d \
-			-net nic -net user \
-			-vnc :0; \
+		echo "  模式: VNC | 连接: vncviewer localhost:5900"; \
+		qemu-system-x86_64 $$(test -w /dev/kvm && echo -enable-kvm) \
+			-m 2048 -smp 2 -cdrom $(DIST_DIR)/$(ISO_NAME).iso -boot d \
+			-net nic -net user -vnc :0; \
 	fi
 
-# 使用 QEMU 启动 ISO 测试（串口控制台模式，无需图形界面）
 .PHONY: test-iso-console
 test-iso-console:
-	@if [ ! -f $(DIST_DIR)/$(ISO_NAME).iso ]; then \
-		echo "✗ ISO 不存在，请先执行 make iso"; \
-		exit 1; \
-	fi
-	@echo "=== 启动 QEMU 串口控制台测试 ==="
-	@echo "  退出: Ctrl+A 然后 X"
-	@echo ""
-	qemu-system-x86_64 \
-		$$(test -w /dev/kvm && echo -enable-kvm) \
-		-m 2048 \
-		-smp 2 \
-		-cdrom $(DIST_DIR)/$(ISO_NAME).iso \
-		-boot d \
-		-nographic \
-		-net nic -net user
+	@if [ ! -f $(DIST_DIR)/$(ISO_NAME).iso ]; then echo "ISO not found"; exit 1; fi
+	@echo "=== QEMU 串口控制台 (Ctrl+A X 退出) ==="
+	qemu-system-x86_64 $$(test -w /dev/kvm && echo -enable-kvm) \
+		-m 2048 -smp 2 -cdrom $(DIST_DIR)/$(ISO_NAME).iso -boot d \
+		-nographic -net nic -net user
 
 # ========== 截图 ==========
 
-# QEMU 截图配置
 SCREENSHOT_NAME ?=
-QEMU_MONITOR_SOCK ?= /tmp/vdi-qemu-monitor.sock
 
-# QEMU 截图模式（VGA + VNC + monitor socket，后台运行）
-# 用途：捕获 whiptail TUI 界面截图
-# 注意：不适用于 -nographic 模式（无 VGA 帧缓冲）
-# 依赖：qemu-system-x86_64, socat, vncsnapshot（推荐，解决 screendump 帧缓冲滞后）
 .PHONY: test-iso-screenshot
 test-iso-screenshot:
 	@bash scripts/qemu-screenshot.sh start "$(DIST_DIR)/$(ISO_NAME).iso"
 
-# 截取当前 QEMU VGA 帧（需要先启动 test-iso-screenshot）
-# 示例: make screenshot SCREENSHOT_NAME=welcome
 .PHONY: screenshot
 screenshot:
 	@bash scripts/qemu-screenshot.sh capture "$(SCREENSHOT_NAME)"
 
-# 停止后台 QEMU 实例
 .PHONY: stop-qemu
 stop-qemu:
 	@bash scripts/qemu-screenshot.sh stop
 
 # ========== 清理 ==========
 
-# 清理构建产物
 .PHONY: clean
 clean:
 	rm -rf $(DIST_DIR)
-	cd lb-config && lb clean --purge 2>/dev/null || true
-	rm -rf lb-config/build.log
-	@echo "✓ 清理完成"
+	rm -rf cache/rootfs/ cache/bootstrap.tar
+	@echo "clean done"
 
-# 清理全部（包括下载的离线资源）
+.PHONY: clean-rootfs
+clean-rootfs:
+	rm -rf cache/rootfs/ cache/bootstrap.tar
+	@echo "clean-rootfs done"
+
+.PHONY: clean-bundle
+clean-bundle:
+	rm -rf cache/bundle/
+	@echo "clean-bundle done"
+
+.PHONY: clean-iso
+clean-iso:
+	rm -rf $(DIST_DIR)
+	@echo "clean-iso done"
+
 .PHONY: distclean
 distclean: clean
-	rm -rf offline/images/**/*.tar offline/images/**/*.oci
-	rm -rf offline/binaries/*
-	rm -rf offline/packages/deb/*.deb
-	rm -rf offline/packages/repo
-	rm -rf offline/checksums.sha256
-	rm -rf offline/charts/longhorn/*.tgz
-	rm -rf offline/charts/kagent/*.tgz
-	rm -rf offline/k8s-manifests/*.yaml
-	@echo "✓ 全量清理完成"
+	rm -rf cache/
+	@echo "distclean done"
 
 # ========== 帮助 ==========
 
 .PHONY: help
 help:
-	@echo "VDI 离线 ISO 构建系统 (Dapper + live-build)"
+	@echo "VDI 离线 ISO 构建系统（三阶段 pipeline）"
 	@echo ""
 	@echo "构建目标:"
-	@echo "  make iso               完整构建离线 ISO（live-build）"
+	@echo "  make iso               完整构建离线 ISO"
+	@echo "  make build-rootfs      阶段 1: 构建 rootfs"
+	@echo "  make build-bundle      阶段 2: 下载离线资源"
+	@echo "  make package-iso       阶段 3: 打包 ISO"
 	@echo ""
-	@echo "资源下载（需要互联网）:"
-	@echo "  make download          下载全部离线资源"
-	@echo "  make download-images   仅下载容器镜像"
-	@echo "  make download-binaries 仅下载二进制工具"
-	@echo "  make download-packages 仅下载系统包"
-	@echo "  make download-charts   仅下载 Helm Chart"
-	@echo "  make download-manifests 仅下载 K8s Manifest"
+	@echo "增量构建:"
+	@echo "  make package-iso-only  仅重新打包 ISO"
+	@echo "  make build-bundle-only 仅更新离线资源"
 	@echo ""
 	@echo "开发调试:"
 	@echo "  make shell             进入构建容器交互 shell"
 	@echo "  make verify            校验离线资源完整性"
-	@echo "  make clean             清理构建产物"
-	@echo "  make distclean         清理全部（含下载资源）"
+	@echo "  make clean             清理构建产物 (保留 bundle)"
+	@echo "  make clean-rootfs      仅清理 rootfs 缓存"
+	@echo "  make clean-bundle      仅清理离线资源"
+	@echo "  make distclean         清理全部（含缓存）"
 	@echo ""
-	@echo "ISO 测试（需要 qemu-system-x86）:"
-	@echo "  make test-iso          QEMU 图形模式启动 ISO"
-	@echo "  make test-iso-console  QEMU 串口控制台模式启动 ISO"
-	@echo ""
-	@echo "TUI 截图（需要 qemu-system-x86 + socat + vncsnapshot）:"
-	@echo "  make test-iso-screenshot  后台启动 QEMU（VGA+VNC+monitor）"
-	@echo "  make screenshot NAME=名称 截取当前 VGA 帧（VNC 截图，解决 screendump 滞后）"
-	@echo "  make stop-qemu            停止后台 QEMU"
+	@echo "ISO 测试:"
+	@echo "  make test-iso          QEMU 图形模式"
+	@echo "  make test-iso-console  QEMU 串口控制台模式"
 	@echo ""
 	@echo "变量:"
 	@echo "  VERSION=$(VERSION)     ISO 版本号"
