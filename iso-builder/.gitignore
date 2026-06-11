@@ -1,6 +1,7 @@
-# 构建缓存和产物
+# ========== 构建缓存和产物 ==========
 cache/
 dist/
+iso_root/
 
 # live-build 工作目录
 config/
@@ -13,44 +14,39 @@ build.log
 *.tar.zst
 tmp/
 
-# ========== 离线资源（构建时下载，不提交到 git）==========
-# 容器镜像（OCI 目录格式，skopeo 下载）
-offline/images/kubernetes/
-offline/images/kube-ovn/
-offline/images/kube-vip/
-offline/images/kubevirt/
-offline/images/longhorn/
-offline/images/kagent/
-offline/images/cdi/
+# ========== rootfs 构建产物 ==========
+# rootfs/ 只保留配置文件（package-lists/、hooks/、includes.chroot/）
+# live-build 产出的完整 chroot 文件系统需排除
+rootfs/bin
+rootfs/boot/
+rootfs/cdrom/
+rootfs/dev/
+rootfs/etc/
+rootfs/home/
+rootfs/lib
+rootfs/lib32
+rootfs/lib64
+rootfs/libx32
+rootfs/media/
+rootfs/mnt/
+rootfs/opt/
+rootfs/proc/
+rootfs/root/
+rootfs/run/
+rootfs/sbin
+rootfs/srv/
+rootfs/sys/
+rootfs/tmp/
+rootfs/usr/
+rootfs/var/
 
-# 二进制工具
-offline/binaries/*
-!offline/binaries/.gitkeep
+# ========== 调试截图（不入库） ==========
+docs/screenshots/
 
-# Helm Chart（下载的 tgz 包）
-offline/charts/longhorn/*.tgz
-offline/charts/kagent/*.tgz
-
-# K8s Manifest YAML
-offline/k8s-manifests/*.yaml
-
-# 系统 deb 包
-offline/packages/deb/*.deb
-offline/packages/repo/
-
-# 校验和（构建时生成）
-offline/checksums.sha256
-
-# ========== macOS ==========
+# ========== 通用 ==========
 .DS_Store
-
-# ========== Python 缓存 ==========
 __pycache__/
 *.pyc
 *.pyo
-
-# ========== squashfs 文件 ==========
 *.squashfs
-
-# ========== ISO 文件 ==========
 *.iso
