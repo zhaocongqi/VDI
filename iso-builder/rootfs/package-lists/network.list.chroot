@@ -1,0 +1,11 @@
+# 网络
+network-manager
+iproute2
+iputils-ping
+net-tools
+curl
+wget
+jq
+
+# 时间同步
+chrony

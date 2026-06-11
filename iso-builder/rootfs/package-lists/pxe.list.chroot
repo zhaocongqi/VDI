@@ -1,0 +1,7 @@
+# PXE 服务组件
+dnsmasq
+nginx
+
+# 部署工具
+openssh-client
+rsync
