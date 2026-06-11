@@ -32,10 +32,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ### iso-builder (`cd iso-builder`)
 ```bash
-make iso               # 完整构建离线 ISO（下载 + 打包）
-make download          # 仅下载离线资源
+make iso               # 完整构建（三阶段 pipeline: rootfs → bundle → ISO）
+make build-rootfs      # 阶段 1: 构建 rootfs
+make build-bundle      # 阶段 2: 下载离线资源
+make package-iso       # 阶段 3: 打包 ISO
+make package-iso-only  # 增量: 仅重新打包 ISO（不重建 rootfs/bundle）
+make build-bundle-only # 增量: 仅更新离线资源
 make shell             # 进入构建容器调试
 make verify            # 校验离线资源完整性
+make clean             # 清理构建产物（保留缓存）
+make distclean         # 清理全部（含缓存）
 ```
 
 ### kagent (`cd kagent`)
