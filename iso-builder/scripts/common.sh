@@ -66,3 +66,50 @@ download_with_progress() {
 sha256_file() {
     sha256sum "$1" | cut -d' ' -f1
 }
+
+# source 所有共享函数库
+source_libs() {
+    local script_dir
+    script_dir="$(cd "$(dirname "${BASH_SOURCE[1]}")" && pwd)"
+    local lib_dir="${script_dir}/lib"
+    if [ ! -d "$lib_dir" ] && [ -d "${script_dir}/../lib" ]; then
+        lib_dir="${script_dir}/../lib"
+    fi
+    for lib in "${lib_dir}"/*.sh; do
+        [ -f "$lib" ] && source "$lib"
+    done
+}
+
+# 阶段校验：验证必需文件存在
+validate_file() {
+    local file="$1"
+    local desc="${2:-文件}"
+    if [ ! -f "$file" ]; then
+        error "${desc}不存在: ${file}"
+        return 1
+    fi
+}
+
+# 阶段校验：验证必需目录存在
+validate_dir() {
+    local dir="$1"
+    local desc="${2:-目录}"
+    if [ ! -d "$dir" ]; then
+        error "${desc}不存在: ${dir}"
+        return 1
+    fi
+}
+
+# 计算目录下所有文件的 sha256 并生成校验和文件
+generate_checksums() {
+    local base_dir="$1"
+    local output="$2"
+    (
+        cd "$base_dir"
+        find . -type f \
+            ! -name 'checksums.sha256' \
+            ! -name '.gitkeep' \
+            ! -name 'metadata.yaml' \
+            -exec sha256sum {} \;
+    ) > "$output"
+}
