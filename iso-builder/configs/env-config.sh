@@ -31,9 +31,13 @@ CDI_VERSION="${CDI_VERSION:-v1.61.0}"
 NTP_SERVER="${NTP_SERVER:-ntp.aliyun.com}"
 
 # ========== 离线环境变量（ISO 挂载后自动设置）==========
-# 检测 ISO 挂载点
-if [ -d /cdrom/offline ]; then
+# 检测 ISO 挂载点（优先 bundle/，兼容 offline/）
+if [ -d /cdrom/bundle ]; then
+    OFFLINE_BASE="/cdrom/bundle"
+elif [ -d /cdrom/offline ]; then
     OFFLINE_BASE="/cdrom/offline"
+elif [ -d /mnt/iso/bundle ]; then
+    OFFLINE_BASE="/mnt/iso/bundle"
 elif [ -d /mnt/iso/offline ]; then
     OFFLINE_BASE="/mnt/iso/offline"
 fi
