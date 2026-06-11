@@ -17,13 +17,15 @@ class OfflineManager:
         self._detect()
 
     def _detect(self):
-        """检测离线资源路径"""
+        """检测离线资源路径（兼容 bundle/ 和 offline/）"""
+        resource_names = ["bundle", "offline"]
         for path in self.MOUNT_CANDIDATES:
-            offline_path = os.path.join(path, "offline")
-            if os.path.isdir(offline_path):
-                self.base_dir = offline_path
-                logger.info(f"检测到离线资源: {self.base_dir}")
-                break
+            for name in resource_names:
+                resource_path = os.path.join(path, name)
+                if os.path.isdir(resource_path):
+                    self.base_dir = resource_path
+                    logger.info(f"检测到离线资源: {self.base_dir}")
+                    return
 
     def is_available(self):
         """离线资源是否可用"""
@@ -114,11 +116,21 @@ class OfflineManager:
         return False
 
     def get_manifest(self):
-        """读取离线资源清单 (manifest.yaml)"""
+        """读取离线资源清单"""
+        # 优先从 bundle/metadata.yaml 读取
+        metadata_path = self.get_path("metadata.yaml")
+        if metadata_path and os.path.exists(metadata_path):
+            try:
+                import yaml
+                with open(metadata_path, "r") as f:
+                    return yaml.safe_load(f)
+            except Exception as e:
+                logger.error(f"Failed to read metadata: {e}")
+
+        # 回退到 manifest.yaml
         manifest_path = self.get_path("manifest.yaml")
         if not manifest_path or not os.path.exists(manifest_path):
             return None
-
         try:
             import yaml
             with open(manifest_path, "r") as f:
