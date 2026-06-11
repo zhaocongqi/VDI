@@ -1,0 +1,24 @@
+# 内核与基础系统
+linux-image-generic
+initramfs-tools
+live-boot
+systemd
+bash
+
+# SSH（远程调试）
+openssh-server
+
+# 系统工具
+vim
+less
+pciutils
+usbutils
+util-linux
+mount
+e2fsprogs
+dosfstools
+nfs-common
+ca-certificates
+gnupg
+lsb-release
+sudo

@@ -1,0 +1,63 @@
+#!/bin/bash
+set -euo pipefail
+
+# Hook: TUI 自动启动 + 离线环境变量
+# 替代 create-live 中的 vdi-welcome.sh 和 integrate-offline 中的 env-offline.sh
+
+# 离线环境变量（profile.d 自动 source）
+cat > /etc/profile.d/vdi-offline.sh <<'ENVEOF'
+#!/bin/bash
+# 离线环境变量（ISO 挂载后自动设置）
+
+if [ -d /cdrom/offline ]; then
+    export OFFLINE_BASE="/cdrom/offline"
+elif [ -d /mnt/iso/offline ]; then
+    export OFFLINE_BASE="/mnt/iso/offline"
+else
+    unset OFFLINE_BASE
+fi
+
+if [ -n "${OFFLINE_BASE:-}" ]; then
+    export OFFLINE_BINARIES="${OFFLINE_BASE}/binaries"
+    export OFFLINE_IMAGES="${OFFLINE_BASE}/images"
+    export OFFLINE_CHARTS="${OFFLINE_BASE}/charts"
+    export OFFLINE_MANIFESTS="${OFFLINE_BASE}/k8s-manifests"
+    export OFFLINE_PACKAGES="${OFFLINE_BASE}/packages/deb"
+    export PATH="${OFFLINE_BINARIES}:${PATH}"
+    echo "[Offline] Resource path: ${OFFLINE_BASE}"
+fi
+ENVEOF
+chmod +x /etc/profile.d/vdi-offline.sh
+
+# TUI 欢迎脚本 + 自动启动
+cat > /etc/profile.d/vdi-welcome.sh <<'WELCOME'
+# VDI Live system welcome + TUI auto-start
+if [ -n "$PS1" ]; then
+    echo ""
+    echo "============================================"
+    echo "  VDI Offline Deploy Live System"
+    echo "============================================"
+    echo ""
+    echo "  Offline Resources: /cdrom/offline/"
+    echo "  Deploy Logs:       /var/log/vdi-deploy/"
+    echo ""
+
+    # Auto-start TUI on tty1 (graphical) or ttyS0 (serial console) as root
+    CURRENT_TTY="$(tty 2>/dev/null)"
+    IS_ROOT="$(id -u)"
+    echo "[vdi-welcome] tty=${CURRENT_TTY} uid=${IS_ROOT} TERM=${TERM:-unset}"
+    if [ "$IS_ROOT" -eq 0 ] && { [ "$CURRENT_TTY" = "/dev/tty1" ] || [ "$CURRENT_TTY" = "/dev/ttyS0" ]; }; then
+        export TERM="${TERM:-linux}"
+        echo "[vdi-welcome] Starting TUI installer..."
+        python3 /opt/vdi/tui/installer.py 2>>/var/log/vdi-deploy/installer-stderr.log
+        TUI_EXIT=$?
+        echo "[vdi-welcome] TUI installer exited (code: ${TUI_EXIT})"
+        echo "  Restart manually: python3 /opt/vdi/tui/installer.py"
+        echo ""
+    else
+        echo "[vdi-welcome] TUI skipped (not root TTY)"
+    fi
+fi
+WELCOME
+
+echo "[hook] TUI welcome setup done"

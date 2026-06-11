@@ -1,0 +1,46 @@
+#!/bin/bash
+set -euo pipefail
+
+# Hook: 系统基础配置
+# 替代 create-live 中的 hostname/hosts/netplan/user/ssh 配置
+
+# 主机名
+echo "vdi-live" > /etc/hostname
+cat > /etc/hosts <<EOF
+127.0.0.1 localhost
+127.0.1.1 vdi-live
+
+::1     localhost ip6-localhost ip6-loopback
+ff02::1 ip6-allnodes
+ff02::2 ip6-allrouters
+EOF
+
+# 网络接口（DHCP 自动获取）
+mkdir -p /etc/netplan
+cat > /etc/netplan/01-eth.yaml <<EOF
+network:
+  version: 2
+  ethernets:
+    id0:
+      match:
+        name: "en*"
+      dhcp4: true
+EOF
+
+# 创建 Live 用户
+useradd -m -s /bin/bash live 2>/dev/null || true
+echo "live:live" | chpasswd
+echo "live ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/99-live
+chmod 440 /etc/sudoers.d/99-live
+
+# SSH 允许密码登录
+sed -i 's/#PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config 2>/dev/null || true
+sed -i 's/#PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config 2>/dev/null || true
+
+# VDI 部署日志目录
+mkdir -p /var/log/vdi-deploy
+
+# ISO 挂载点
+mkdir -p /cdrom
+
+echo "[hook] System setup done"
