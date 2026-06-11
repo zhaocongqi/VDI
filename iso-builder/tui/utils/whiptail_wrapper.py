@@ -6,7 +6,7 @@
 
 解决方案：
 - 使用 shell 重定向将 stdout（选择结果）写入临时文件
-- SLang 通过 stdin fd（终端）渲染 TUI，不受 stdout 重定向影响
+- SLang 通过 /dev/tty 直接访问终端进行 TUI 渲染和键盘输入
 - stderr 重定向到 /dev/tty，确保错误信息可见
 """
 import os
@@ -47,7 +47,7 @@ class Whiptail:
         使用 os.system() + shell 重定向：
         - stdout → 临时文件（捕获用户选择结果）
         - stderr → /dev/tty（错误信息显示在终端）
-        - stdin → 终端（用户交互 + SLang TUI 渲染）
+        - stdin → 终端（SLang 通过 /dev/tty 直接读取键盘输入）
         """
         cmd = [
             "whiptail",
@@ -61,7 +61,7 @@ class Whiptail:
         tmpfile = tempfile.mktemp(prefix='.whiptail_')
 
         # 构建 shell 命令：stdout → 文件，stderr → 终端
-        # 注意：SLang 可能将 TUI 渲染混入 stdout，_extract_tag 负责清理
+        # SLang 直接打开 /dev/tty 进行 TUI 渲染和键盘输入，不依赖 stdin fd
         shell_cmd = ' '.join(shlex.quote(c) for c in cmd)
         full_cmd = f'{shell_cmd} >{shlex.quote(tmpfile)} 2>/dev/tty'
 
@@ -79,7 +79,7 @@ class Whiptail:
             if os.path.exists(tmpfile):
                 with open(tmpfile) as f:
                     raw = f.read()
-                # 清理 ANSI 转义码（SLang 可能将部分渲染码写入 stdout）
+                # 清理 ANSI 转义码（SLang 可能将部分渲染码混入 stdout）
                 output = _strip_ansi(raw)
 
             return retcode, output
