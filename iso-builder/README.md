@@ -7,6 +7,7 @@
 - **单一 ISO 介质**：包含所有离线资源（容器镜像、Helm Chart、二进制工具、系统包）
 - **TUI 菜单引导**：类似 Ubuntu Server 安装体验，4 种部署模式
 - **PXE 批量部署**：Worker 节点可通过网络自动安装并加入集群
+- **三阶段 Pipeline**：构建过程分阶段可缓存、可增量、可独立调试
 - **可重复构建**：基于 Dapper 容器化构建，确保环境一致
 
 ## 快速开始
@@ -20,20 +21,34 @@
 ### 构建 ISO
 
 ```bash
-# 完整构建（下载资源 + 打包 ISO）
+# 完整构建（三阶段 pipeline）
 make iso
 
 # 或分步执行
-make download    # 下载离线资源
-make iso         # 打包 ISO
+make build-rootfs      # 阶段 1: 构建 rootfs
+make build-bundle      # 阶段 2: 下载离线资源
+make package-iso       # 阶段 3: 打包 ISO
 ```
 
-构建产物：
+### 增量构建
+
+```bash
+make package-iso-only  # 仅重新打包 ISO（不重建 rootfs/bundle）
+make build-bundle-only # 仅更新离线资源
+SKIP_BOOTSTRAP=1 make build-rootfs  # 跳过 debootstrap（使用缓存）
+```
+
+### 构建产物
+
 ```
 dist/
 ├── vdi-offline-v1.0.0.iso           # ISO 镜像
 ├── vdi-offline-v1.0.0.iso.sha256    # SHA256 校验和
-└── vdi-offline-v1.0.0.manifest      # 构建信息
+├── version.yaml                      # 构建元数据
+└── pxe/                              # PXE 启动产物
+    ├── vmlinuz
+    ├── initrd
+    └── rootfs.squashfs
 ```
 
 ### 使用 ISO
@@ -53,9 +68,21 @@ dist/
 | 添加节点 | 作为 Worker 加入已有集群 | 扩展集群节点 |
 | PXE 服务 | 启动 PXE 服务器 | 批量部署 Worker 节点 |
 
+## 三阶段 Pipeline
+
+```
+阶段 1: build-rootfs  → cache/rootfs/     (完整 chroot 目录树)
+阶段 2: build-bundle  → cache/bundle/     (离线资源 + metadata.yaml)
+阶段 3: package-iso   → dist/*.iso        (最终 ISO + PXE 产物)
+```
+
+- **阶段 1** 使用 live-build 进行 debootstrap + chroot，产出完整 rootfs
+- **阶段 2** 通过 skopeo 下载镜像（docker-archive + zstd）、下载二进制/Chart/Manifest/deb
+- **阶段 3** 创建 squashfs + bootloader（GRUB/isolinux 模板）+ xorriso 打包
+
 ## 离线资源清单
 
-通过 `offline/manifest.yaml` 管理所有离线资源：
+通过 `manifest.yaml`（项目根目录）管理所有离线资源：
 
 - **K8s 核心**: v1.34.3（apiserver、controller-manager、scheduler、proxy、etcd、coredns）
 - **kube-vip**: v0.7.2（API Server HA）
@@ -68,24 +95,42 @@ dist/
 
 ```bash
 make shell       # 进入构建容器交互 shell
-make live-only   # 仅创建 Live 系统基础 ISO（不含离线资源）
 make verify      # 校验离线资源完整性
-make clean       # 清理构建产物
-make distclean   # 清理全部（含下载资源）
+make clean       # 清理构建产物（保留缓存）
+make distclean   # 清理全部（含缓存）
 ```
 
 ## 项目结构
 
 ```
 iso-builder/
-├── Dockerfile.dapper       # 构建环境
-├── Makefile                # 构建入口
-├── scripts/                # 构建脚本
-├── tui/                    # TUI 安装器 (Python)
-├── pxe/                    # PXE 服务
-├── configs/                # 配置模板
-├── offline/                # 离线资源 + manifest
-└── tests/                  # 测试
+├── Dockerfile.dapper    # 构建环境容器
+├── Makefile             # 三阶段 pipeline 入口
+├── manifest.yaml        # 离线资源清单（唯一真相来源）
+│
+├── scripts/             # 构建和部署时脚本
+│   ├── common.sh        # 共享函数
+│   ├── lib/             # 共享函数模块
+│   │   ├── image.sh     # 镜像拉取/保存/校验
+│   │   ├── iso.sh       # xorriso/EFI 封装
+│   │   └── template.sh  # 模板渲染
+│   ├── build-rootfs/    # 阶段 1: rootfs 构建
+│   ├── build-bundle/    # 阶段 2: 离线资源打包
+│   └── package-iso/     # 阶段 3: ISO 打包
+│
+├── rootfs/              # rootfs 配置
+│   ├── package-lists/   # apt 包列表
+│   ├── hooks/           # chroot hooks
+│   └── includes.chroot/ # 额外文件
+│
+├── iso/                 # bootloader 模板
+│   ├── boot/grub/       # GRUB 模板
+│   └── isolinux/        # isolinux 模板
+│
+├── pxe/                 # PXE 配置模板
+├── tui/                 # TUI 安装器 (Python)
+├── configs/             # 配置模板
+└── cache/               # 构建缓存 (gitignore)
 ```
 
 ## 许可证
