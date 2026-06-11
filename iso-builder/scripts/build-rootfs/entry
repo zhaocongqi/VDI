@@ -1,0 +1,57 @@
+#!/bin/bash
+set -euo pipefail
+
+# 阶段 1: build-rootfs 入口
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+WORKSPACE="$(cd "$SCRIPT_DIR/../.." && pwd)"
+VERSION="${1:-v1.0.0}"
+
+source "${SCRIPT_DIR}/../common.sh"
+
+ROOTFS_DIR="${WORKSPACE}/rootfs"
+CACHE_DIR="${WORKSPACE}/cache"
+ROOTFS_CACHE="${CACHE_DIR}/rootfs"
+BOOTSTRAP_CACHE="${CACHE_DIR}/bootstrap.tar"
+
+echo "============================================"
+echo "  阶段 1: build-rootfs"
+echo "  版本: ${VERSION}"
+echo "  时间: $(date '+%Y-%m-%d %H:%M:%S')"
+echo "============================================"
+
+mkdir -p "${CACHE_DIR}"
+
+# Bootstrap
+if [ -f "${BOOTSTRAP_CACHE}" ] && [ "${SKIP_BOOTSTRAP:-0}" = "1" ]; then
+    step "跳过 bootstrap（使用缓存）"
+    mkdir -p "${ROOTFS_CACHE}"
+    tar -xf "${BOOTSTRAP_CACHE}" -C "${ROOTFS_CACHE}"
+else
+    step "Bootstrap 阶段 (debootstrap)"
+    source "${SCRIPT_DIR}/bootstrap.sh"
+fi
+
+# Configure
+step "Configure 阶段 (chroot hooks)"
+source "${SCRIPT_DIR}/configure.sh"
+
+# 阶段校验
+step "校验 rootfs"
+validate_file "${ROOTFS_CACHE}/bin/bash" "rootfs 基础" || exit 1
+
+KERNEL=$(find "${ROOTFS_CACHE}/boot" -name "vmlinuz-*" -type f 2>/dev/null | head -1)
+if [ -z "$KERNEL" ]; then
+    error "rootfs 中未找到内核文件"
+    exit 1
+fi
+
+# 保存 bootstrap 缓存
+if [ ! -f "${BOOTSTRAP_CACHE}" ]; then
+    step "保存 bootstrap 缓存"
+    tar -cf "${BOOTSTRAP_CACHE}" -C "${ROOTFS_CACHE}" .
+fi
+
+ok "阶段 1 完成: cache/rootfs/"
+echo "  大小: $(du -sh "${ROOTFS_CACHE}" | cut -f1)"
+echo "============================================"
