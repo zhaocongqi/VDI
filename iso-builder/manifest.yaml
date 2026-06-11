@@ -23,7 +23,7 @@ components:
         url: "https://github.com/kubesphere/kubekey/releases/download/v4.0.4/kubekey-v4.0.4-linux-amd64.tar.gz"
       - name: kubectl
         version: "v1.34.3"
-        url: "https://dl.k8s.io/release/v1.34.3/bin/linux/amd64/kubectl"
+        url: "https://github.com/kubernetes/kubernetes/releases/download/v1.34.3/bin/linux/amd64/kubectl"
       - name: helm
         version: "v3.18.5"
         url: "https://get.helm.sh/helm-v3.18.5-linux-amd64.tar.gz"
@@ -84,13 +84,13 @@ components:
   cdi:
     version: "v1.61.0"
     images:
-      - quay.io/cdi/cdi-operator:v1.61.0
-      - quay.io/cdi/cdi-controller:v1.61.0
-      - quay.io/cdi/cdi-importer:v1.61.0
-      - quay.io/cdi/cdi-cloner:v1.61.0
-      - quay.io/cdi/cdi-apiserver:v1.61.0
-      - quay.io/cdi/cdi-uploadproxy:v1.61.0
-      - quay.io/cdi/cdi-uploadserver:v1.61.0
+      - quay.io/kubevirt/cdi-operator:v1.61.0
+      - quay.io/kubevirt/cdi-controller:v1.61.0
+      - quay.io/kubevirt/cdi-importer:v1.61.0
+      - quay.io/kubevirt/cdi-cloner:v1.61.0
+      - quay.io/kubevirt/cdi-apiserver:v1.61.0
+      - quay.io/kubevirt/cdi-uploadproxy:v1.61.0
+      - quay.io/kubevirt/cdi-uploadserver:v1.61.0
     manifests:
       - name: cdi-operator
         path: k8s-manifests/cdi-operator.yaml
