@@ -2,14 +2,18 @@
 set -euo pipefail
 
 # Hook: TUI 自动启动 + 离线环境变量
-# 替代 create-live 中的 vdi-welcome.sh 和 integrate-offline 中的 env-offline.sh
+# 重构后：TUI 通过 symlink 指向 /cdrom/tui/，不再复制到 squashfs
 
 # 离线环境变量（profile.d 自动 source）
 cat > /etc/profile.d/vdi-offline.sh <<'ENVEOF'
 #!/bin/bash
 # 离线环境变量（ISO 挂载后自动设置）
 
-if [ -d /cdrom/offline ]; then
+if [ -d /cdrom/bundle ]; then
+    export OFFLINE_BASE="/cdrom/bundle"
+elif [ -d /mnt/iso/bundle ]; then
+    export OFFLINE_BASE="/mnt/iso/bundle"
+elif [ -d /cdrom/offline ]; then
     export OFFLINE_BASE="/cdrom/offline"
 elif [ -d /mnt/iso/offline ]; then
     export OFFLINE_BASE="/mnt/iso/offline"
@@ -29,6 +33,11 @@ fi
 ENVEOF
 chmod +x /etc/profile.d/vdi-offline.sh
 
+# 创建 symlink（TUI 和 deploy 从 ISO 根目录读取）
+mkdir -p /opt/vdi
+ln -sf /cdrom/tui /opt/vdi/tui
+ln -sf /cdrom/scripts/deploy /opt/vdi/deploy
+
 # TUI 欢迎脚本 + 自动启动
 cat > /etc/profile.d/vdi-welcome.sh <<'WELCOME'
 # VDI Live system welcome + TUI auto-start
@@ -38,11 +47,10 @@ if [ -n "$PS1" ]; then
     echo "  VDI Offline Deploy Live System"
     echo "============================================"
     echo ""
-    echo "  Offline Resources: /cdrom/offline/"
+    echo "  Offline Resources: /cdrom/bundle/"
     echo "  Deploy Logs:       /var/log/vdi-deploy/"
     echo ""
 
-    # Auto-start TUI on tty1 (graphical) or ttyS0 (serial console) as root
     CURRENT_TTY="$(tty 2>/dev/null)"
     IS_ROOT="$(id -u)"
     echo "[vdi-welcome] tty=${CURRENT_TTY} uid=${IS_ROOT} TERM=${TERM:-unset}"
@@ -60,4 +68,4 @@ if [ -n "$PS1" ]; then
 fi
 WELCOME
 
-echo "[hook] TUI welcome setup done"
+echo "[hook] TUI welcome setup done (symlink mode)"
