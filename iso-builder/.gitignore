@@ -1,9 +1,17 @@
-# ========== 构建产物 ==========
+# 构建缓存和产物
+cache/
 dist/
-*.iso
 
-# ========== live-build 缓存（约 4GB，构建时生成）==========
-lb-config/
+# live-build 工作目录
+config/
+chroot/
+binary/
+build.log
+
+# 临时文件
+*.tar
+*.tar.zst
+tmp/
 
 # ========== 离线资源（构建时下载，不提交到 git）==========
 # 容器镜像（OCI 目录格式，skopeo 下载）
@@ -33,12 +41,6 @@ offline/packages/repo/
 # 校验和（构建时生成）
 offline/checksums.sha256
 
-# ========== 临时文件 ==========
-tmp/
-rootfs/
-iso_root/
-squashfs-root/
-
 # ========== macOS ==========
 .DS_Store
 
@@ -49,3 +51,6 @@ __pycache__/
 
 # ========== squashfs 文件 ==========
 *.squashfs
+
+# ========== ISO 文件 ==========
+*.iso
