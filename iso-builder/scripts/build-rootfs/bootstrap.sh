@@ -22,6 +22,7 @@ step "lb config"
 lb config noauto \
     --distribution jammy \
     --architectures amd64 \
+    --linux-flavours generic \
     --binary-images iso-hybrid \
     --bootloader syslinux \
     --debian-installer none \
