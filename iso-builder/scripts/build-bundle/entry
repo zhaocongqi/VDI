@@ -1,0 +1,52 @@
+#!/bin/bash
+set -euo pipefail
+
+# 阶段 2: build-bundle 入口
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+WORKSPACE="$(cd "$SCRIPT_DIR/../.." && pwd)"
+VERSION="${1:-v1.0.0}"
+
+source "${SCRIPT_DIR}/../common.sh"
+
+MANIFEST="${WORKSPACE}/manifest.yaml"
+CACHE_DIR="${WORKSPACE}/cache"
+BUNDLE_DIR="${CACHE_DIR}/bundle"
+
+echo "============================================"
+echo "  阶段 2: build-bundle"
+echo "  版本: ${VERSION}"
+echo "  清单: ${MANIFEST}"
+echo "  时间: $(date '+%Y-%m-%d %H:%M:%S')"
+echo "============================================"
+
+validate_file "$MANIFEST" "manifest.yaml" || exit 1
+
+mkdir -p "${BUNDLE_DIR}"/{images,binaries,charts,k8s-manifests,packages/deb}
+
+step "下载容器镜像"
+source "${SCRIPT_DIR}/images.sh"
+
+step "下载二进制工具"
+source "${SCRIPT_DIR}/binaries.sh"
+
+step "下载 Helm Charts"
+source "${SCRIPT_DIR}/charts.sh"
+
+step "下载 K8s Manifests"
+source "${SCRIPT_DIR}/manifests.sh"
+
+step "下载系统 deb 包"
+source "${SCRIPT_DIR}/packages.sh"
+
+step "生成 metadata.yaml 索引"
+source "${SCRIPT_DIR}/metadata.sh"
+
+step "生成 checksums.sha256"
+generate_checksums "${BUNDLE_DIR}" "${BUNDLE_DIR}/checksums.sha256"
+
+validate_file "${BUNDLE_DIR}/metadata.yaml" "metadata.yaml" || exit 1
+
+ok "阶段 2 完成: cache/bundle/"
+echo "  总大小: $(du -sh "${BUNDLE_DIR}" | cut -f1)"
+echo "============================================"
