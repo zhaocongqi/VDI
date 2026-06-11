@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-WORKSPACE="$(cd "$(dirname "$0")/../.." && pwd)"
+WORKSPACE="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 source "${WORKSPACE}/scripts/common.sh"
 source "${WORKSPACE}/scripts/lib/iso.sh"
 source "${WORKSPACE}/scripts/lib/template.sh"

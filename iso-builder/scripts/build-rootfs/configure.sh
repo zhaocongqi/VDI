@@ -2,8 +2,10 @@
 set -euo pipefail
 
 # 在 chroot 中执行 hooks
+# 注意：被 entry 通过 source 调用，需用 BASH_SOURCE 获取真实路径
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SELF="${BASH_SOURCE[0]}"
+SCRIPT_DIR="$(cd "$(dirname "$SELF")" && pwd)"
 WORKSPACE="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 source "${SCRIPT_DIR}/../common.sh"

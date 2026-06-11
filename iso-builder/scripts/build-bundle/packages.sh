@@ -3,7 +3,8 @@ set -euo pipefail
 
 # 下载系统 deb 包并创建本地 APT 仓库
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SELF="${BASH_SOURCE[0]}"
+SCRIPT_DIR="$(cd "$(dirname "$SELF")" && pwd)"
 WORKSPACE="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 source "${SCRIPT_DIR}/../common.sh"
