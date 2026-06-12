@@ -6,7 +6,10 @@
 - 使用 subprocess.run() 替代 os.system()，避免 /bin/sh -c 中间层干扰终端状态
 - 调用前通过 termios 保存终端属性，调用后恢复，防止 SLang/newt 残留 raw mode
 - stdout 重定向到临时文件（捕获用户选择），stderr 保留为子进程继承的终端 fd
-- 不使用 --clear 标志，改为调用后自行清屏，避免 alternate screen buffer 恢复异常
+- 调用前后完整重置终端状态（scroll region + ACS + 属性 + 清屏 + 光标归位），
+  解决 TERM=linux 无 alternate screen buffer 问题：Linux fbcon 不支持 smcup/rmcup，
+  SLang 直接在主屏幕 buffer 渲染，且 CUP 相对于 scroll region 而非屏幕原点，
+  退出后必须重置全部状态才能避免后续对话框渲染位置偏移和字符混乱
 """
 import os
 import re
@@ -59,6 +62,35 @@ def _restore_terminal_state(fd, original_attrs):
         pass
 
 
+def _reset_terminal(fd):
+    r"""完整重置终端状态：scroll region + 属性 + 字符集 + 清屏 + 光标归位
+
+    SLang/newt 在渲染对话框时会修改多项终端状态：
+    1. Scroll Region (DECSTBM \E[r) — SLang 用 csr 为列表区域设定滚动范围
+    2. Character Set — SLang 用 ^N (SO) 切换到 ACS 画边框字符
+    3. Attributes — 颜色、粗体、反色等
+
+    退出时 SLang_reset_tty() 仅恢复 termios 属性（raw mode 等），
+    不重置通过转义序列设置的 scroll region 和字符集。
+
+    关键问题：Linux fbcon 上 \E[H (CUP) 的光标定位相对于 scroll region 顶部，
+    而非屏幕绝对原点。如果 scroll region 未重置，\E[H 会定位到错误位置，
+    导致后续对话框渲染位置偏移，产生字符重叠和混乱。
+
+    完整重置序列（对齐 linux terminfo 的 sgr0 + clear + csr）：
+      \E[r       — DECSTBM 无参数：重置 scroll region 为全屏
+      \E[0m\017  — sgr0：重置属性 + 退出 ACS（\017 = Ctrl-O = SI = rmacs）
+      \E[2J      — ED 2：清除整个屏幕（不受 scroll region 影响）
+      \E[H       — CUP(1,1)：光标归位（scroll region 已重置，故为绝对原点）
+    """
+    if fd < 0:
+        return
+    try:
+        os.write(fd, b'\033[r\033[0m\017\033[2J\033[H')
+    except OSError:
+        pass
+
+
 class Whiptail:
     """whiptail 调用封装"""
 
@@ -80,9 +112,14 @@ class Whiptail:
           即使父进程 stderr 被重定向（如 profile.d 中 2>>log），
           SLang 也通过直接打开 /dev/tty 确保 TUI 渲染正确
         - 调用前后保存/恢复终端属性，防止 SLang 残留 raw mode
+        - 调用前后完整重置终端状态（scroll region + ACS + 属性 + 清屏 + 光标归位），
+          解决 TERM=linux 无 alternate screen buffer 问题：
+          Linux fbcon 的 CUP 相对于 scroll region 而非屏幕原点，
+          SLang 退出后若不重置 scroll region，后续对话框渲染位置偏移
         """
         cmd = [
             "whiptail",
+            "--clear",        # whiptail 退出时清屏（在 linux console 上清除主 buffer 残影）
             "--notags",
             "--title", self.title,
             "--backtitle", self.backtitle,
@@ -110,14 +147,24 @@ class Whiptail:
         # （如被 profile.d hook 重定向到日志文件），SLang 会退而写入 stdout，
         # 导致 TUI 渲染码与选择结果混合，产生字符重复/混乱
         stderr_target = None  # 默认继承
+        stderr_fd = -1
         try:
             tty_path = os.ttyname(sys.stderr.fileno())
+            # stderr 已经指向终端，直接用 stderr fd 做清屏
+            try:
+                stderr_fd = sys.stderr.fileno()
+            except (ValueError, OSError):
+                pass
         except (OSError, ValueError):
             # stderr 不指向终端 — 打开 /dev/tty 作为替代
             try:
                 stderr_target = open('/dev/tty', 'w')
+                stderr_fd = stderr_target.fileno()
             except OSError:
                 pass  # 无法打开 /dev/tty，使用默认行为
+
+        # 调用前：完整重置终端状态，确保 SLang 在干净的画面上渲染
+        _reset_terminal(stderr_fd)
 
         try:
             with open(tmpfile, 'w') as tmp_out:
@@ -144,6 +191,10 @@ class Whiptail:
             logger.error(f"whiptail call exception: {e}")
             return 255, ""
         finally:
+            # 调用后：完整重置终端状态，消除 SLang 残留的渲染内容和状态
+            # 重置 scroll region + ACS 字符集 + 属性 + 清屏 + 光标归位
+            _reset_terminal(stderr_fd)
+
             # 恢复终端属性（关键：防止 SLang 残留 raw mode）
             if tty_fd >= 0:
                 _restore_terminal_state(tty_fd, original_attrs)
