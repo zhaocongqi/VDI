@@ -34,7 +34,9 @@ ENVEOF
 chmod +x /etc/profile.d/vdi-offline.sh
 
 # 创建 symlink（TUI 和 deploy 从 ISO 根目录读取）
+# 注意：必须先删除已存在的目录/文件，否则 ln -sf 会在目录内部创建链接而非替换目录本身
 mkdir -p /opt/vdi
+rm -rf /opt/vdi/tui /opt/vdi/deploy
 ln -sf /cdrom/tui /opt/vdi/tui
 ln -sf /cdrom/scripts/deploy /opt/vdi/deploy
 

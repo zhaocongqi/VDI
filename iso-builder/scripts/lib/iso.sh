@@ -14,6 +14,9 @@ pack_iso() {
     local isohdpfx=""
     isohdpfx="$(find_isohdpfx)" || true
 
+    # 确保输出路径可用（覆盖已有文件）
+    rm -f "$iso_output"
+
     local xorriso_args=(
         -volid "$vol_id"
         -joliet on
