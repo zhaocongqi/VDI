@@ -10,17 +10,41 @@ pack_iso() {
 
     echo ">>> 打包 ISO: $(basename "$iso_output")"
 
-    xorriso -volid "$vol_id" \
-        -joliet on -padding 0 \
-        -outdev "$iso_output" \
-        -map "$iso_root" / -chmod 0755 -- \
-        -append_partition 2 0xef "$efi_img" \
-        -boot_image any cat_path="boot/boot.catalog" \
-        -boot_image any cat_hidden=on \
-        -boot_image any efi_path=--interval:appended_partition_2:all:: \
-        -boot_image any platform_id=0xef \
-        -boot_image any appended_part_as=gpt \
+    # 查找 isohdpfx 用于 MBR 混合引导
+    local isohdpfx=""
+    isohdpfx="$(find_isohdpfx)" || true
+
+    local xorriso_args=(
+        -volid "$vol_id"
+        -joliet on
+        -padding 0
+        -outdev "$iso_output"
+        -map "$iso_root" /
+        -chmod 0755 --
+        -append_partition 2 0xef "$efi_img"
+        # BIOS 引导 (isolinux)
+        -boot_image isolinux bin_path="isolinux/isolinux.bin"
+        -boot_image isolinux cat_path="boot/boot.catalog"
+        -boot_image isolinux cat_hidden=on
+        -boot_image isolinux load_size=2048
+        -boot_image isolinux boot_info_table=on
+        # EFI 引导 (第二引导项)
+        -boot_image any next
+        -boot_image any efi_path="--interval:appended_partition_2:all::"
+        -boot_image any platform_id=0xef
+        -boot_image any appended_part_as=gpt
         -boot_image any partition_offset=16
+    )
+
+    # MBR 混合引导支持
+    if [ -n "$isohdpfx" ]; then
+        xorriso_args+=(
+            -boot_image isolinux system_area="$isohdpfx"
+            -boot_image isolinux partition_table=on
+        )
+    fi
+
+    xorriso "${xorriso_args[@]}"
 
     echo "    ISO 大小: $(du -sh "$iso_output" | cut -f1)"
 }
