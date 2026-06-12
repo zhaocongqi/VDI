@@ -66,6 +66,8 @@ class VDIInstaller:
                 return 0
 
             self.logger.info(f"Selected deploy mode: {self.mode}")
+
+            self.logger.info(f"Selected deploy mode: {self.mode}")
             self.config["mode"] = self.mode
 
             # 步骤 3：根据模式收集配置
