@@ -1,25 +1,33 @@
 """whiptail TUI 组件封装
 
-通过 os.system() + shell 重定向调用 whiptail。
-关键：不能用 subprocess.PIPE 捕获 stdout，因为 whiptail 的 SLang 库
-会将 TUI 转义码写入 stdout，与用户选择结果混合在一起导致解析失败。
+通过 subprocess.run() 调用 whiptail，并在调用前后保存/恢复终端设置。
 
-解决方案：
-- 使用 shell 重定向将 stdout（选择结果）写入临时文件
-- SLang 通过 /dev/tty 直接访问终端进行 TUI 渲染和键盘输入
-- stderr 重定向到 /dev/tty，确保错误信息可见
+关键设计：
+- 使用 subprocess.run() 替代 os.system()，避免 /bin/sh -c 中间层干扰终端状态
+- 调用前通过 termios 保存终端属性，调用后恢复，防止 SLang/newt 残留 raw mode
+- stdout 重定向到临时文件（捕获用户选择），stderr 保留为子进程继承的终端 fd
+- 不使用 --clear 标志，改为调用后自行清屏，避免 alternate screen buffer 恢复异常
 """
 import os
 import re
 import shlex
+import subprocess
+import sys
 import tempfile
 import logging
+import termios
+import tty
 
 logger = logging.getLogger("vdi-installer")
 
 # ANSI 转义码匹配模式（用于清理输出）
-# 覆盖：CSI 序列、CSI ? 序列、两字节 ESC 序列、控制字符
-ANSI_RE = re.compile(r'\x1b\[\??[0-9;]*[a-zA-Z]|\x1b[\(\)][B0UK]|\x1b[><]|\x1b.|[\x00-\x1f\x7f]')
+ANSI_RE = re.compile(
+    r'\x1b\[\??[0-9;]*[a-zA-Z]'
+    r'|\x1b[\(\)][B0UK]'
+    r'|\x1b[><]'
+    r'|\x1b.'
+    r'|[\x00-\x1f\x7f]'
+)
 
 
 def _strip_ansi(text):
@@ -28,6 +36,27 @@ def _strip_ansi(text):
     # 二次清理：移除残留的非打印字符（ASCII 0-31, 127）
     cleaned = ''.join(c for c in cleaned if c >= ' ' or c in '\t\n')
     return cleaned.strip()
+
+
+def _save_terminal_state(fd):
+    """保存终端属性，返回原始设置"""
+    try:
+        return termios.tcgetattr(fd)
+    except termios.error:
+        return None
+
+
+def _restore_terminal_state(fd, original_attrs):
+    """恢复终端属性到原始设置"""
+    if original_attrs is None:
+        return
+    try:
+        # 先刷出待输出数据
+        termios.tcdrain(fd)
+        # 恢复原始终端属性
+        termios.tcsetattr(fd, termios.TCSANOW, original_attrs)
+    except termios.error:
+        pass
 
 
 class Whiptail:
@@ -44,15 +73,17 @@ class Whiptail:
     def _run(self, args, input_data=None):
         """执行 whiptail 命令
 
-        使用 os.system() + shell 重定向：
-        - stdout → 临时文件（捕获用户选择结果）
-        - stderr → /dev/tty（错误信息显示在终端）
-        - stdin → 终端（SLang 通过 /dev/tty 直接读取键盘输入）
+        使用 subprocess.run() 直接调用 whiptail：
+        - stdin 继承父进程（终端），whiptail 通过此 fd 读取键盘输入
+        - stdout 重定向到临时文件（捕获用户选择结果）
+        - stderr 显式指向 /dev/tty（SLang 通过此 fd 渲染 TUI）
+          即使父进程 stderr 被重定向（如 profile.d 中 2>>log），
+          SLang 也通过直接打开 /dev/tty 确保 TUI 渲染正确
+        - 调用前后保存/恢复终端属性，防止 SLang 残留 raw mode
         """
         cmd = [
             "whiptail",
             "--notags",
-            "--clear",
             "--title", self.title,
             "--backtitle", self.backtitle,
             *args
@@ -60,19 +91,44 @@ class Whiptail:
 
         tmpfile = tempfile.mktemp(prefix='.whiptail_')
 
-        # 构建 shell 命令：stdout → 文件，stderr → 终端
-        # SLang 直接打开 /dev/tty 进行 TUI 渲染和键盘输入，不依赖 stdin fd
-        shell_cmd = ' '.join(shlex.quote(c) for c in cmd)
-        full_cmd = f'{shell_cmd} >{shlex.quote(tmpfile)} 2>/dev/tty'
+        # 获取终端 fd
+        tty_fd = -1
+        try:
+            tty_fd = sys.stdin.fileno()
+            if not os.isatty(tty_fd):
+                tty_fd = -1
+        except (ValueError, OSError):
+            pass
+
+        # 保存终端属性
+        original_attrs = None
+        if tty_fd >= 0:
+            original_attrs = _save_terminal_state(tty_fd)
+
+        # 确保 stderr 指向真实终端
+        # SLang/newt 通过 stderr 写入 TUI 渲染码，如果 stderr 不指向终端
+        # （如被 profile.d hook 重定向到日志文件），SLang 会退而写入 stdout，
+        # 导致 TUI 渲染码与选择结果混合，产生字符重复/混乱
+        stderr_target = None  # 默认继承
+        try:
+            tty_path = os.ttyname(sys.stderr.fileno())
+        except (OSError, ValueError):
+            # stderr 不指向终端 — 打开 /dev/tty 作为替代
+            try:
+                stderr_target = open('/dev/tty', 'w')
+            except OSError:
+                pass  # 无法打开 /dev/tty，使用默认行为
 
         try:
-            retcode = os.system(full_cmd)
+            with open(tmpfile, 'w') as tmp_out:
+                result = subprocess.run(
+                    cmd,
+                    stdin=None,            # 继承父进程 stdin（终端）
+                    stdout=tmp_out,        # 选择结果写入临时文件
+                    stderr=stderr_target,  # 指向 /dev/tty（或 None=继承）
+                )
 
-            # 转换 os.system() 的返回值格式
-            if os.WIFEXITED(retcode):
-                retcode = os.WEXITSTATUS(retcode)
-            else:
-                retcode = 255
+            retcode = result.returncode
 
             # 从临时文件读取选择结果
             output = ""
@@ -88,6 +144,18 @@ class Whiptail:
             logger.error(f"whiptail call exception: {e}")
             return 255, ""
         finally:
+            # 恢复终端属性（关键：防止 SLang 残留 raw mode）
+            if tty_fd >= 0:
+                _restore_terminal_state(tty_fd, original_attrs)
+
+            # 关闭显式打开的 /dev/tty fd
+            if stderr_target is not None:
+                try:
+                    stderr_target.close()
+                except OSError:
+                    pass
+
+            # 清理临时文件
             try:
                 os.unlink(tmpfile)
             except OSError:
@@ -135,7 +203,8 @@ class Whiptail:
         需要从清理后的输出中精确提取有效 tag。
         """
         tags = {tag for tag, _ in items}
-        cleaned = output.strip()
+        # 二次 ANSI 清理：即使 _run() 已清理过，这里也再清理一次确保安全
+        cleaned = _strip_ansi(output)
 
         # 1. 整个输出就是有效 tag（正常情况）
         if cleaned in tags:
@@ -148,7 +217,6 @@ class Whiptail:
                 return line
 
         # 3. 从输出中查找独立的有效 tag（前后非数字字符）
-        import re
         for match in re.finditer(r'(?:^|\s|[^\d])(\d+)(?:\s|$|[^\d])', cleaned):
             candidate = match.group(1)
             if candidate in tags:

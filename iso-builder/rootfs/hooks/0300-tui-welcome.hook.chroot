@@ -41,6 +41,10 @@ ln -sf /cdrom/tui /opt/vdi/tui
 ln -sf /cdrom/scripts/deploy /opt/vdi/deploy
 
 # TUI 欢迎脚本 + 自动启动
+# 设计要点：
+#   - 仅在 tty1（VGA 控制台）启动 TUI，避免与 ttyS0（串口）竞争
+#   - 不重定向 Python 的 stderr，让 whiptail/SLang 正确继承终端 fd
+#   - 使用 exec 确保 stdin/stdout/stderr 全部指向当前终端
 cat > /etc/profile.d/vdi-welcome.sh <<'WELCOME'
 # VDI Live system welcome + TUI auto-start
 if [ -n "$PS1" ]; then
@@ -56,16 +60,24 @@ if [ -n "$PS1" ]; then
     CURRENT_TTY="$(tty 2>/dev/null)"
     IS_ROOT="$(id -u)"
     echo "[vdi-welcome] tty=${CURRENT_TTY} uid=${IS_ROOT} TERM=${TERM:-unset}"
-    if [ "$IS_ROOT" -eq 0 ] && { [ "$CURRENT_TTY" = "/dev/tty1" ] || [ "$CURRENT_TTY" = "/dev/ttyS0" ]; }; then
+
+    # 仅在 tty1（VGA 控制台）自动启动 TUI
+    # ttyS0（串口终端）仅显示提示信息，不启动 TUI（避免双控制台竞争）
+    if [ "$IS_ROOT" -eq 0 ] && [ "$CURRENT_TTY" = "/dev/tty1" ]; then
         export TERM="${TERM:-linux}"
         echo "[vdi-welcome] Starting TUI installer..."
-        python3 /opt/vdi/tui/installer.py 2>>/var/log/vdi-deploy/installer-stderr.log
+        # 不重定向 stderr — whiptail/SLang 需要完整继承终端 fd 进行 TUI 渲染
+        python3 /opt/vdi/tui/installer.py
         TUI_EXIT=$?
         echo "[vdi-welcome] TUI installer exited (code: ${TUI_EXIT})"
         echo "  Restart manually: python3 /opt/vdi/tui/installer.py"
         echo ""
+    elif [ "$IS_ROOT" -eq 0 ] && [ "$CURRENT_TTY" = "/dev/ttyS0" ]; then
+        echo "[vdi-welcome] Serial console detected — TUI not started on serial."
+        echo "  To start TUI manually: TERM=linux python3 /opt/vdi/tui/installer.py"
+        echo ""
     else
-        echo "[vdi-welcome] TUI skipped (not root TTY)"
+        echo "[vdi-welcome] TUI skipped (not root on console)"
     fi
 fi
 WELCOME
