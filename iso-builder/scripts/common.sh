@@ -103,7 +103,7 @@ validate_dir() {
 # 计算目录下所有文件的 sha256 并生成校验和文件
 generate_checksums() {
     local base_dir="$1"
-    local output="$2"
+    local output="${2:-${base_dir}/checksums.sha256}"
     (
         cd "$base_dir"
         find . -type f \
