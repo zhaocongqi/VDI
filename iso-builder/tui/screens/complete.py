@@ -1,4 +1,6 @@
 """部署完成界面"""
+import os
+import subprocess
 import logging
 from utils.whiptail_wrapper import Whiptail
 
@@ -21,11 +23,13 @@ class CompleteScreen:
         self.wt = Whiptail(title="Deploy Complete", height=22, width=70)
 
     def show(self):
-        """显示部署结果和下一步操作"""
+        """显示部署结果并引导下一步操作
+
+        返回: "reboot"/"shell"（用户选择重启或回到 shell）
+        """
         vip = self.config.get("vip", "N/A")
 
         if self.mode in (1, 2):
-            # Master 节点部署完成
             message = (
                 f"VDI Cluster Deployed Successfully!\n\n"
                 f"Deploy Mode: {MODE_NAMES.get(self.mode, '')}\n"
@@ -44,7 +48,6 @@ class CompleteScreen:
                 f"Log Directory: /var/log/vdi-deploy/"
             )
         elif self.mode == 3:
-            # Worker 加入完成
             message = (
                 "Worker node joined cluster successfully!\n\n"
                 f"Node IP:   {self.config.get('node_ip', '')}\n"
@@ -55,7 +58,6 @@ class CompleteScreen:
                 f"Log Directory: /var/log/vdi-deploy/"
             )
         elif self.mode == 4:
-            # PXE 服务启动
             message = (
                 "PXE Server Started!\n\n"
                 f"DHCP Range:       {self.config.get('dhcp_start', '')}-{self.config.get('dhcp_end', '')}\n"
@@ -65,10 +67,24 @@ class CompleteScreen:
                 "2. Workers auto-get IP and start installation\n"
                 "3. After install, workers auto-join the cluster\n\n"
                 "Monitor Worker installation:\n"
-                "  tail -f /var/log/vdi-deploy/pxe.log\n\n"
-                "Log Directory: /var/log/vdi-deploy/"
+                f"  tail -f /var/log/vdi-deploy/pxe.log\n\n"
+                f"Log Directory: /var/log/vdi-deploy/"
             )
         else:
             message = "Deployment complete."
 
-        self.wt.msgbox(message, height=22, width=70)
+        # MODE_FRESH 需要重启到硬盘；其他模式也需要重启或回到 shell
+        choice = self.wt.menu(
+            message + "\n\nWhat would you like to do next?",
+            [
+                ("1", "Reboot - Restart system (recommended for Fresh Install)"),
+                ("2", "Shell  - Return to bash shell"),
+            ]
+        )
+
+        if choice == "1":
+            logger.info("用户选择重启系统")
+            return "reboot"
+        else:
+            logger.info("用户选择回到 shell")
+            return "shell"

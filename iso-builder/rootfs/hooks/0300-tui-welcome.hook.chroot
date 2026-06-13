@@ -44,7 +44,7 @@ ln -sf /cdrom/scripts/deploy /opt/vdi/deploy
 # 设计要点：
 #   - 仅在 tty1（VGA 控制台）启动 TUI，避免与 ttyS0（串口）竞争
 #   - 不重定向 Python 的 stderr，让 whiptail/SLang 正确继承终端 fd
-#   - 使用 exec 确保 stdin/stdout/stderr 全部指向当前终端
+#   - TUI 退出后强制恢复终端 cooked mode，防止 SLang 遗留 raw mode
 cat > /etc/profile.d/vdi-welcome.sh <<'WELCOME'
 # VDI Live system welcome + TUI auto-start
 if [ -n "$PS1" ]; then
@@ -69,6 +69,14 @@ if [ -n "$PS1" ]; then
         # 不重定向 stderr — whiptail/SLang 需要完整继承终端 fd 进行 TUI 渲染
         python3 /opt/vdi/tui/installer.py
         TUI_EXIT=$?
+
+        # TUI 退出后强制恢复终端状态
+        # SLang/newt 可能遗留 raw mode、scroll region 残留、ACS 字符集未退出
+        stty sane 2>/dev/null || true
+        printf '\033[r\033[0m\017\033[H' 2>/dev/null || true
+        clear 2>/dev/null || true
+
+        echo ""
         echo "[vdi-welcome] TUI installer exited (code: ${TUI_EXIT})"
         echo "  Restart manually: python3 /opt/vdi/tui/installer.py"
         echo ""

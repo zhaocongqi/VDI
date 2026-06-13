@@ -5,7 +5,8 @@ import time
 import subprocess
 import threading
 import logging
-from utils.whiptail_wrapper import Whiptail
+import termios
+from utils.whiptail_wrapper import Whiptail, _reset_terminal, _save_terminal_state, _restore_terminal_state
 
 logger = logging.getLogger("vdi-installer")
 
@@ -138,9 +139,52 @@ class ProgressScreen:
             pass
 
     def _stop_gauge(self, proc):
-        """停止 gauge 进程"""
+        """停止 gauge 进程并完整重置终端状态
+
+        SLang/newt 在 --gauge 渲染期间修改终端的 scroll region、ACS 字符集、
+        属性和 termios 模式。退出时 SLang_reset_tty() 仅恢复 termios，
+        不处理转义序列残留。必须在 gauge 退出后立刻执行完整重置，
+        否则后续 whiptail 对话框（如 CompleteScreen）无法正确渲染。
+        """
         try:
             proc.stdin.close()
             proc.wait(timeout=5)
         except Exception:
             proc.terminate()
+            try:
+                proc.wait(timeout=2)
+            except Exception:
+                proc.kill()
+
+        # 完整重置终端状态（scroll region + ACS + 属性 + 清屏 + 光标归位）
+        try:
+            fd = sys.stderr.fileno()
+            if os.isatty(fd):
+                _reset_terminal(fd)
+        except (ValueError, OSError):
+            # stderr 不指向终端，尝试 /dev/tty
+            try:
+                with open('/dev/tty', 'wb') as tty:
+                    _reset_terminal(tty.fileno())
+            except OSError:
+                pass
+
+        # 恢复 termios 属性（SLang 可能遗留 raw mode）
+        try:
+            fd = sys.stdin.fileno()
+            if os.isatty(fd):
+                # 重新设置为合理的 cooked mode
+                attrs = list(termios.tcgetattr(fd))
+                # 恢复 ICANON + ECHO（cooked mode + 回显）
+                attrs[3] |= termios.ICANON | termios.ECHO | termios.ECHOE | termios.ECHOK
+                # 清除 raw mode 标志
+                attrs[3] &= ~(termios.ECHONL | termios.NOFLSH)
+                attrs[0] &= ~(termios.BRKINT | termios.ICRNL | termios.INPCK | termios.ISTRIP | termios.IXON)
+                attrs[0] |= termios.ICRNL
+                attrs[1] |= termios.OPOST
+                # 设置合理的 VMIN/VTIME
+                attrs[6][termios.VMIN] = 1
+                attrs[6][termios.VTIME] = 0
+                termios.tcsetattr(fd, termios.TCSANOW, attrs)
+        except (termios.error, ValueError, OSError):
+            pass

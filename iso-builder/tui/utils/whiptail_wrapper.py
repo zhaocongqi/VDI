@@ -50,14 +50,44 @@ def _save_terminal_state(fd):
 
 
 def _restore_terminal_state(fd, original_attrs):
-    """恢复终端属性到原始设置"""
+    """恢复终端属性到原始设置
+
+    若 original_attrs 为 None（保存失败），则强制恢复为 cooked mode。
+    SLang/newt 退出后可能遗留 raw mode，必须确保恢复 ICANON + ECHO，
+    否则后续 bash 交互无法正常工作。
+    """
     if original_attrs is None:
+        _force_cooked_mode(fd)
         return
     try:
         # 先刷出待输出数据
         termios.tcdrain(fd)
         # 恢复原始终端属性
         termios.tcsetattr(fd, termios.TCSANOW, original_attrs)
+        # 二次确认：如果恢复后仍处于 raw mode（SLang 可能篡改保存的属性），
+        # 强制恢复 cooked mode
+        current = termios.tcgetattr(fd)
+        if not (current[3] & termios.ICANON):
+            _force_cooked_mode(fd)
+    except termios.error:
+        _force_cooked_mode(fd)
+
+
+def _force_cooked_mode(fd):
+    """强制将终端设为 cooked mode（canonical + echo）
+
+    当 SLang/newt 遗留 raw mode 时使用，确保 bash 能正常读取输入。
+    """
+    try:
+        attrs = list(termios.tcgetattr(fd))
+        attrs[3] |= termios.ICANON | termios.ECHO | termios.ECHOE | termios.ECHOK
+        attrs[3] &= ~termios.ECHONL
+        attrs[0] &= ~(termios.BRKINT | termios.INPCK | termios.ISTRIP)
+        attrs[0] |= termios.ICRNL
+        attrs[1] |= termios.OPOST
+        attrs[6][termios.VMIN] = 1
+        attrs[6][termios.VTIME] = 0
+        termios.tcsetattr(fd, termios.TCSANOW, attrs)
     except termios.error:
         pass
 
