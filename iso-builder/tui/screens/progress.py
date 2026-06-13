@@ -95,7 +95,20 @@ class ProgressScreen:
 
                 if not success:
                     logger.error(f"Step failed: {step_name}")
+                    pb.set_step_result(i, False)
+                    # 标记剩余步骤跳过
+                    for j in range(i + 1, total):
+                        pb.step_names[j] = f"{self.steps[j][0]} (skipped)"
+                    pb.finish(False)
+
+                    # 等待用户按 Enter 查看错误
+                    while True:
+                        ch = pb.win.getch()
+                        if ch in (10, 13, curses.KEY_ENTER, 27, ord('q')):
+                            break
+
                     pb.close()
+
                     from screens.error import ErrorScreen
                     ErrorScreen(
                         f"Deploy failed: {step_name}\n\n"
@@ -120,5 +133,10 @@ class ProgressScreen:
 
         except Exception as e:
             logger.exception("Deploy process exception")
-            pb.close()
+            try:
+                pb.close()
+            except Exception:
+                pass
+            from screens.error import ErrorScreen
+            ErrorScreen(f"Deploy exception: {e}").show(stdscr)
             return False

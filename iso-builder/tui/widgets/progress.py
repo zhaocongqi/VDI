@@ -163,6 +163,7 @@ class ProgressBar:
     def close(self):
         """关闭进度条窗口"""
         try:
-            del self.win
+            self.win.clear()
+            self.win.refresh()
         except Exception:
             pass
