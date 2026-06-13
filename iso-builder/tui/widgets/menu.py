@@ -21,8 +21,10 @@ def menu(stdscr, title, text, items, backtitle="VDI Cluster Offline Installer", 
     curses.curs_set(0)
 
     item_count = len(items)
-    content_h = max(10, item_count + 7)
-    content_w = 60
+    # 根据最长描述计算所需宽度
+    max_desc = max(len(tag) + len(desc) + 6 for tag, desc in items)
+    content_w = max(70, min(max_desc + 4, 78))
+    content_h = max(12, item_count + 7)
 
     while True:
         y, x, h, w = calc_box_size(stdscr, content_h, content_w)
@@ -32,8 +34,11 @@ def menu(stdscr, title, text, items, backtitle="VDI Cluster Offline Installer", 
 
         # 计算文本区和列表区
         text_lines = wrap_text(text, w - 4)
-        list_start = min(len(text_lines) + 2, h - 5)
-        list_h = h - list_start - 3
+        # 文本区最多占一半高度，保证列表区至少有 item_count 行
+        max_text_rows = max(1, (h - item_count - 4) // 2)
+        text_lines = text_lines[:max_text_rows]
+        list_start = len(text_lines) + 2
+        list_h = min(item_count, h - list_start - 2)
         if list_h < 1:
             list_h = 1
 
@@ -50,8 +55,8 @@ def menu(stdscr, title, text, items, backtitle="VDI Cluster Offline Installer", 
 
             # 绘制说明文本
             row = 1
-            for line in text_lines[:list_start - 1]:
-                if row < h - 3:
+            for line in text_lines:
+                if row < list_start - 1:
                     try:
                         win.addstr(row, 2, line[:w - 4])
                     except curses.error:

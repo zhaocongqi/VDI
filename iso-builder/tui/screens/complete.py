@@ -79,8 +79,8 @@ class CompleteScreen:
                       title="Deploy Complete",
                       text=message + "\n\nWhat would you like to do next?",
                       items=[
-                          ("1", "Reboot - Restart system (recommended for Fresh Install)"),
-                          ("2", "Shell  - Return to bash shell"),
+                          ("1", "Reboot - Restart system (recommended)"),
+                          ("2", "Shell   - Return to bash shell"),
                       ])
 
         if choice == "1":

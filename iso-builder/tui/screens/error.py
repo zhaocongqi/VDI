@@ -41,10 +41,10 @@ class ErrorScreen:
                       title="Deploy Failed",
                       text=message,
                       items=[
-                          ("1", "Retry - Re-run the failed step"),
-                          ("2", "Skip - Skip this step and continue"),
+                          ("1", "Retry    - Re-run the failed step"),
+                          ("2", "Skip     - Skip and continue"),
                           ("3", "View Log - Open log file"),
-                          ("4", "Exit - Quit the installer"),
+                          ("4", "Exit     - Quit the installer"),
                       ])
 
         if choice == "1":
