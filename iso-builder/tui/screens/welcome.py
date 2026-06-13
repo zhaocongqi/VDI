@@ -6,10 +6,10 @@ from widgets import menu
 logger = logging.getLogger("vdi-installer")
 
 MODES = [
-    ("1", "Fresh Install - Install Ubuntu OS + VDI Cluster"),
-    ("2", "Append Deploy - Deploy VDI Cluster on existing OS"),
-    ("3", "Join Node - Add Worker node to existing cluster"),
-    ("4", "PXE Server - Start PXE server for network install"),
+    ("1", "Fresh Install  - OS + VDI Cluster (Master)"),
+    ("2", "Append Deploy  - VDI Cluster only (Master)"),
+    ("3", "Join Node      - Add Worker to cluster"),
+    ("4", "PXE Server     - Network boot service"),
 ]
 
 
@@ -25,13 +25,7 @@ class WelcomeScreen:
         Returns:
             模式编号 (1-4)，取消返回 None
         """
-        text = (
-            "Select deployment mode:\n\n"
-            "Mode 1: Install Ubuntu on bare metal, then deploy full VDI cluster (Master)\n"
-            "Mode 2: Ubuntu already installed, deploy VDI cluster directly (Master)\n"
-            "Mode 3: Join this node as Worker to an existing VDI cluster\n"
-            "Mode 4: Configure this node as PXE server for other nodes"
-        )
+        text = "Select deployment mode:"
 
         choice = menu(stdscr,
                       title="VDI Cluster Offline Installer v1.0",

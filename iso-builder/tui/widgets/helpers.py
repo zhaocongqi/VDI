@@ -22,14 +22,19 @@ def calc_box_size(stdscr, content_h, content_w, min_h=10, min_w=40):
 def draw_box(win, title="", backtitle=""):
     """绘制边框和标题"""
     win.border()
-    if title:
-        win.addstr(0, 2, f" {title} ", curses.A_BOLD)
-    if backtitle:
-        max_h, max_w = win.getmaxyx()
+    max_h, max_w = win.getmaxyx()
+    if title and backtitle:
+        # 顶部左侧显示 backtitle，右侧显示 title
         try:
-            win.addstr(max_h - 1, 2, f" {backtitle} ", curses.A_DIM)
+            win.addstr(0, 2, f" {backtitle} ", curses.A_DIM)
+            title_str = f" {title} "
+            win.addstr(0, max_w - len(title_str) - 2, title_str, curses.A_BOLD)
         except curses.error:
             pass
+    elif title:
+        win.addstr(0, 2, f" {title} ", curses.A_BOLD)
+    elif backtitle:
+        win.addstr(0, 2, f" {backtitle} ", curses.A_DIM)
 
 
 def wrap_text(text, width):
