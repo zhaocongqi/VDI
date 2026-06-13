@@ -11,7 +11,7 @@ VDI 离线 ISO 构建系统，产出一个包含完整离线部署资源的 Live
 - **Live 系统**: Ubuntu 22.04 + live-build (bootstrap/chroot) + squashfs
 - **离线镜像**: docker-archive + zstd 压缩 (skopeo 下载，ctr 导入)
 - **ISO 打包**: xorriso (BIOS isolinux + UEFI GRUB 双模式)
-- **TUI**: Python 3 + whiptail（无额外 pip 依赖）
+- **TUI**: Python 3 + curses 标准库（零外部依赖，curses.wrapper() 保证终端状态恢复）
 - **PXE**: dnsmasq (DHCP/TFTP) + python3 http.server
 
 ## 项目结构
