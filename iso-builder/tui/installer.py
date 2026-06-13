@@ -85,7 +85,9 @@ class VDIInstaller:
 
             # 步骤 7：显示结果
             if success:
-                CompleteScreen(self.mode, self.config).show()
+                action = CompleteScreen(self.mode, self.config).show()
+                if action == "reboot":
+                    self._reboot()
                 return 0
             else:
                 return 1
@@ -168,6 +170,22 @@ class VDIInstaller:
         self.logger.info(f"Received signal {signum}, exiting installer")
         print("\n\nInstaller cancelled.")
         sys.exit(130)
+
+    def _reboot(self):
+        """重启系统"""
+        self.logger.info("Rebooting system...")
+        print("\nRebooting in 3 seconds... (Ctrl+C to cancel)")
+        try:
+            import time
+            time.sleep(3)
+            # 同步磁盘后重启
+            subprocess.run(["sync"], check=False)
+            subprocess.run(["reboot", "-f"], check=False)
+        except KeyboardInterrupt:
+            print("\nReboot cancelled. Type 'reboot' to restart manually.")
+        except Exception as e:
+            self.logger.error(f"Reboot failed: {e}")
+            print(f"\nReboot failed: {e}. Type 'reboot' manually.")
 
 
 def main():

@@ -13,7 +13,11 @@ class ConfigGenerator:
 
     def __init__(self, output_dir="/etc/vdi"):
         self.output_dir = output_dir
-        os.makedirs(self.output_dir, exist_ok=True)
+        try:
+            os.makedirs(self.output_dir, exist_ok=True)
+        except PermissionError:
+            self.output_dir = os.path.expanduser("~/vdi-config")
+            os.makedirs(self.output_dir, exist_ok=True)
 
     def generate(self, mode, config):
         """根据模式和配置生成所有配置文件

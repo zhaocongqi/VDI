@@ -35,8 +35,13 @@ class DeployEngine:
     """部署执行引擎"""
 
     def __init__(self):
-        self.log_dir = "/var/log/vdi-deploy"
-        os.makedirs(self.log_dir, exist_ok=True)
+        self.log_dir = os.environ.get("VDI_LOG_DIR", "/var/log/vdi-deploy")
+        try:
+            os.makedirs(self.log_dir, exist_ok=True)
+        except PermissionError:
+            # 非 root 环境回退到用户目录
+            self.log_dir = os.path.expanduser("~/vdi-deploy-logs")
+            os.makedirs(self.log_dir, exist_ok=True)
         self.env_config = "/etc/vdi/env-config.sh"
 
     def execute_step(self, step_id, mode, config):
