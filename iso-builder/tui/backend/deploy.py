@@ -42,7 +42,13 @@ class DeployEngine:
             # 非 root 环境回退到用户目录
             self.log_dir = os.path.expanduser("~/vdi-deploy-logs")
             os.makedirs(self.log_dir, exist_ok=True)
+        # env-config.sh 来源优先级：TUI 生成 > ISO 内置 > 离线包
         self.env_config = "/etc/vdi/env-config.sh"
+        if not os.path.exists(self.env_config):
+            for candidate in ["/cdrom/scripts/deploy/env-config.sh", "/cdrom/offline/env-config.sh"]:
+                if os.path.exists(candidate):
+                    self.env_config = candidate
+                    break
 
     def execute_step(self, step_id, mode, config):
         """执行单个部署步骤
@@ -85,20 +91,18 @@ class DeployEngine:
 
     def _resolve_script(self, step_id):
         """解析脚本路径（离线优先）"""
-        # 优先使用离线路径
-        if os.path.isdir("/cdrom/offline"):
-            offline_path = OFFLINE_SCRIPT_MAP.get(step_id)
-            if offline_path and os.path.exists(offline_path):
-                return offline_path
-
-        # 回退到在线路径
+        # 优先使用 ISO 中的部署脚本
         relative = SCRIPT_MAP.get(step_id)
         if relative:
-            # 尝试多个可能的基础路径
             for base in ["/cdrom/scripts/deploy", "deploy"]:
                 full_path = os.path.join(base, relative)
                 if os.path.exists(full_path):
                     return full_path
+
+        # 回退到旧版离线路径
+        offline_path = OFFLINE_SCRIPT_MAP.get(step_id)
+        if offline_path and os.path.exists(offline_path):
+            return offline_path
 
         return None
 
