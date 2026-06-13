@@ -1,6 +1,7 @@
 """配置确认界面"""
+import curses
 import logging
-from utils.whiptail_wrapper import Whiptail
+from widgets import yesno
 
 logger = logging.getLogger("vdi-installer")
 
@@ -17,12 +18,15 @@ class ConfirmScreen:
 
     def __init__(self, config):
         self.config = config
-        self.wt = Whiptail(title="Confirm Configuration", height=25, width=70)
 
-    def show(self):
+    def show(self, stdscr):
         """显示配置摘要并请求确认
 
-        返回: True=确认, False=取消
+        Args:
+            stdscr: curses 标准屏幕
+
+        Returns:
+            True=确认, False=取消
         """
         mode = self.config.get("mode", "Unknown")
         lines = [
@@ -82,4 +86,6 @@ class ConfirmScreen:
         ])
 
         message = "\n".join(lines)
-        return self.wt.yesno(message, height=25, width=70)
+        return yesno(stdscr,
+                     title="Confirm Configuration",
+                     text=message)

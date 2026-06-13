@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 """VDI 离线部署 TUI 安装器主程序
 
-使用 whiptail 提供 TUI 界面，引导用户完成 VDI 集群部署。
-4 种部署模式：全新安装 / 追加部署 / 添加节点 / PXE 服务
+基于 Python curses 标准库构建，零外部依赖。
+curses.wrapper() 保证终端状态在任何情况下都能恢复，
+从根源解决 whiptail/SLang 终端状态损坏问题。
 """
 import sys
 import os
 import signal
 import subprocess
 import logging
+import curses
 
 # 将 tui 目录加入 Python 路径
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -46,13 +48,24 @@ class VDIInstaller:
         self.deploy_engine = DeployEngine()
         self.config_generator = ConfigGenerator()
 
-        # 注册信号处理
-        signal.signal(signal.SIGINT, self._handle_interrupt)
-        signal.signal(signal.SIGTERM, self._handle_interrupt)
+    def run(self, stdscr):
+        """curses 主流程入口
 
-    def run(self):
-        """主流程入口"""
-        self.logger.info("VDI 安装器启动")
+        由 curses.wrapper() 调用，保证终端状态恢复。
+        """
+        # 初始化 curses 设置
+        curses.curs_set(0)          # 隐藏光标
+        curses.noecho()             # 不回显按键
+        curses.cbreak()             # 即时输入（无需等待 Enter）
+        stdscr.keypad(True)         # 启用功能键
+        stdscr.timeout(-1)          # 阻塞等待输入
+
+        # 尝试启用颜色
+        if curses.has_colors():
+            curses.start_color()
+            curses.use_default_colors()
+
+        self.logger.info("VDI 安装器启动 (curses mode)")
 
         try:
             # 步骤 1：检查离线资源
@@ -60,7 +73,7 @@ class VDIInstaller:
                 return 1
 
             # 步骤 2：选择部署模式
-            self.mode = WelcomeScreen().show()
+            self.mode = WelcomeScreen().show(stdscr)
             if self.mode is None:
                 self.logger.info("User cancelled mode selection")
                 return 0
@@ -69,11 +82,11 @@ class VDIInstaller:
             self.config["mode"] = self.mode
 
             # 步骤 3：根据模式收集配置
-            if not self._collect_config():
+            if not self._collect_config(stdscr):
                 return 0
 
             # 步骤 4：确认配置
-            if not ConfirmScreen(self.config).show():
+            if not ConfirmScreen(self.config).show(stdscr):
                 self.logger.info("User cancelled confirmation")
                 return 0
 
@@ -81,11 +94,11 @@ class VDIInstaller:
             self.config_generator.generate(self.mode, self.config)
 
             # 步骤 6：执行部署
-            success = self._execute_deploy()
+            success = self._execute_deploy(stdscr)
 
             # 步骤 7：显示结果
             if success:
-                action = CompleteScreen(self.mode, self.config).show()
+                action = CompleteScreen(self.mode, self.config).show(stdscr)
                 if action == "reboot":
                     self._reboot()
                 return 0
@@ -94,55 +107,54 @@ class VDIInstaller:
 
         except Exception as e:
             self.logger.exception("Installer exited with exception")
-            ErrorScreen(str(e)).show()
+            # 异常时尝试显示错误（curses 可能仍可用）
+            try:
+                ErrorScreen(str(e)).show(stdscr)
+            except Exception:
+                pass
             return 1
 
     def _check_offline_resources(self):
         """检查离线资源完整性"""
         self.logger.info("Checking offline resources...")
         if not self.offline.is_available():
-            # 非离线环境也允许继续（用于开发测试）
             self.logger.warning("Offline resources not available, continuing in online mode")
         return True
 
-    def _collect_config(self):
+    def _collect_config(self, stdscr):
         """根据部署模式收集配置参数"""
         try:
             # 网络配置（所有模式都需要）
-            net_config = NetworkConfigScreen().show()
+            net_config = NetworkConfigScreen().show(stdscr)
             if net_config is None:
                 return False
             self.config.update(net_config)
 
             # 根据模式收集特定配置
             if self.mode in (MODE_FRESH, MODE_APPEND):
-                # 集群配置
-                cluster_config = ClusterConfigScreen().show()
+                cluster_config = ClusterConfigScreen().show(stdscr)
                 if cluster_config is None:
                     return False
                 self.config.update(cluster_config)
 
-                # 存储配置
-                storage_config = StorageConfigScreen().show()
+                storage_config = StorageConfigScreen().show(stdscr)
                 if storage_config is None:
                     return False
                 self.config.update(storage_config)
 
             elif self.mode == MODE_JOIN:
-                # Join 配置
-                join_config = JoinConfigScreen().show()
+                join_config = JoinConfigScreen().show(stdscr)
                 if join_config is None:
                     return False
                 self.config.update(join_config)
 
             elif self.mode == MODE_PXE:
-                # PXE 配置
-                cluster_config = ClusterConfigScreen().show()
+                cluster_config = ClusterConfigScreen().show(stdscr)
                 if cluster_config is None:
                     return False
                 self.config.update(cluster_config)
 
-                pxe_config = PXEConfigScreen().show()
+                pxe_config = PXEConfigScreen().show(stdscr)
                 if pxe_config is None:
                     return False
                 self.config.update(pxe_config)
@@ -151,34 +163,29 @@ class VDIInstaller:
 
         except Exception as e:
             self.logger.exception("Config collection exception")
-            ErrorScreen(f"Config collection failed: {e}").show()
+            ErrorScreen(f"Config collection failed: {e}").show(stdscr)
             return False
 
-    def _execute_deploy(self):
+    def _execute_deploy(self, stdscr):
         """执行部署流程"""
         try:
             progress = ProgressScreen(self.mode)
-            result = progress.run(self.deploy_engine, self.mode, self.config)
+            result = progress.run(stdscr, self.deploy_engine, self.mode, self.config)
             return result
         except Exception as e:
             self.logger.exception("Deploy execution exception")
-            ErrorScreen(f"Deploy failed: {e}").show()
+            ErrorScreen(f"Deploy failed: {e}").show(stdscr)
             return False
-
-    def _handle_interrupt(self, signum, frame):
-        """处理中断信号"""
-        self.logger.info(f"Received signal {signum}, exiting installer")
-        print("\n\nInstaller cancelled.")
-        sys.exit(130)
 
     def _reboot(self):
         """重启系统"""
         self.logger.info("Rebooting system...")
+        # 退出 curses 模式再打印提示
+        curses.endwin()
         print("\nRebooting in 3 seconds... (Ctrl+C to cancel)")
         try:
             import time
             time.sleep(3)
-            # 同步磁盘后重启
             subprocess.run(["sync"], check=False)
             subprocess.run(["reboot", "-f"], check=False)
         except KeyboardInterrupt:
@@ -195,20 +202,11 @@ def main():
         print("Error: This program requires a TTY environment", file=sys.stderr)
         sys.exit(1)
 
-    # 检查 TERM 环境变量（whiptail/newt 依赖）
+    # 设置 TERM 环境变量（curses 依赖）
     term = os.environ.get("TERM")
     if not term or term == "dumb":
         os.environ["TERM"] = "linux"
         print(f"TERM not set, auto-set to linux", file=sys.stderr)
-
-    # 检查 whiptail 是否可用
-    try:
-        subprocess.run(["which", "whiptail"], check=True,
-                       capture_output=True)
-    except subprocess.CalledProcessError:
-        print("Error: whiptail not installed, run: apt-get install whiptail",
-              file=sys.stderr)
-        sys.exit(1)
 
     try:
         installer = VDIInstaller()
@@ -217,7 +215,12 @@ def main():
         print("Check /var/log/vdi-deploy/installer.log for details", file=sys.stderr)
         sys.exit(1)
 
-    sys.exit(installer.run())
+    # curses.wrapper 保证:
+    # 1. 调用 initscr() 初始化
+    # 2. 调用 endwin() 恢复终端（即使在异常情况下）
+    # 3. 恢复 echo/cbreak 等模式
+    # 终端状态损坏问题从根源消除
+    sys.exit(curses.wrapper(installer.run))
 
 
 if __name__ == "__main__":

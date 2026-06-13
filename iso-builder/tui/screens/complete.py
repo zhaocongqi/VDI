@@ -1,8 +1,7 @@
 """部署完成界面"""
 import os
-import subprocess
 import logging
-from utils.whiptail_wrapper import Whiptail
+from widgets import menu, msgbox
 
 logger = logging.getLogger("vdi-installer")
 
@@ -20,12 +19,15 @@ class CompleteScreen:
     def __init__(self, mode, config):
         self.mode = mode
         self.config = config
-        self.wt = Whiptail(title="Deploy Complete", height=22, width=70)
 
-    def show(self):
+    def show(self, stdscr):
         """显示部署结果并引导下一步操作
 
-        返回: "reboot"/"shell"（用户选择重启或回到 shell）
+        Args:
+            stdscr: curses 标准屏幕
+
+        Returns:
+            "reboot"/"shell"（用户选择重启或回到 shell）
         """
         vip = self.config.get("vip", "N/A")
 
@@ -73,14 +75,13 @@ class CompleteScreen:
         else:
             message = "Deployment complete."
 
-        # MODE_FRESH 需要重启到硬盘；其他模式也需要重启或回到 shell
-        choice = self.wt.menu(
-            message + "\n\nWhat would you like to do next?",
-            [
-                ("1", "Reboot - Restart system (recommended for Fresh Install)"),
-                ("2", "Shell  - Return to bash shell"),
-            ]
-        )
+        choice = menu(stdscr,
+                      title="Deploy Complete",
+                      text=message + "\n\nWhat would you like to do next?",
+                      items=[
+                          ("1", "Reboot - Restart system (recommended for Fresh Install)"),
+                          ("2", "Shell  - Return to bash shell"),
+                      ])
 
         if choice == "1":
             logger.info("用户选择重启系统")
