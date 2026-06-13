@@ -1,7 +1,7 @@
 """部署进度界面
 
-使用 curses 内建进度条组件，不依赖 whiptail --gauge 子进程，
-从根源避免终端状态损坏问题。
+使用 curses 内建进度条组件，不依赖 whiptail --gauge 子进程。
+部署步骤在后台线程执行，主线程持续刷新 UI，保证进度可视化。
 """
 import os
 import sys
@@ -77,31 +77,73 @@ class ProgressScreen:
         step_names = [name for name, _ in self.steps]
         pb = ProgressBar(stdscr, "Deploy Progress", step_names)
 
+        # 用于线程间通信
+        step_result = [None]  # 当前步骤的结果: True/False/None
+        step_error = [""]     # 当前步骤的错误信息
+        cancelled = [False]   # 用户取消标志
+
         try:
             for i, (step_name, step_id) in enumerate(self.steps):
-                # 更新进度
                 pb.update(i, step_name)
 
-                # 检查是否取消
-                if pb.wait_cancel():
+                # 在后台线程执行部署步骤
+                step_result[0] = None
+                step_error[0] = ""
+
+                def _run_step():
+                    try:
+                        ok = deploy_engine.execute_step(step_id, mode, config)
+                        step_result[0] = ok
+                        if not ok:
+                            # 读取步骤日志的最后几行作为错误信息
+                            log_path = os.path.join(deploy_engine.log_dir, f"{step_id}.log")
+                            try:
+                                with open(log_path, "r") as f:
+                                    lines = f.readlines()
+                                    step_error[0] = "".join(lines[-10:]).strip()
+                            except Exception:
+                                step_error[0] = "(no detail)"
+                    except Exception as e:
+                        step_result[0] = False
+                        step_error[0] = str(e)
+
+                worker = threading.Thread(target=_run_step, daemon=True)
+                worker.start()
+
+                # 主线程：刷新 UI + 检测取消
+                while worker.is_alive():
+                    worker.join(timeout=0.3)
+                    # 检测取消
+                    pb.win.timeout(0)
+                    try:
+                        ch = pb.win.getch()
+                        if ch == 27 or ch == ord('q'):
+                            cancelled[0] = True
+                            break
+                    except curses.error:
+                        pass
+                    finally:
+                        pb.win.timeout(-1)
+                    # 刷新进度条显示
+                    pb._draw()
+
+                if cancelled[0]:
                     logger.info("用户取消部署")
                     pb.close()
                     return False
 
-                # 执行部署步骤
-                logger.info(f"执行步骤 [{i+1}/{total}]: {step_name}")
-                success = deploy_engine.execute_step(step_id, mode, config)
+                worker.join()
+                success = step_result[0]
                 pb.set_step_result(i, success)
 
                 if not success:
                     logger.error(f"Step failed: {step_name}")
-                    pb.set_step_result(i, False)
                     # 标记剩余步骤跳过
                     for j in range(i + 1, total):
                         pb.step_names[j] = f"{self.steps[j][0]} (skipped)"
                     pb.finish(False)
 
-                    # 等待用户按 Enter 查看错误
+                    # 等待用户按 Enter
                     while True:
                         ch = pb.win.getch()
                         if ch in (10, 13, curses.KEY_ENTER, 27, ord('q')):
@@ -110,9 +152,11 @@ class ProgressScreen:
                     pb.close()
 
                     from screens.error import ErrorScreen
+                    error_detail = step_error[0][:500] if step_error[0] else "(see log)"
                     ErrorScreen(
                         f"Deploy failed: {step_name}\n\n"
-                        f"Check log: {self.log_file}"
+                        f"Error output:\n{error_detail}\n\n"
+                        f"Full log: {self.log_file}"
                     ).show(stdscr)
                     return False
 
