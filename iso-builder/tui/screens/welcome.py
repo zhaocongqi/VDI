@@ -1,10 +1,10 @@
 """欢迎界面 - 选择部署模式"""
+import curses
 import logging
-from utils.whiptail_wrapper import Whiptail
+from widgets import menu
 
 logger = logging.getLogger("vdi-installer")
 
-# 部署模式定义
 MODES = [
     ("1", "Fresh Install - Install Ubuntu OS + VDI Cluster"),
     ("2", "Append Deploy - Deploy VDI Cluster on existing OS"),
@@ -16,25 +16,28 @@ MODES = [
 class WelcomeScreen:
     """欢迎界面，选择部署模式"""
 
-    def show(self):
+    def show(self, stdscr):
         """显示部署模式选择菜单
 
-        返回: 模式编号 (1-4)，取消返回 None
-        """
-        wt = Whiptail(
-            title="VDI Cluster Offline Installer v1.0",
-            backtitle="VDI Cluster Offline Deploy",
-            height=22, width=70
-        )
+        Args:
+            stdscr: curses 标准屏幕
 
-        choice = wt.menu(
+        Returns:
+            模式编号 (1-4)，取消返回 None
+        """
+        text = (
             "Select deployment mode:\n\n"
             "Mode 1: Install Ubuntu on bare metal, then deploy full VDI cluster (Master)\n"
             "Mode 2: Ubuntu already installed, deploy VDI cluster directly (Master)\n"
             "Mode 3: Join this node as Worker to an existing VDI cluster\n"
-            "Mode 4: Configure this node as PXE server for other nodes",
-            MODES
+            "Mode 4: Configure this node as PXE server for other nodes"
         )
+
+        choice = menu(stdscr,
+                      title="VDI Cluster Offline Installer v1.0",
+                      text=text,
+                      items=MODES,
+                      backtitle="VDI Cluster Offline Deploy")
 
         if choice is None:
             return None

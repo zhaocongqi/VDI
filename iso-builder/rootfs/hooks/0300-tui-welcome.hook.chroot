@@ -2,7 +2,8 @@
 set -euo pipefail
 
 # Hook: TUI 自动启动 + 离线环境变量
-# 重构后：TUI 通过 symlink 指向 /cdrom/tui/，不再复制到 squashfs
+# TUI 基于 Python curses（标准库），不依赖 whiptail
+# curses.wrapper() 保证终端状态恢复，无需手动 stty/reset
 
 # 离线环境变量（profile.d 自动 source）
 cat > /etc/profile.d/vdi-offline.sh <<'ENVEOF'
@@ -34,7 +35,6 @@ ENVEOF
 chmod +x /etc/profile.d/vdi-offline.sh
 
 # 创建 symlink（TUI 和 deploy 从 ISO 根目录读取）
-# 注意：必须先删除已存在的目录/文件，否则 ln -sf 会在目录内部创建链接而非替换目录本身
 mkdir -p /opt/vdi
 rm -rf /opt/vdi/tui /opt/vdi/deploy
 ln -sf /cdrom/tui /opt/vdi/tui
@@ -43,8 +43,8 @@ ln -sf /cdrom/scripts/deploy /opt/vdi/deploy
 # TUI 欢迎脚本 + 自动启动
 # 设计要点：
 #   - 仅在 tty1（VGA 控制台）启动 TUI，避免与 ttyS0（串口）竞争
-#   - 不重定向 Python 的 stderr，让 whiptail/SLang 正确继承终端 fd
-#   - TUI 退出后强制恢复终端 cooked mode，防止 SLang 遗留 raw mode
+#   - TUI 基于 Python curses，curses.wrapper() 自动恢复终端状态
+#   - 不需要手动 stty sane / reset / clear 等终端恢复操作
 cat > /etc/profile.d/vdi-welcome.sh <<'WELCOME'
 # VDI Live system welcome + TUI auto-start
 if [ -n "$PS1" ]; then
@@ -62,19 +62,13 @@ if [ -n "$PS1" ]; then
     echo "[vdi-welcome] tty=${CURRENT_TTY} uid=${IS_ROOT} TERM=${TERM:-unset}"
 
     # 仅在 tty1（VGA 控制台）自动启动 TUI
-    # ttyS0（串口终端）仅显示提示信息，不启动 TUI（避免双控制台竞争）
     if [ "$IS_ROOT" -eq 0 ] && [ "$CURRENT_TTY" = "/dev/tty1" ]; then
         export TERM="${TERM:-linux}"
         echo "[vdi-welcome] Starting TUI installer..."
-        # 不重定向 stderr — whiptail/SLang 需要完整继承终端 fd 进行 TUI 渲染
         python3 /opt/vdi/tui/installer.py
         TUI_EXIT=$?
 
-        # TUI 退出后强制恢复终端状态
-        # SLang/newt 可能遗留 raw mode、scroll region 残留、ACS 字符集未退出
-        stty sane 2>/dev/null || true
-        printf '\033[r\033[0m\017\033[H' 2>/dev/null || true
-        clear 2>/dev/null || true
+        # curses.wrapper() 已自动恢复终端状态，无需额外操作
 
         echo ""
         echo "[vdi-welcome] TUI installer exited (code: ${TUI_EXIT})"
@@ -90,4 +84,4 @@ if [ -n "$PS1" ]; then
 fi
 WELCOME
 
-echo "[hook] TUI welcome setup done (symlink mode)"
+echo "[hook] TUI welcome setup done (curses mode, no whiptail dependency)"
