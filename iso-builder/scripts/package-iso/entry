@@ -41,7 +41,7 @@ source "${SCRIPT_DIR}/bootloader.sh"
 step "整合离线资源"
 rsync -a --exclude='.gitkeep' "${BUNDLE_DIR}/" "${ISO_ROOT}/bundle/"
 
-VDI_DEPLOY="${WORKSPACE}/../deploy"
+VDI_DEPLOY="/deploy"
 if [ -d "$VDI_DEPLOY" ]; then
     rsync -a --exclude='hosts' --exclude='k8s/inventory.yaml' --exclude='.git' \
         "${VDI_DEPLOY}/" "${ISO_ROOT}/scripts/deploy/"

@@ -17,6 +17,7 @@ DOCKER_NET ?= --network host
 DOCKER_RUN = docker run --rm \
 	$(DOCKER_NET) \
 	-v $(shell pwd):/workspace \
+	-v $(shell pwd)/../deploy:/deploy \
 	-v /var/run/docker.sock:/var/run/docker.sock \
 	--privileged \
 	--cap-add SYS_ADMIN

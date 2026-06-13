@@ -31,8 +31,6 @@ RUN apt-get install -y -f --no-install-recommends \
     # 运行时工具
     python3 \
     python3-yaml \
-    whiptail \
-    dialog \
     # 网络与下载
     wget \
     curl \
@@ -54,6 +52,7 @@ RUN apt-get install -y -f --no-install-recommends \
     # 新增：镜像压缩和模板渲染
     zstd \
     gettext-base \
+    dpkg-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # 安装 skopeo（使用 trusted=yes 解决仓库签名问题）

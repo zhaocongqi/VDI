@@ -117,7 +117,11 @@ class VDIInstaller:
     def _check_offline_resources(self):
         """检查离线资源完整性"""
         self.logger.info("Checking offline resources...")
-        if not self.offline.is_available():
+        if self.offline.is_available():
+            self.config["offline_available"] = True
+            self.logger.info(f"Offline resources detected: {self.offline.base_dir}")
+        else:
+            self.config["offline_available"] = False
             self.logger.warning("Offline resources not available, continuing in online mode")
         return True
 
