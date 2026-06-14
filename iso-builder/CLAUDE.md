@@ -80,9 +80,15 @@ make distclean         # 清理全部（含缓存）
 2. **三阶段分离**: 每阶段独立可缓存、可调试
 3. **metadata.yaml 索引**: bundle 的结构化索引，支持快速查找和校验
 4. **docker-archive + zstd**: 镜像格式稳定，ctr import 可靠，压缩率高
-5. **OFFLINE_BASE 条件回退**: 部署脚本兼容 bundle/ 和 offline/ 路径
+5. **OFFLINE_BASE 条件回退**: 部署脚本兼容 bundle/ 和 offline/ 路径（检测优先 `/cdrom/bundle`）
 6. **TUI 通过 symlink**: /opt/vdi/tui → /cdrom/tui，不复制到 squashfs
 7. **PXE 仅用于 Worker**: Master 必须手动部署
+
+## 部署执行约定（TUI 运行时）
+
+- **配置生成路径**：TUI 收集的配置（`config.yaml`/`hosts`/`env-config.sh`）生成到 `/etc/vdi/`（非 root 回退 `~/vdi-config`），通过 `env-config.sh` 的 `VDI_CONFIG_DIR` 暴露。部署脚本必须从 `$VDI_CONFIG_DIR` 读取——**不要硬编码 `/cdrom/scripts/deploy/`（只读，只有 `.template`）**，否则 kk/helm 拿不到配置而失败。
+- **子进程流式执行**：部署步骤必须走 `DeployEngine._run_streaming()`（`Popen` 逐行读 + ring buffer），不要用 `subprocess.run`（阻塞会让 ProgressBar 日志面板冻结）。`_run_streaming` 同时落盘日志和喂实时缓冲。
+- **失败可恢复**：步骤失败后 `ErrorScreen` 返回 `retry`/`skip`/`exit`，`ProgressScreen` 消费——不要丢弃返回值直接 `sys.exit(1)`。
 
 ## 注意事项
 
