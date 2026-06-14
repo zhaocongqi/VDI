@@ -88,6 +88,7 @@ make distclean         # 清理全部（含缓存）
 
 - **配置生成路径**：TUI 收集的配置（`config.yaml`/`hosts`/`env-config.sh`）生成到 `/etc/vdi/`（非 root 回退 `~/vdi-config`），通过 `env-config.sh` 的 `VDI_CONFIG_DIR` 暴露。部署脚本必须从 `$VDI_CONFIG_DIR` 读取——**不要硬编码 `/cdrom/scripts/deploy/`（只读，只有 `.template`）**，否则 kk/helm 拿不到配置而失败。
 - **子进程流式执行**：部署步骤必须走 `DeployEngine._run_streaming()`（`Popen` 逐行读 + ring buffer），不要用 `subprocess.run`（阻塞会让 ProgressBar 日志面板冻结）。`_run_streaming` 同时落盘日志和喂实时缓冲。
+- **KubeKey v4 配置体系**（踩坑警示，曾因假设 v1alpha2 导致部署失败）：kk v4.0.4 用 `Config`+`Inventory` 分离设计，命令是 `kk create cluster -c config.yaml -i inventory.yaml`（**不是 `-f`，也没有 `--skip-check-os`**）。`config.yaml` 是 `kind: Config`（apiVersion `v1`，下划线字段 `kube_version`/`control_plane_endpoint`/`container_manager`），`inventory.yaml` 是 `kind: Inventory`（`hosts.<name>.connector` + `groups.kube_control_plane/etcd`，Kubespray 风格）。不要用旧版 `v1alpha2`/`Cluster`/`roleGroups` 格式。改前务必 `kk create config` 看 ground truth。
 - **失败可恢复**：步骤失败后 `ErrorScreen` 返回 `retry`/`skip`/`exit`，`ProgressScreen` 消费——不要丢弃返回值直接 `sys.exit(1)`。
 
 ## 注意事项
