@@ -169,6 +169,8 @@ class DeployEngine:
             return self._setup_pxe_service("http", config)
         elif step_id == "start-pxe":
             return self._setup_pxe_service("start", config)
+        elif step_id == "enable-discovery":
+            return self._enable_discovery(config)
 
         # 通用部署步骤
         script_path = self._resolve_script(step_id)
@@ -250,6 +252,26 @@ class DeployEngine:
             return True
         return self._run_streaming(["bash", script, service],
                                    f"setup-{service}", timeout=300)
+
+    def _enable_discovery(self, config):
+        """安装并启动 Master 发现服务（仅 master 模式）"""
+        install_script = "/cdrom/scripts/deploy/discovery/install.sh"
+        if not os.path.exists(install_script):
+            # 源码环境回退
+            for candidate in ["deploy/discovery/install.sh",
+                              "/opt/vdi/discovery/install.sh"]:
+                if os.path.exists(candidate):
+                    install_script = candidate
+                    break
+        if not os.path.exists(install_script):
+            logger.warning("Discovery install script not found, skipping")
+            self._reset_log_buffer("enable-discovery")
+            self._append_log_line("[warn] discovery install.sh not found")
+            return True  # 非致命，允许继续
+
+        # 发现服务需要 install.key 存在（bootstrap 模式 config_generator 已生成）
+        return self._run_streaming(["bash", install_script],
+                                   "enable-discovery", timeout=120)
 
     def _get_kk_path(self):
         """获取 kk 二进制路径"""
