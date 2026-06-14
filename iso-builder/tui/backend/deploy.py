@@ -146,7 +146,7 @@ class DeployEngine:
 
         Args:
             step_id: 步骤标识（如 'os-init', 'kubeovn-deploy'）
-            mode: 部署模式 (1=Master, 2=Worker)
+            mode: 部署模式 (1=首节点, 2=管理节点, 3=工作节点)
             config: 配置字典
 
         Returns:

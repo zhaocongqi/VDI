@@ -103,7 +103,7 @@ class VDIInstaller:
             self.config_generator.generate(self.mode, self.config)
             save_state("configuring", self.mode, self.config)
 
-            # 步骤 6：执行部署（Mode 1 为 Phase 1 装机，Mode 2/3/4 为完整部署）
+            # 步骤 6：执行部署（Phase 1 装机）
             success = self._execute_deploy(stdscr)
 
             # 步骤 7：显示结果
@@ -179,7 +179,8 @@ class VDIInstaller:
         """根据部署模式收集配置参数"""
         try:
             # 磁盘配置（所有模式都需要装机）
-            disk_config = DiskConfigScreen().show(stdscr)
+            default_hostnames = {MODE_FIRST: "vdi-master-01", MODE_CONTROL: "vdi-control-01", MODE_WORKER: "vdi-worker-01"}
+            disk_config = DiskConfigScreen().show(stdscr, default_hostnames.get(self.mode, "vdi-node-01"))
             if disk_config is None:
                 return False
             self.config.update(disk_config)
