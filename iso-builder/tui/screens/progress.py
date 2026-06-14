@@ -26,6 +26,7 @@ DEPLOY_STEPS = {
         ("Deploy Longhorn", "longhorn-deploy"),
         ("Deploy KubeVirt", "kubevirt-deploy"),
         ("Deploy kagent", "kagent-deploy"),
+        ("Enable Discovery Service", "enable-discovery"),
     ],
     2: [  # 追加部署
         ("System Init", "os-init"),
@@ -35,6 +36,7 @@ DEPLOY_STEPS = {
         ("Deploy Longhorn", "longhorn-deploy"),
         ("Deploy KubeVirt", "kubevirt-deploy"),
         ("Deploy kagent", "kagent-deploy"),
+        ("Enable Discovery Service", "enable-discovery"),
     ],
     3: [  # 添加节点
         ("Load Offline Images", "load-images"),
