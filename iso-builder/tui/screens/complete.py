@@ -30,6 +30,16 @@ class CompleteScreen:
             "reboot"/"shell"（用户选择重启或回到 shell）
         """
         vip = self.config.get("vip", "N/A")
+        had_skip = self.config.get("_had_skip", False)
+        # 有步骤被跳过时顶部加警告（ASCII，避免 TERM=linux 下符号乱码）
+        skip_warning = ""
+        if had_skip:
+            skip_warning = (
+                "[WARNING] Deployment completed with skipped steps.\n"
+                "Some components may NOT be installed. Verify cluster state:\n"
+                "  kubectl get nodes\n"
+                "  kubectl get pods -A\n\n"
+            )
 
         if self.mode in (1, 2):
             message = (
@@ -75,6 +85,7 @@ class CompleteScreen:
         else:
             message = "Deployment complete."
 
+        message = skip_warning + message
         choice = menu(stdscr,
                       title="Deploy Complete",
                       text=message + "\n\nWhat would you like to do next?",

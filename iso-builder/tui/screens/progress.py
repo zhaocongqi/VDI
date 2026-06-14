@@ -1,7 +1,8 @@
 """部署进度界面
 
 使用 curses 内建进度条组件，不依赖 whiptail --gauge 子进程。
-部署步骤在后台线程执行，主线程持续刷新 UI，保证进度可视化。
+部署步骤在后台线程执行，主线程持续刷新 UI（含实时日志面板）。
+步骤失败后支持 retry/skip/exit（消费 ErrorScreen 返回值）。
 """
 import os
 import sys
@@ -10,6 +11,7 @@ import threading
 import logging
 import curses
 from widgets import ProgressBar
+from screens.error import ErrorScreen
 
 logger = logging.getLogger("vdi-installer")
 
@@ -60,14 +62,11 @@ class ProgressScreen:
     def run(self, stdscr, deploy_engine, mode, config):
         """执行部署并显示进度
 
-        Args:
-            stdscr: curses 标准屏幕
-            deploy_engine: 部署引擎
-            mode: 部署模式
-            config: 配置字典
+        每个步骤外层包一个 retry 循环：成功进下一步，失败弹 ErrorScreen
+        按 retry/skip/exit 分流。
 
         Returns:
-            True=成功, False=失败
+            True=所有步骤完成（可能有 skip）, False=用户退出
         """
         total = len(self.steps)
         if total == 0:
@@ -75,104 +74,65 @@ class ProgressScreen:
             return True
 
         step_names = [name for name, _ in self.steps]
-        pb = ProgressBar(stdscr, "Deploy Progress", step_names)
+        pb = ProgressBar(stdscr, "Deploy Progress", step_names,
+                         log_source=lambda n: deploy_engine.get_recent_logs(n))
 
-        # 用于线程间通信
-        step_result = [None]  # 当前步骤的结果: True/False/None
-        step_error = [""]     # 当前步骤的错误信息
-        cancelled = [False]   # 用户取消标志
+        had_skip = False
 
         try:
             for i, (step_name, step_id) in enumerate(self.steps):
                 pb.update(i, step_name)
 
-                # 在后台线程执行部署步骤
-                step_result[0] = None
-                step_error[0] = ""
+                # ── 内层 retry 循环 ──
+                while True:
+                    success, step_error = self._execute_step_with_ui(
+                        pb, deploy_engine, step_id, mode, config, i, step_name)
 
-                def _run_step():
-                    try:
-                        ok = deploy_engine.execute_step(step_id, mode, config)
-                        step_result[0] = ok
-                        if not ok:
-                            # 读取步骤日志的最后几行作为错误信息
-                            log_path = os.path.join(deploy_engine.log_dir, f"{step_id}.log")
-                            try:
-                                with open(log_path, "r") as f:
-                                    lines = f.readlines()
-                                    step_error[0] = "".join(lines[-10:]).strip()
-                            except Exception:
-                                step_error[0] = "(no detail)"
-                    except Exception as e:
-                        step_result[0] = False
-                        step_error[0] = str(e)
+                    if success:
+                        pb.set_step_result(i, "ok")
+                        break  # 进下一个 step
 
-                worker = threading.Thread(target=_run_step, daemon=True)
-                worker.start()
+                    # ── 失败：弹 ErrorScreen，按选择分流 ──
+                    pb.set_step_result(i, "fail")
+                    log_path = os.path.join(deploy_engine.log_dir, f"{step_id}.log")
+                    error_detail = step_error[:500] if step_error else "(see log)"
 
-                # 主线程：刷新 UI + 检测取消
-                while worker.is_alive():
-                    worker.join(timeout=0.3)
-                    # 检测取消
-                    pb.win.timeout(0)
-                    try:
-                        ch = pb.win.getch()
-                        if ch == 27 or ch == ord('q'):
-                            cancelled[0] = True
-                            break
-                    except curses.error:
-                        pass
-                    finally:
-                        pb.win.timeout(-1)
-                    # 刷新进度条显示
-                    pb._draw()
-
-                if cancelled[0]:
-                    logger.info("用户取消部署")
-                    pb.close()
-                    return False
-
-                worker.join()
-                success = step_result[0]
-                pb.set_step_result(i, success)
-
-                if not success:
-                    logger.error(f"Step failed: {step_name}")
-                    # 标记剩余步骤跳过
-                    for j in range(i + 1, total):
-                        pb.step_names[j] = f"{self.steps[j][0]} (skipped)"
-                    pb.finish(False)
-
-                    # 等待用户按 Enter
-                    while True:
-                        ch = pb.win.getch()
-                        if ch in (10, 13, curses.KEY_ENTER, 27, ord('q')):
-                            break
-
-                    pb.close()
-
-                    from screens.error import ErrorScreen
-                    error_detail = step_error[0][:500] if step_error[0] else "(see log)"
-                    ErrorScreen(
-                        f"Deploy failed: {step_name}\n\n"
-                        f"Error output:\n{error_detail}\n\n"
-                        f"Full log: {self.log_file}"
+                    action = ErrorScreen(
+                        error_message=f"Deploy failed: {step_name}",
+                        solution=None,
+                        log_file=log_path,
                     ).show(stdscr)
-                    return False
 
-            # 完成
+                    logger.info(f"Step {step_name} failed, user chose: {action}")
+
+                    if action == "retry":
+                        # 清旧 fail 标记，重新点亮 --> 重跑
+                        pb.clear_step_result(i)
+                        pb.update(i, step_name)
+                        continue
+                    elif action == "skip":
+                        pb.set_step_result(i, "skip")
+                        had_skip = True
+                        break  # 进下一个 step
+                    else:  # exit
+                        pb.close()
+                        config["_had_skip"] = had_skip
+                        return False
+
+            # ── 所有步骤完成 ──
             pb.update(total - 1, step_names[-1], 100)
             for i in range(total):
-                pb.set_step_result(i, True)
+                if i not in pb.step_status:
+                    pb.set_step_result(i, "ok")
             pb.finish(True)
 
-            # 等待用户确认
             while True:
                 ch = pb.win.getch()
                 if ch in (10, 13, curses.KEY_ENTER, 27, ord('q')):
                     break
 
             pb.close()
+            config["_had_skip"] = had_skip
             return True
 
         except Exception as e:
@@ -181,6 +141,52 @@ class ProgressScreen:
                 pb.close()
             except Exception:
                 pass
-            from screens.error import ErrorScreen
-            ErrorScreen(f"Deploy exception: {e}").show(stdscr)
+            ErrorScreen(f"Deploy exception: {e}", fatal=True).show(stdscr)
             return False
+
+    def _execute_step_with_ui(self, pb, deploy_engine, step_id, mode, config, i, step_name):
+        """执行单个 step，期间刷新 UI（含日志面板）。返回 (success, error)。
+
+        step 在 worker 线程跑（不阻塞 UI），主线程每 0.3s 轮询：刷新 UI +
+        检测 ESC/q 取消。失败时从 deploy_engine 日志缓冲取最后若干行作为
+        error 详情（_run_streaming 已把输出灌进缓冲）。
+        """
+        step_result = [None]
+        step_error = [""]
+
+        def _run_step():
+            try:
+                ok = deploy_engine.execute_step(step_id, mode, config)
+                step_result[0] = ok
+                if not ok:
+                    # 优先用实时缓冲的最后 10 行作为错误摘要（已 strip）
+                    logs = deploy_engine.get_recent_logs(10)
+                    step_error[0] = "\n".join(logs).strip() if logs else "(no detail)"
+            except Exception as e:
+                step_result[0] = False
+                step_error[0] = str(e)
+
+        worker = threading.Thread(target=_run_step, daemon=True)
+        worker.start()
+
+        cancelled = False
+        while worker.is_alive():
+            worker.join(timeout=0.3)
+            # ESC/q 取消（非阻塞取键）
+            pb.win.timeout(0)
+            try:
+                ch = pb.win.getch()
+                if ch == 27 or ch == ord('q'):
+                    cancelled = True
+                    break
+            except curses.error:
+                pass
+            finally:
+                pb.win.timeout(-1)
+            # 刷新 UI（含最新日志行）
+            pb._draw()
+
+        if cancelled:
+            return False, "cancelled by user"
+        worker.join()
+        return bool(step_result[0]), step_error[0]

@@ -66,6 +66,7 @@ COLOR_HIGHLIGHT = 0
 COLOR_DIM = 0
 COLOR_OK = 0
 COLOR_FAIL = 0
+COLOR_WARN = 0
 COLOR_BAR = 0
 COLOR_BAR_BG = 0
 
@@ -75,7 +76,7 @@ _initialized = False
 def init_colors():
     """初始化颜色对（仅调用一次）"""
     global COLOR_BORDER, COLOR_TITLE, COLOR_SELECTED, COLOR_NORMAL
-    global COLOR_HIGHLIGHT, COLOR_DIM, COLOR_OK, COLOR_FAIL
+    global COLOR_HIGHLIGHT, COLOR_DIM, COLOR_OK, COLOR_FAIL, COLOR_WARN
     global COLOR_BAR, COLOR_BAR_BG, _initialized
 
     if _initialized:
@@ -97,12 +98,14 @@ def init_colors():
     curses.init_pair(6, curses.COLOR_WHITE, curses.COLOR_CYAN)    # 进度条
     curses.init_pair(7, -1, curses.COLOR_BLUE)                    # 进度条背景
     curses.init_pair(8, curses.COLOR_WHITE, curses.COLOR_RED)     # 警告选中
+    curses.init_pair(9, curses.COLOR_YELLOW, -1)                  # 警告/跳过
 
     COLOR_SELECTED = curses.color_pair(1) | curses.A_BOLD
     COLOR_TITLE = curses.color_pair(2) | curses.A_BOLD
     COLOR_HIGHLIGHT = curses.color_pair(3)
     COLOR_OK = curses.color_pair(4)
     COLOR_FAIL = curses.color_pair(5)
+    COLOR_WARN = curses.color_pair(9)
     COLOR_BAR = curses.color_pair(6)
     COLOR_BAR_BG = curses.color_pair(7)
     COLOR_BORDER = 0
