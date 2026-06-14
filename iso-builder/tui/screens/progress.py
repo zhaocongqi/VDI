@@ -17,8 +17,26 @@ logger = logging.getLogger("vdi-installer")
 
 
 # 部署步骤定义（按模式）
-DEPLOY_STEPS = {
-    1: [  # 全新安装
+# 所有模式都走两阶段：
+#   Phase 1 (Live 环境): os-install → 重启
+#   Phase 2 (硬盘环境): os-init → 组件部署（由 _resume_deploy 触发）
+
+# Phase 1: Live 环境装机步骤（所有模式相同）
+DEPLOY_STEPS_PHASE1 = {
+    1: [
+        ("Install OS to Disk", "os-install"),
+    ],
+    2: [
+        ("Install OS to Disk", "os-install"),
+    ],
+    3: [
+        ("Install OS to Disk", "os-install"),
+    ],
+}
+
+# Phase 2: VDI 部署步骤（重启后从硬盘执行）
+DEPLOY_STEPS_PHASE2 = {
+    1: [  # Master: 部署完整集群 + 启动发现服务
         ("System Init", "os-init"),
         ("Deploy K8s Cluster", "kubekey-deploy-k8s"),
         ("Deploy kube-vip", "kubevip-deploy"),
@@ -28,22 +46,14 @@ DEPLOY_STEPS = {
         ("Deploy kagent", "kagent-deploy"),
         ("Enable Discovery Service", "enable-discovery"),
     ],
-    2: [  # 追加部署
+    2: [  # Worker: 加入集群
         ("System Init", "os-init"),
-        ("Deploy K8s Cluster", "kubekey-deploy-k8s"),
-        ("Deploy kube-vip", "kubevip-deploy"),
-        ("Deploy Kube-OVN", "kubeovn-deploy"),
-        ("Deploy Longhorn", "longhorn-deploy"),
-        ("Deploy KubeVirt", "kubevirt-deploy"),
-        ("Deploy kagent", "kagent-deploy"),
-        ("Enable Discovery Service", "enable-discovery"),
-    ],
-    3: [  # 添加节点
         ("Load Offline Images", "load-images"),
         ("Join Cluster", "join-cluster"),
         ("Verify Node Status", "verify-join"),
     ],
-    4: [  # PXE 服务
+    3: [  # PXE: 启动网络引导服务
+        ("System Init", "os-init"),
         ("Get Join Token", "get-join-token"),
         ("Setup DHCP Service", "setup-dhcp"),
         ("Setup TFTP Service", "setup-tftp"),
@@ -52,14 +62,29 @@ DEPLOY_STEPS = {
     ],
 }
 
+# 兼容旧接口
+DEPLOY_STEPS = DEPLOY_STEPS_PHASE2
+
 
 class ProgressScreen:
     """部署进度显示界面"""
 
-    def __init__(self, mode):
+    def __init__(self, mode, phase2=False):
+        """初始化
+
+        Args:
+            mode: 部署模式 (1=Master, 2=Worker, 3=PXE)
+            phase2: True 表示 Phase 2（续跑 VDI 部署），False 为首次执行
+        """
         self.mode = mode
-        self.steps = DEPLOY_STEPS.get(mode, [])
         self.log_file = "/var/log/vdi-deploy/installer.log"
+
+        if mode == 1 and not phase2:
+            # Mode 1 Phase 1: Live 环境装机
+            self.steps = DEPLOY_STEPS_PHASE1.get(mode, [])
+        else:
+            # Mode 1 Phase 2（续跑）或 Mode 2/3/4
+            self.steps = DEPLOY_STEPS_PHASE2.get(mode, [])
 
     def run(self, stdscr, deploy_engine, mode, config):
         """执行部署并显示进度

@@ -6,10 +6,9 @@ from widgets import menu, msgbox
 logger = logging.getLogger("vdi-installer")
 
 MODE_NAMES = {
-    1: "Fresh Install",
-    2: "Append Deploy",
-    3: "Join Node",
-    4: "PXE Server",
+    1: "Master Node",
+    2: "Worker Node",
+    3: "PXE Server",
 }
 
 
@@ -31,6 +30,9 @@ class CompleteScreen:
         """
         vip = self.config.get("vip", "N/A")
         had_skip = self.config.get("_had_skip", False)
+        resumed = self.config.get("resumed", False)
+        need_reboot = self.config.get("_need_reboot", False)
+
         # 读取 install-key（bootstrap 模式生成，供后续 control-plane join）
         install_key = ""
         for _kp in ["/etc/vdi/install.key",
@@ -42,7 +44,8 @@ class CompleteScreen:
                     break
             except (OSError, IOError):
                 continue
-        # 有步骤被跳过时顶部加警告（ASCII，避免 TERM=linux 下符号乱码）
+
+        # 有步骤被跳过时顶部加警告
         skip_warning = ""
         if had_skip:
             skip_warning = (
@@ -52,7 +55,36 @@ class CompleteScreen:
                 "  kubectl get pods -A\n\n"
             )
 
-        if self.mode in (1, 2):
+        # Mode 1 Phase 1 完成（OS 已写入磁盘，需要重启进入 Phase 2）
+        if need_reboot and not resumed:
+            disk = self.config.get("install_disk", "N/A")
+            message = (
+                f"OS Installation Phase 1 Complete!\n\n"
+                f"Deploy Mode: {MODE_NAMES.get(self.mode, '')}\n"
+                f"Target Disk: {disk}\n\n"
+                f"--- Next Step ---\n"
+                f"1. Remove the CD-ROM / ISO from this machine\n"
+                f"2. Reboot to boot from the installed disk\n"
+                f"3. VDI deployment (Phase 2) will start automatically\n\n"
+                f"DO NOT reboot with the CD-ROM still attached\n"
+                f"unless you want to re-enter the Live environment.\n\n"
+                f"Log Directory: /var/log/vdi-deploy/"
+            )
+            choice = menu(stdscr,
+                          title="OS Installed - Reboot Required",
+                          text=message + "\n\nWhat would you like to do next?",
+                          items=[
+                              ("1", "Reboot - Remove CD-ROM first, then reboot (recommended)"),
+                              ("2", "Shell   - Return to bash shell"),
+                          ])
+            if choice == "1":
+                logger.info("用户选择重启（Phase 1 完成，进入 Phase 2）")
+                return "reboot"
+            else:
+                logger.info("用户选择回到 shell")
+                return "shell"
+
+        if self.mode == 1:
             message = (
                 f"VDI Cluster Deployed Successfully!\n\n"
                 f"Deploy Mode: {MODE_NAMES.get(self.mode, '')}\n"
@@ -64,13 +96,13 @@ class CompleteScreen:
                 f"  kubectl get pods -A\n"
                 f"  kubectl get sc\n\n"
                 f"--- Add Worker Nodes ---\n"
-                f"Boot other nodes with this ISO, select Mode 3 (Join Node)\n"
-                f"or select Mode 4 (PXE Server) for batch deployment.\n\n"
+                f"Boot other nodes with this ISO, select Mode 2 (Worker Node)\n"
+                f"or select Mode 3 (PXE Server) for batch deployment.\n\n"
                 f"--- Add Worker Manually ---\n"
                 f"  kubeadm token create --print-join-command\n\n"
                 f"Log Directory: /var/log/vdi-deploy/"
             )
-        elif self.mode == 3:
+        elif self.mode == 2:
             message = (
                 "Worker node joined cluster successfully!\n\n"
                 f"Node IP:   {self.config.get('node_ip', '')}\n"
@@ -80,7 +112,7 @@ class CompleteScreen:
                 f"  kubectl get pods -A | grep {self.config.get('hostname', '')}\n\n"
                 f"Log Directory: /var/log/vdi-deploy/"
             )
-        elif self.mode == 4:
+        elif self.mode == 3:
             message = (
                 "PXE Server Started!\n\n"
                 f"DHCP Range:       {self.config.get('dhcp_start', '')}-{self.config.get('dhcp_end', '')}\n"
@@ -96,7 +128,7 @@ class CompleteScreen:
         else:
             message = "Deployment complete."
 
-        if install_key and self.mode in (1, 2):
+        if install_key and self.mode == 1:
             message += (
                 f"\n--- Control-Plane Join Key ---\n"
                 f"  Install Key: {install_key}\n"
