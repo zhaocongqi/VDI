@@ -72,6 +72,16 @@ else
         open-iscsi chrony 2>/dev/null || true
 fi
 
+# 确保 jq 可用（discovery 服务返回 JSON，curl + jq 解析）
+if ! command -v jq &>/dev/null; then
+    echo "$LOG_TAG 安装 jq..."
+    if [ -n "${OFFLINE_PACKAGES:-}" ] && [ -d "${OFFLINE_PACKAGES}" ]; then
+        dpkg -i "${OFFLINE_PACKAGES}"/jq*.deb 2>/dev/null || true
+    else
+        apt-get install -y -qq jq 2>/dev/null || true
+    fi
+fi
+
 systemctl enable --now iscsid 2>/dev/null || true
 systemctl enable --now open-iscsi 2>/dev/null || true
 
