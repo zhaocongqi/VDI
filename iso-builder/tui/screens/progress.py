@@ -29,11 +29,14 @@ DEPLOY_STEPS_PHASE1 = {
     2: [
         ("Install OS to Disk", "os-install"),
     ],
+    3: [
+        ("Install OS to Disk", "os-install"),
+    ],
 }
 
 # Phase 2: VDI 部署步骤（重启后从硬盘执行）
 DEPLOY_STEPS_PHASE2 = {
-    1: [  # Master: 部署完整集群 + 启动发现服务
+    1: [  # 首节点: 部署完整集群 + 启动发现服务
         ("System Init", "os-init"),
         ("Deploy K8s Cluster", "kubekey-deploy-k8s"),
         ("Deploy kube-vip", "kubevip-deploy"),
@@ -43,7 +46,13 @@ DEPLOY_STEPS_PHASE2 = {
         ("Deploy kagent", "kagent-deploy"),
         ("Enable Discovery Service", "enable-discovery"),
     ],
-    2: [  # Worker: 加入集群
+    2: [  # 管理节点: 加入控制面
+        ("System Init", "os-init"),
+        ("Load Offline Images", "load-images"),
+        ("Join Control Plane", "join-cluster"),
+        ("Verify Node Status", "verify-join"),
+    ],
+    3: [  # 工作节点: 加入集群
         ("System Init", "os-init"),
         ("Load Offline Images", "load-images"),
         ("Join Cluster", "join-cluster"),

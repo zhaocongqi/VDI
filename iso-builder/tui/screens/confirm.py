@@ -6,8 +6,9 @@ from widgets import yesno
 logger = logging.getLogger("vdi-installer")
 
 MODE_NAMES = {
-    1: "Master Node (Install OS + Deploy VDI Cluster)",
-    2: "Worker Node (Install OS + Join existing cluster)",
+    1: "首节点 (创建集群)",
+    2: "管理节点 (加入控制面)",
+    3: "工作节点 (加入集群)",
 }
 
 
@@ -64,7 +65,16 @@ class ConfirmScreen:
                 "",
                 "--- Join Config ---",
                 f"  Master IP:      {self.config.get('master_ip', '-')}",
-                f"  Join Method:    {self.config.get('join_method', '-')}",
+                f"  Join Type:      Control Plane",
+                f"  Install Key:    {self.config.get('install_key', '-')[:8]}...",
+            ])
+
+        if mode == 3:
+            lines.extend([
+                "",
+                "--- Join Config ---",
+                f"  Master IP:      {self.config.get('master_ip', '-')}",
+                f"  Join Type:      Worker",
             ])
 
         lines.extend([
