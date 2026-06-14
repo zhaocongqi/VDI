@@ -8,7 +8,6 @@ logger = logging.getLogger("vdi-installer")
 MODE_NAMES = {
     1: "Master Node (Install OS + Deploy VDI Cluster)",
     2: "Worker Node (Install OS + Join existing cluster)",
-    3: "PXE Server (Install OS + Start PXE service)",
 }
 
 
@@ -66,19 +65,6 @@ class ConfirmScreen:
                 "--- Join Config ---",
                 f"  Master IP:      {self.config.get('master_ip', '-')}",
                 f"  Join Method:    {self.config.get('join_method', '-')}",
-            ])
-
-        if mode == 3:
-            lines.extend([
-                "",
-                "--- Cluster ---",
-                f"  Node Role:      {self.config.get('role', '-')}",
-                f"  VIP:            {self.config.get('vip', '-')}",
-                f"  VIP Interface:  {self.config.get('vip_interface', '-')}",
-                "",
-                "--- PXE Config ---",
-                f"  DHCP Range:     {self.config.get('dhcp_start', '-')}-{self.config.get('dhcp_end', '-')}",
-                f"  Worker Count:   {self.config.get('worker_count', '-')}",
             ])
 
         lines.extend([

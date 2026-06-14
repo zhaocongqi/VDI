@@ -31,7 +31,7 @@ def save_state(phase, mode, config):
 
     Args:
         phase: "configuring" | "os-installing" | "os-installed" | "deploying" | "deployed"
-        mode: 部署模式 (1=Master, 2=Worker, 3=PXE)
+        mode: 部署模式 (1=Master, 2=Worker)
         config: TUI 收集的配置字典
     """
     global STATE_DIR, STATE_FILE

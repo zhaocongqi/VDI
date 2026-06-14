@@ -25,7 +25,7 @@ class ConfigGenerator:
         """根据模式和配置生成所有配置文件
 
         Args:
-            mode: 部署模式 (1=Master, 2=Worker, 3=PXE)
+            mode: 部署模式 (1=Master, 2=Worker)
             config: TUI 收集的配置字典
         """
         config["mode"] = mode
@@ -51,11 +51,6 @@ class ConfigGenerator:
 
             self.generate_install_key()
             logger.info("install-key 已生成")
-
-        # PXE 模式专属
-        elif mode == 3:
-            self._generate_pxe_config(config)
-            logger.info("PXE 配置已生成")
 
     def generate_install_key(self):
         """生成一次性 install-key（24 字符随机），写入 output_dir/install.key"""
@@ -262,51 +257,6 @@ spec:
         path = os.path.join(self.output_dir, "config.yaml")
         with open(path, "w") as f:
             f.write(content)
-
-    def _generate_pxe_config(self, config):
-        """生成 PXE 相关配置文件"""
-        pxe_dir = os.path.join(self.output_dir, "pxe")
-        os.makedirs(pxe_dir, exist_ok=True)
-
-        # dnsmasq 配置
-        node_ip = config.get("node_ip", "192.168.220.100")
-        dhcp_start = config.get("dhcp_start", "192.168.220.200")
-        dhcp_end = config.get("dhcp_end", "192.168.220.250")
-
-        dnsmasq_content = f"""# dnsmasq PXE 配置（由 TUI 安装器自动生成）
-interface=eth0
-bind-interfaces
-
-# DHCP 配置
-dhcp-range={dhcp_start},{dhcp_end},255.255.255.0,12h
-dhcp-boot=pxelinux.0
-
-# TFTP 配置
-enable-tftp
-tftp-root=/srv/tftp
-
-# 日志
-log-dhcp
-log-queries
-"""
-        with open(os.path.join(pxe_dir, "dnsmasq.conf"), "w") as f:
-            f.write(dnsmasq_content)
-
-        # pxelinux 配置
-        pxelinux_dir = os.path.join(pxe_dir, "pxelinux.cfg")
-        os.makedirs(pxelinux_dir, exist_ok=True)
-
-        pxelinux_content = f"""DEFAULT install
-PROMPT 0
-TIMEOUT 30
-
-LABEL install
-    MENU LABEL ^Install VDI Worker
-    KERNEL /vmlinuz
-    APPEND initrd=/initrd boot=live live-media-path=/casper auto=true url=http://{node_ip}:8080/preseed.cfg ---
-"""
-        with open(os.path.join(pxelinux_dir, "default"), "w") as f:
-            f.write(pxelinux_content)
 
     def _generate_install_state(self, mode, config):
         """生成 install-state.json（os-install 脚本和续跑机制的核心输入）"""

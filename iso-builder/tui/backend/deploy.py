@@ -146,7 +146,7 @@ class DeployEngine:
 
         Args:
             step_id: 步骤标识（如 'os-init', 'kubeovn-deploy'）
-            mode: 部署模式 (1=Master, 2=Worker, 3=PXE)
+            mode: 部署模式 (1=Master, 2=Worker)
             config: 配置字典
 
         Returns:
@@ -161,16 +161,6 @@ class DeployEngine:
             return self._join_cluster(config)
         elif step_id == "verify-join":
             return self._verify_join()
-        elif step_id == "get-join-token":
-            return self._get_join_token(config)
-        elif step_id == "setup-dhcp":
-            return self._setup_pxe_service("dhcp", config)
-        elif step_id == "setup-tftp":
-            return self._setup_pxe_service("tftp", config)
-        elif step_id == "setup-http":
-            return self._setup_pxe_service("http", config)
-        elif step_id == "start-pxe":
-            return self._setup_pxe_service("start", config)
         elif step_id == "enable-discovery":
             return self._enable_discovery(config)
 
@@ -246,30 +236,6 @@ class DeployEngine:
     def _verify_join(self):
         """验证节点加入状态"""
         return self._run_streaming(["kubectl", "get", "nodes"], "verify-join", timeout=30)
-
-    def _get_join_token(self, config):
-        """从 Master 获取 Join Token（非关键步骤，失败也返回 True）"""
-        result = self._run_streaming(
-            ["kubectl", "token", "create", "--print-join-command"],
-            "get-join-token", timeout=30
-        )
-        # 成功时从日志读 join command 填入 config
-        if result:
-            logs = self.get_recent_logs(20)
-            for line in logs:
-                if "join" in line and "--token" in line:
-                    config["join_command"] = line.strip()
-                    break
-        return True  # 非关键步骤，始终返回 True
-
-    def _setup_pxe_service(self, service, config):
-        """配置 PXE 服务"""
-        script = "/cdrom/pxe/start-pxe.sh"
-        if not os.path.exists(script):
-            logger.warning("PXE startup script not found")
-            return True
-        return self._run_streaming(["bash", script, service],
-                                   f"setup-{service}", timeout=300)
 
     def _enable_discovery(self, config):
         """安装并启动 Master 发现服务（仅 master 模式）"""

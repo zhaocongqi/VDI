@@ -8,7 +8,6 @@ logger = logging.getLogger("vdi-installer")
 MODE_NAMES = {
     1: "Master Node",
     2: "Worker Node",
-    3: "PXE Server",
 }
 
 
@@ -96,8 +95,7 @@ class CompleteScreen:
                 f"  kubectl get pods -A\n"
                 f"  kubectl get sc\n\n"
                 f"--- Add Worker Nodes ---\n"
-                f"Boot other nodes with this ISO, select Mode 2 (Worker Node)\n"
-                f"or select Mode 3 (PXE Server) for batch deployment.\n\n"
+                f"Boot other nodes with this ISO, select Mode 2 (Worker Node).\n\n"
                 f"--- Add Worker Manually ---\n"
                 f"  kubeadm token create --print-join-command\n\n"
                 f"Log Directory: /var/log/vdi-deploy/"
@@ -110,19 +108,6 @@ class CompleteScreen:
                 f"Verify on Master node:\n"
                 f"  kubectl get nodes\n"
                 f"  kubectl get pods -A | grep {self.config.get('hostname', '')}\n\n"
-                f"Log Directory: /var/log/vdi-deploy/"
-            )
-        elif self.mode == 3:
-            message = (
-                "PXE Server Started!\n\n"
-                f"DHCP Range:       {self.config.get('dhcp_start', '')}-{self.config.get('dhcp_end', '')}\n"
-                f"Expected Workers: {self.config.get('worker_count', '')}\n\n"
-                "Worker node deployment steps:\n"
-                "1. Set Worker nodes to PXE network boot\n"
-                "2. Workers auto-get IP and start installation\n"
-                "3. After install, workers auto-join the cluster\n\n"
-                "Monitor Worker installation:\n"
-                f"  tail -f /var/log/vdi-deploy/pxe.log\n\n"
                 f"Log Directory: /var/log/vdi-deploy/"
             )
         else:
