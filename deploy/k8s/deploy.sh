@@ -36,26 +36,35 @@ fi
 echo "$LOG_TAG 使用 kk: $KK"
 "$KK" version
 
-# 定位 KubeKey 配置文件（TUI 生成的 config.yaml 优先）
+# 定位 KubeKey 配置文件（TUI 生成的优先，v4 Config + Inventory 分离）
 CONFIG_FILE=""
-for _cfg in "${VDI_CONFIG_DIR:-}/config.yaml" "${DEPLOY_DIR}/k8s/config.yaml" "/etc/vdi/config.yaml"; do
+for _cfg in "${VDI_CONFIG_DIR:-}/config.yaml" "/etc/vdi/config.yaml"; do
     if [ -f "$_cfg" ]; then
         CONFIG_FILE="$_cfg"
         break
     fi
 done
 
-if [ -z "$CONFIG_FILE" ]; then
-    echo "$LOG_TAG 错误: KubeKey config.yaml 未找到（TUI 应生成到 /etc/vdi/config.yaml）"
+INVENTORY_FILE=""
+for _inv in "${VDI_CONFIG_DIR:-}/inventory.yaml" "/etc/vdi/inventory.yaml"; do
+    if [ -f "$_inv" ]; then
+        INVENTORY_FILE="$_inv"
+        break
+    fi
+done
+
+if [ -z "$CONFIG_FILE" ] || [ -z "$INVENTORY_FILE" ]; then
+    echo "$LOG_TAG 错误: KubeKey config.yaml 或 inventory.yaml 未找到"
+    echo "$LOG_TAG 查找路径: ${VDI_CONFIG_DIR:-/etc/vdi}/config.yaml, ${VDI_CONFIG_DIR:-/etc/vdi}/inventory.yaml"
     exit 1
 fi
 
-echo "$LOG_TAG 使用配置: $CONFIG_FILE"
-cat "$CONFIG_FILE"
+echo "$LOG_TAG 使用 config: $CONFIG_FILE"
+echo "$LOG_TAG 使用 inventory: $INVENTORY_FILE"
 
-# 执行集群创建
+# 执行集群创建（v4 命令：-c config -i inventory；v4 无 -f、无 --skip-check-os）
 echo "$LOG_TAG 创建 K8s 集群..."
-"$KK" create cluster -f "$CONFIG_FILE" --skip-check-os 2>&1 || {
+"$KK" create cluster -c "$CONFIG_FILE" -i "$INVENTORY_FILE" 2>&1 || {
     echo "$LOG_TAG 集群创建失败"
     exit 1
 }

@@ -157,84 +157,102 @@ ansible_python_interpreter=/usr/bin/python3
             f.write(content)
 
     def _generate_inventory(self, config):
-        """生成 KubeKey inventory.yaml"""
+        """生成 KubeKey v4 inventory.yaml（kind: Inventory，节点列表+角色分组）。
+
+        v4 的 hosts 是 dict（键为主机名），每个含 connector + internal_ipv4；
+        groups 用 Kubespray 风格的 kube_control_plane/etcd/kube_worker。
+        """
         node_ip = config.get("node_ip", "127.0.0.1")
         hostname = config.get("hostname", "vdi-node-01")
-        content = f"""apiVersion: kubekey.kubesphere.io/v1alpha2
+        role = config.get("role", "master")
+        ssh_user = config.get("ssh_user", "root")
+        ssh_pass = config.get("ssh_password", "vdi")
+        # master 角色进 control_plane + etcd；worker 只进 worker
+        if role == "master":
+            cp_block = f"        - {hostname}"
+            worker_block = "        []"
+            etcd_block = f"        - {hostname}"
+        else:
+            cp_block = "        []"
+            worker_block = f"        - {hostname}"
+            etcd_block = "        []"
+        content = f"""apiVersion: kubekey.kubesphere.io/v1
 kind: Inventory
 metadata:
   name: vdi-cluster
 spec:
   hosts:
-    - name: {hostname}
-      address: {node_ip}
-      internalAddress: {node_ip}
-      user: root
-      password: "vdi"
+    {hostname}:
+      connector:
+        type: ssh
+        host: {node_ip}
+        port: 22
+        user: {ssh_user}
+        password: "{ssh_pass}"
+      internal_ipv4: {node_ip}
   groups:
-    - name: etcd
-      members:
-        - {hostname}
-    - name: control-plane
-      members:
-        - {hostname}
-    - name: worker
-      members: []
+    k8s_cluster:
+      groups:
+        - kube_control_plane
+        - kube_worker
+    kube_control_plane:
+      hosts:
+{cp_block}
+    kube_worker:
+      hosts:
+{worker_block}
+    etcd:
+      hosts:
+{etcd_block}
 """
         path = os.path.join(self.output_dir, "inventory.yaml")
         with open(path, "w") as f:
             f.write(content)
 
     def _generate_kk_config(self, config):
-        """生成 KubeKey config.yaml（自包含 hosts，单文件即可 kk create cluster -f）"""
-        node_ip = config.get("node_ip", "127.0.0.1")
-        hostname = config.get("hostname", "vdi-node-01")
-        role = config.get("role", "master")
-        # roleGroups：master 节点同时承担 etcd + control-plane；worker 为空
-        if role == "master":
-            role_groups = (
-                f"  roleGroups:\n"
-                f"    etcd:\n"
-                f"      - {hostname}\n"
-                f"    master:\n"
-                f"      - {hostname}\n"
-                f"    worker: []\n"
-            )
-        else:
-            role_groups = (
-                f"  roleGroups:\n"
-                f"    etcd: []\n"
-                f"    master: []\n"
-                f"    worker:\n"
-                f"      - {hostname}\n"
-            )
-        content = f"""apiVersion: kubekey.kubesphere.io/v1alpha2
-kind: Cluster
-metadata:
-  name: vdi-cluster
+        """生成 KubeKey v4 config.yaml（kind: Config，集群级配置）。
+
+        v4 采用 Config + Inventory 分离设计：
+        - config.yaml（-c）：版本/CRI/CNI/存储/DNS 等集群级配置
+        - inventory.yaml（-i）：节点列表与角色分组
+        命令：kk create cluster -c config.yaml -i inventory.yaml
+        """
+        content = f"""apiVersion: kubekey.kubesphere.io/v1
+kind: Config
 spec:
-  hosts:
-    - name: {hostname}
-      address: {node_ip}
-      internalAddress: {node_ip}
-      user: root
-      password: "vdi"
-      privateKey: ""
-{role_groups}  version: {config.get('k8s_version', 'v1.34.3')}
-  controlPlaneEndpoint:
-    internalLoadbalancer: kube-vip
-    domain: "lb.kubesphere.local"
-    address: "{config.get('vip', node_ip)}"
-    port: 6443
-  network:
-    plugin: none
-    kubePodsCIDR: {config.get('pod_cidr', '10.16.0.0/16')}
-    kubeServiceCIDR: {config.get('svc_cidr', '10.96.0.0/12')}
+  zone: ""
+  kubernetes:
+    kube_version: {config.get('k8s_version', 'v1.34.3')}
+    helm_version: v3.18.5
+    sandbox_image:
+      tag: "3.10.1"
+    control_plane_endpoint:
+      # local: 单节点 bootstrap（control plane 解析为 127.0.0.1）
+      # kube_vip: HA（kube-vip 抢 VIP，后续 HA 阶段切换）
+      type: local
+      host: lb.kubesphere.local
+      port: 6443
   etcd:
-    version: v3.6.5
-  registry:
-    privateRegistry: ""
-  addons: []
+    etcd_version: v3.6.5
+  cri:
+    container_manager: containerd
+  cni:
+    # 留空跳过 CNI 安装，后续手动部署 Kube-OVN
+    type: ""
+  storage_class:
+    local:
+      # 不装默认存储，后续手动部署 Longhorn
+      enabled: false
+  dns:
+    coredns:
+      image:
+        tag: v1.12.1
+    nodelocaldns:
+      enabled: true
+      image:
+        tag: 1.26.4
+  image_registry:
+    type: ""
 """
         path = os.path.join(self.output_dir, "config.yaml")
         with open(path, "w") as f:
