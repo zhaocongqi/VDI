@@ -21,6 +21,7 @@ from screens.cluster_config import ClusterConfigScreen
 from screens.join_config import JoinConfigScreen
 from screens.pxe_config import PXEConfigScreen
 from screens.storage_config import StorageConfigScreen
+from screens.disk_config import DiskConfigScreen
 from screens.confirm import ConfirmScreen
 from screens.progress import ProgressScreen
 from screens.complete import CompleteScreen
@@ -29,12 +30,12 @@ from backend.config_generator import ConfigGenerator
 from backend.deploy import DeployEngine
 from utils.logger import setup_logger
 from utils.offline import OfflineManager
+from utils.install_state import is_resumable, load_state, save_state, update_phase, clear_state
 
 # 部署模式常量
-MODE_FRESH = 1      # 全新安装：安装 OS + 部署 VDI
-MODE_APPEND = 2     # 追加部署：已有 OS，仅部署 VDI
-MODE_JOIN = 3       # 添加节点：作为 Worker 加入已有集群
-MODE_PXE = 4        # PXE 服务：启动 PXE Server
+MODE_MASTER = 1     # Master 节点：装机 + 部署集群 + 启动发现服务
+MODE_WORKER = 2     # Worker 节点：装机 + 从 Master 获取信息 + 加入集群
+MODE_PXE = 3        # PXE 服务：装机 + 启动 PXE 网络引导
 
 
 class VDIInstaller:
@@ -52,6 +53,9 @@ class VDIInstaller:
         """curses 主流程入口
 
         由 curses.wrapper() 调用，保证终端状态恢复。
+        支持两阶段部署：
+          Phase 1 (Live 环境): 收集配置 → 装机(os-install) → 重启
+          Phase 2 (硬盘环境): 检测 install-state.json → 恢复配置 → VDI 部署
         """
         # 初始化 curses 设置
         curses.curs_set(0)          # 隐藏光标
@@ -68,6 +72,12 @@ class VDIInstaller:
         self.logger.info("VDI 安装器启动 (curses mode)")
 
         try:
+            # 检测是否为续跑（硬盘启动后的 Phase 2）
+            if is_resumable():
+                return self._resume_deploy(stdscr)
+
+            # ── 全新流程 ──
+
             # 步骤 1：检查离线资源
             if not self._check_offline_resources():
                 return 1
@@ -90,10 +100,11 @@ class VDIInstaller:
                 self.logger.info("User cancelled confirmation")
                 return 0
 
-            # 步骤 5：生成配置文件
+            # 步骤 5：生成配置文件 + 保存装机状态
             self.config_generator.generate(self.mode, self.config)
+            save_state("configuring", self.mode, self.config)
 
-            # 步骤 6：执行部署
+            # 步骤 6：执行部署（Mode 1 为 Phase 1 装机，Mode 2/3/4 为完整部署）
             success = self._execute_deploy(stdscr)
 
             # 步骤 7：显示结果
@@ -114,6 +125,46 @@ class VDIInstaller:
                 pass
             return 1
 
+    def _resume_deploy(self, stdscr):
+        """续跑 Phase 2：从 install-state.json 恢复配置，继续 VDI 部署"""
+        state = load_state()
+        if state is None:
+            self.logger.error("续跑失败: 无法读取状态文件")
+            return 1
+
+        self.mode = state["mode"]
+        self.config = state.get("config", {})
+        self.config["mode"] = self.mode
+        self.config["resumed"] = True
+
+        self.logger.info(f"续跑 Phase 2: mode={self.mode}")
+
+        # 更新 phase 标记
+        update_phase("deploying")
+
+        # 检查离线资源
+        if not self._check_offline_resources():
+            return 1
+
+        # Phase 2: 执行 VDI 部署步骤（os-init → kagent）
+        try:
+            progress = ProgressScreen(self.mode, phase2=True)
+            success = progress.run(stdscr, self.deploy_engine, self.mode, self.config)
+        except Exception as e:
+            self.logger.exception("Phase 2 deploy exception")
+            ErrorScreen(f"Phase 2 deploy failed: {e}").show(stdscr)
+            success = False
+
+        if success:
+            update_phase("deployed")
+            action = CompleteScreen(self.mode, self.config).show(stdscr)
+            if action == "reboot":
+                self._reboot()
+            clear_state()
+            return 0
+        else:
+            return 1
+
     def _check_offline_resources(self):
         """检查离线资源完整性"""
         self.logger.info("Checking offline resources...")
@@ -128,6 +179,12 @@ class VDIInstaller:
     def _collect_config(self, stdscr):
         """根据部署模式收集配置参数"""
         try:
+            # 磁盘配置（所有模式都需要装机）
+            disk_config = DiskConfigScreen().show(stdscr)
+            if disk_config is None:
+                return False
+            self.config.update(disk_config)
+
             # 网络配置（所有模式都需要）
             net_config = NetworkConfigScreen().show(stdscr)
             if net_config is None:
@@ -135,7 +192,7 @@ class VDIInstaller:
             self.config.update(net_config)
 
             # 根据模式收集特定配置
-            if self.mode in (MODE_FRESH, MODE_APPEND):
+            if self.mode == MODE_MASTER:
                 cluster_config = ClusterConfigScreen().show(stdscr)
                 if cluster_config is None:
                     return False
@@ -146,7 +203,7 @@ class VDIInstaller:
                     return False
                 self.config.update(storage_config)
 
-            elif self.mode == MODE_JOIN:
+            elif self.mode == MODE_WORKER:
                 join_config = JoinConfigScreen().show(stdscr)
                 if join_config is None:
                     return False
@@ -171,10 +228,21 @@ class VDIInstaller:
             return False
 
     def _execute_deploy(self, stdscr):
-        """执行部署流程"""
+        """执行部署流程
+
+        Mode 1 (Fresh): 执行 Phase 1（装机），成功后标记 phase=os-installing 并提示重启
+        Mode 2/3/4: 执行完整部署
+        """
         try:
-            progress = ProgressScreen(self.mode)
+            is_fresh = self.mode in (MODE_MASTER, MODE_WORKER, MODE_PXE)
+            progress = ProgressScreen(self.mode, phase2=False)
             result = progress.run(stdscr, self.deploy_engine, self.mode, self.config)
+
+            if result and is_fresh:
+                # Phase 1 完成（OS 已写入磁盘），更新状态标记
+                update_phase("os-installed")
+                self.config["_need_reboot"] = True
+
             return result
         except Exception as e:
             self.logger.exception("Deploy execution exception")
