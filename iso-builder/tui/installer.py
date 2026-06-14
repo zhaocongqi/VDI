@@ -19,7 +19,6 @@ from screens.welcome import WelcomeScreen
 from screens.network_config import NetworkConfigScreen
 from screens.cluster_config import ClusterConfigScreen
 from screens.join_config import JoinConfigScreen
-from screens.pxe_config import PXEConfigScreen
 from screens.storage_config import StorageConfigScreen
 from screens.disk_config import DiskConfigScreen
 from screens.confirm import ConfirmScreen
@@ -35,7 +34,6 @@ from utils.install_state import is_resumable, load_state, save_state, update_pha
 # 部署模式常量
 MODE_MASTER = 1     # Master 节点：装机 + 部署集群 + 启动发现服务
 MODE_WORKER = 2     # Worker 节点：装机 + 从 Master 获取信息 + 加入集群
-MODE_PXE = 3        # PXE 服务：装机 + 启动 PXE 网络引导
 
 
 class VDIInstaller:
@@ -209,17 +207,6 @@ class VDIInstaller:
                     return False
                 self.config.update(join_config)
 
-            elif self.mode == MODE_PXE:
-                cluster_config = ClusterConfigScreen().show(stdscr)
-                if cluster_config is None:
-                    return False
-                self.config.update(cluster_config)
-
-                pxe_config = PXEConfigScreen().show(stdscr)
-                if pxe_config is None:
-                    return False
-                self.config.update(pxe_config)
-
             return True
 
         except Exception as e:
@@ -230,11 +217,11 @@ class VDIInstaller:
     def _execute_deploy(self, stdscr):
         """执行部署流程
 
-        Mode 1 (Fresh): 执行 Phase 1（装机），成功后标记 phase=os-installing 并提示重启
-        Mode 2/3/4: 执行完整部署
+        Mode 1 (Master): Phase 1 装机 → 重启 → Phase 2 部署集群
+        Mode 2 (Worker): Phase 1 装机 → 重启 → Phase 2 加入集群
         """
         try:
-            is_fresh = self.mode in (MODE_MASTER, MODE_WORKER, MODE_PXE)
+            is_fresh = self.mode in (MODE_MASTER, MODE_WORKER)
             progress = ProgressScreen(self.mode, phase2=False)
             result = progress.run(stdscr, self.deploy_engine, self.mode, self.config)
 

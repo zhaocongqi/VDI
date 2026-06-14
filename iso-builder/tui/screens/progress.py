@@ -29,9 +29,6 @@ DEPLOY_STEPS_PHASE1 = {
     2: [
         ("Install OS to Disk", "os-install"),
     ],
-    3: [
-        ("Install OS to Disk", "os-install"),
-    ],
 }
 
 # Phase 2: VDI 部署步骤（重启后从硬盘执行）
@@ -52,14 +49,6 @@ DEPLOY_STEPS_PHASE2 = {
         ("Join Cluster", "join-cluster"),
         ("Verify Node Status", "verify-join"),
     ],
-    3: [  # PXE: 启动网络引导服务
-        ("System Init", "os-init"),
-        ("Get Join Token", "get-join-token"),
-        ("Setup DHCP Service", "setup-dhcp"),
-        ("Setup TFTP Service", "setup-tftp"),
-        ("Setup HTTP Service", "setup-http"),
-        ("Start PXE Service", "start-pxe"),
-    ],
 }
 
 # 兼容旧接口
@@ -73,7 +62,7 @@ class ProgressScreen:
         """初始化
 
         Args:
-            mode: 部署模式 (1=Master, 2=Worker, 3=PXE)
+            mode: 部署模式 (1=Master, 2=Worker)
             phase2: True 表示 Phase 2（续跑 VDI 部署），False 为首次执行
         """
         self.mode = mode

@@ -8,7 +8,6 @@ logger = logging.getLogger("vdi-installer")
 MODES = [
     ("1", "Master Node    - Install OS + Deploy VDI Cluster (first node)"),
     ("2", "Worker Node    - Install OS + Join existing cluster"),
-    ("3", "PXE Server     - Install OS + Network boot service"),
 ]
 
 
