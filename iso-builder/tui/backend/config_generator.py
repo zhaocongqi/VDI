@@ -3,6 +3,7 @@
 将 TUI 收集的配置参数转换为 deploy/env-config.sh、hosts、inventory.yaml 等文件。
 """
 import os
+import secrets
 import logging
 
 logger = logging.getLogger("vdi-installer")
@@ -51,6 +52,22 @@ class ConfigGenerator:
         if mode == 4:
             self._generate_pxe_config(config)
             logger.info("PXE 配置已生成")
+
+        # Bootstrap Master 模式（1/2）生成 install-key（供后续 control-plane join 鉴权）
+        if mode in (1, 2):
+            self.generate_install_key()
+            logger.info("install-key 已生成")
+
+    def generate_install_key(self):
+        """生成一次性 install-key（24 字符随机），写入 output_dir/install.key"""
+        import string
+        alphabet = string.ascii_letters + string.digits
+        key = "".join(secrets.choice(alphabet) for _ in range(24))
+        path = os.path.join(self.output_dir, "install.key")
+        with open(path, "w") as f:
+            f.write(key)
+        os.chmod(path, 0o600)
+        return key
 
     def _generate_env_config(self, config):
         """生成 env-config.sh"""
