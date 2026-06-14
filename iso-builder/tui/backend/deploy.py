@@ -14,6 +14,7 @@ logger = logging.getLogger("vdi-installer")
 
 # 部署脚本映射（相对于 deploy/ 目录）
 SCRIPT_MAP = {
+    "os-install": "skills/os-install/scripts/install.sh",
     "os-init": "skills/os-init/scripts/init.sh",
     "kubekey-deploy-k8s": "k8s/deploy.sh",
     "kubevip-deploy": "kube-vip/deploy-kube-vip.sh",
@@ -25,6 +26,7 @@ SCRIPT_MAP = {
 
 # 离线环境下的脚本路径（在 ISO 中）
 OFFLINE_SCRIPT_MAP = {
+    "os-install": "/cdrom/scripts/deploy/skills/os-install/scripts/install.sh",
     "os-init": "/cdrom/scripts/deploy/skills/os-init/scripts/init.sh",
     "kubekey-deploy-k8s": "/cdrom/scripts/deploy/k8s/deploy.sh",
     "kubevip-deploy": "/cdrom/scripts/deploy/kube-vip/deploy-kube-vip.sh",
@@ -144,7 +146,7 @@ class DeployEngine:
 
         Args:
             step_id: 步骤标识（如 'os-init', 'kubeovn-deploy'）
-            mode: 部署模式 (1-4)
+            mode: 部署模式 (1=Master, 2=Worker, 3=PXE)
             config: 配置字典
 
         Returns:
@@ -209,21 +211,37 @@ class DeployEngine:
         if not os.path.exists(script):
             logger.warning("Offline image loader not found, skipping")
             return True
-        component = "all" if mode in (1, 2, 4) else "worker"
+        component = "all" if mode in (1, 3) else "worker"
         return self._run_streaming(["bash", script, component], "load-images", timeout=3600)
 
     def _join_cluster(self, config):
-        """Worker 节点加入集群"""
-        method = config.get("join_method", "kk")
-        master_ip = config.get("master_ip", "")
+        """Worker 节点加入集群
 
-        if method == "kk":
-            join_cmd = f"{self._get_kk_path()} join cluster"
-        else:
-            token = config.get("join_token", "")
-            join_cmd = (f"kubeadm join {master_ip}:6443 --token {token} "
-                        "--discovery-token-unsafe-skip-ca-verification")
-        return self._run_streaming(join_cmd, "join-cluster", timeout=1800)
+        优先使用从 discovery 服务获取的 join_command；
+        回退到手动拼接 kubeadm join 命令。
+        """
+        # 优先使用 discovery 服务返回的完整 join command
+        join_cmd = config.get("join_command", "")
+        if join_cmd:
+            logger.info("使用 discovery 服务获取的 join command")
+            return self._run_streaming(join_cmd, "join-cluster", timeout=1800)
+
+        # 回退：手动拼接
+        master_ip = config.get("master_ip", "")
+        token = config.get("join_token", "")
+        ca_hash = config.get("ca_cert_hash", "")
+
+        if token and master_ip:
+            cmd = f"kubeadm join {master_ip}:6443 --token {token}"
+            if ca_hash:
+                cmd += f" --discovery-token-ca-cert-hash {ca_hash}"
+            else:
+                cmd += " --discovery-token-unsafe-skip-ca-verification"
+            return self._run_streaming(cmd, "join-cluster", timeout=1800)
+
+        self._reset_log_buffer("join-cluster")
+        self._append_log_line("[error] no join token or master IP available")
+        return False
 
     def _verify_join(self):
         """验证节点加入状态"""

@@ -2,6 +2,7 @@
 
 将 TUI 收集的配置参数转换为 deploy/env-config.sh、hosts、inventory.yaml 等文件。
 """
+import json
 import os
 import secrets
 import logging
@@ -24,39 +25,37 @@ class ConfigGenerator:
         """根据模式和配置生成所有配置文件
 
         Args:
-            mode: 部署模式 (1-4)
+            mode: 部署模式 (1=Master, 2=Worker, 3=PXE)
             config: TUI 收集的配置字典
         """
         config["mode"] = mode
 
-        # 生成 env-config.sh
+        # 生成 env-config.sh（所有模式）
         self._generate_env_config(config)
         logger.info("env-config.sh 已生成")
 
-        # 生成 hosts 文件（模式 1/2/4）
-        if mode in (1, 2, 4):
+        # 生成 install-state.json（所有模式，os-install 脚本依赖此文件）
+        self._generate_install_state(mode, config)
+        logger.info("install-state.json 已生成")
+
+        # Master 模式专属
+        if mode == 1:
             self._generate_hosts(config)
             logger.info("hosts 已生成")
 
-        # 生成 KubeKey inventory.yaml（模式 1/2）
-        if mode in (1, 2):
             self._generate_inventory(config)
             logger.info("inventory.yaml 已生成")
 
-        # 生成 KubeKey config.yaml（模式 1/2）
-        if mode in (1, 2):
             self._generate_kk_config(config)
             logger.info("config.yaml 已生成")
 
-        # 生成 PXE 配置（模式 4）
-        if mode == 4:
-            self._generate_pxe_config(config)
-            logger.info("PXE 配置已生成")
-
-        # Bootstrap Master 模式（1/2）生成 install-key（供后续 control-plane join 鉴权）
-        if mode in (1, 2):
             self.generate_install_key()
             logger.info("install-key 已生成")
+
+        # PXE 模式专属
+        elif mode == 3:
+            self._generate_pxe_config(config)
+            logger.info("PXE 配置已生成")
 
     def generate_install_key(self):
         """生成一次性 install-key（24 字符随机），写入 output_dir/install.key"""
@@ -96,6 +95,12 @@ VIP_INTERFACE="{config.get('vip_interface', 'ens160')}"
 # ── Longhorn 配置 ──
 LONGHORN_DISK="{config.get('longhorn_disk', '/dev/sdb')}"
 LONGHORN_DATA_DIR="{config.get('longhorn_data_dir', '/var/lib/longhorn')}"
+
+# ── OS 安装配置（Mode 1 专用）──
+INSTALL_DISK="{config.get('install_disk', '')}"
+PARTITION_SCHEME="{config.get('partition_scheme', 'auto')}"
+SWAP_SIZE="{config.get('swap_size', '8G')}"
+INSTALL_HOSTNAME="{config.get('hostname', 'vdi-node-01')}"
 
 # ── KubeVirt 配置 ──
 KUBEVIRT_VERSION="v1.5.0"
@@ -302,3 +307,15 @@ LABEL install
 """
         with open(os.path.join(pxelinux_dir, "default"), "w") as f:
             f.write(pxelinux_content)
+
+    def _generate_install_state(self, mode, config):
+        """生成 install-state.json（os-install 脚本和续跑机制的核心输入）"""
+        state = {
+            "phase": "configuring",
+            "mode": mode,
+            "config": config,
+        }
+        path = os.path.join(self.output_dir, "install-state.json")
+        with open(path, "w") as f:
+            json.dump(state, f, indent=2, ensure_ascii=False)
+        os.chmod(path, 0o600)
