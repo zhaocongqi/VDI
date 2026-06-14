@@ -87,16 +87,20 @@ CDI_VERSION="v1.61.0"
 # ── NTP 服务器 ──
 NTP_SERVER="ntp.aliyun.com"
 
+# ── 配置目录（TUI 生成的 inventory.yaml / config.yaml / hosts 在此）──
+VDI_CONFIG_DIR="{self.output_dir}"
+
 # ── Ansible 清单文件 ──
 ANSIBLE_HOSTS_FILE="{self.output_dir}/hosts"
 
-# ── 离线环境变量（自动检测）──
+# ── 离线环境变量（自动检测，bundle 优先匹配 ISO 实际结构）──
 if [ -z "${{OFFLINE_BASE:-}}" ]; then
-    if [ -d /cdrom/offline ]; then
-        export OFFLINE_BASE="/cdrom/offline"
-    elif [ -d /mnt/iso/offline ]; then
-        export OFFLINE_BASE="/mnt/iso/offline"
-    fi
+    for _candidate in /cdrom/bundle /mnt/iso/bundle /cdrom/offline /mnt/iso/offline; do
+        if [ -d "$_candidate" ]; then
+            export OFFLINE_BASE="$_candidate"
+            break
+        fi
+    done
 fi
 
 if [ -n "${{OFFLINE_BASE:-}}" ]; then
@@ -108,7 +112,7 @@ if [ -n "${{OFFLINE_BASE:-}}" ]; then
     export PATH="${{OFFLINE_BINARIES}}:${{PATH}}"
 fi
 
-echo "[env-config] loaded"
+echo "[env-config] loaded OFFLINE_BASE=${{OFFLINE_BASE:-none}}"
 """
         path = os.path.join(self.output_dir, "env-config.sh")
         with open(path, "w") as f:
@@ -165,14 +169,46 @@ spec:
             f.write(content)
 
     def _generate_kk_config(self, config):
-        """生成 KubeKey config.yaml"""
+        """生成 KubeKey config.yaml（自包含 hosts，单文件即可 kk create cluster -f）"""
+        node_ip = config.get("node_ip", "127.0.0.1")
+        hostname = config.get("hostname", "vdi-node-01")
+        role = config.get("role", "master")
+        # roleGroups：master 节点同时承担 etcd + control-plane；worker 为空
+        if role == "master":
+            role_groups = (
+                f"  roleGroups:\n"
+                f"    etcd:\n"
+                f"      - {hostname}\n"
+                f"    master:\n"
+                f"      - {hostname}\n"
+                f"    worker: []\n"
+            )
+        else:
+            role_groups = (
+                f"  roleGroups:\n"
+                f"    etcd: []\n"
+                f"    master: []\n"
+                f"    worker:\n"
+                f"      - {hostname}\n"
+            )
         content = f"""apiVersion: kubekey.kubesphere.io/v1alpha2
 kind: Cluster
 metadata:
   name: vdi-cluster
 spec:
-  version: {config.get('k8s_version', 'v1.34.3')}
-  containerManager: containerd
+  hosts:
+    - name: {hostname}
+      address: {node_ip}
+      internalAddress: {node_ip}
+      user: root
+      password: "vdi"
+      privateKey: ""
+{role_groups}  version: {config.get('k8s_version', 'v1.34.3')}
+  controlPlaneEndpoint:
+    internalLoadbalancer: kube-vip
+    domain: "lb.kubesphere.local"
+    address: "{config.get('vip', node_ip)}"
+    port: 6443
   network:
     plugin: none
     kubePodsCIDR: {config.get('pod_cidr', '10.16.0.0/16')}

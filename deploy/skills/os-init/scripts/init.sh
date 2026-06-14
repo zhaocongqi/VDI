@@ -74,6 +74,18 @@ fi
 
 systemctl enable --now iscsid 2>/dev/null || true
 systemctl enable --now open-iscsi 2>/dev/null || true
+
+# 启动 containerd（KubeKey 部署 K8s 的容器运行时依赖）
+if command -v containerd &>/dev/null || [ -x /usr/bin/containerd ]; then
+    systemctl enable containerd 2>/dev/null || true
+    systemctl start containerd 2>/dev/null || true
+    if systemctl is-active --quiet containerd 2>/dev/null; then
+        echo "$LOG_TAG containerd 已启动"
+    else
+        echo "$LOG_TAG 警告: containerd 启动失败，KubeKey 会尝试自行管理"
+    fi
+fi
+
 echo "$LOG_TAG 基础依赖已安装"
 
 # ── 7. 免密 sudo（如果当前非 root）──
