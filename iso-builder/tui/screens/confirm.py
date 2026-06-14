@@ -6,10 +6,9 @@ from widgets import yesno
 logger = logging.getLogger("vdi-installer")
 
 MODE_NAMES = {
-    1: "Fresh Install (OS + VDI Cluster)",
-    2: "Append Deploy (VDI Cluster on existing OS)",
-    3: "Join Node (Worker join existing cluster)",
-    4: "PXE Server (Start PXE service)",
+    1: "Master Node (Install OS + Deploy VDI Cluster)",
+    2: "Worker Node (Install OS + Join existing cluster)",
+    3: "PXE Server (Install OS + Start PXE service)",
 }
 
 
@@ -32,6 +31,11 @@ class ConfirmScreen:
         lines = [
             f"Deployment Mode: {MODE_NAMES.get(mode, mode)}",
             "",
+            "--- Disk ---",
+            f"  Install Disk:   {self.config.get('install_disk', '-')}",
+            f"  Part Scheme:    {self.config.get('partition_scheme', '-')}",
+            f"  Swap Size:      {self.config.get('swap_size', '-')}",
+            "",
             "--- Network ---",
             f"  Hostname:       {self.config.get('hostname', '-')}",
             f"  Node IP:        {self.config.get('node_ip', '-')}/{self.config.get('netmask', '24')}",
@@ -39,7 +43,7 @@ class ConfirmScreen:
             f"  DNS:            {self.config.get('dns', '-')}",
         ]
 
-        if mode in (1, 2, 4):
+        if mode == 1:
             lines.extend([
                 "",
                 "--- Cluster ---",
@@ -49,10 +53,6 @@ class ConfirmScreen:
                 f"  Pod CIDR:       {self.config.get('pod_cidr', '-')}",
                 f"  Service CIDR:   {self.config.get('svc_cidr', '-')}",
                 f"  K8s Version:    {self.config.get('k8s_version', '-')}",
-            ])
-
-        if mode in (1, 2):
-            lines.extend([
                 "",
                 "--- Storage ---",
                 f"  LH Disk:        {self.config.get('longhorn_disk', '-')}",
@@ -60,7 +60,7 @@ class ConfirmScreen:
                 f"  Replicas:       {self.config.get('longhorn_replicas', '3')}",
             ])
 
-        if mode == 3:
+        if mode == 2:
             lines.extend([
                 "",
                 "--- Join Config ---",
@@ -68,8 +68,13 @@ class ConfirmScreen:
                 f"  Join Method:    {self.config.get('join_method', '-')}",
             ])
 
-        if mode == 4:
+        if mode == 3:
             lines.extend([
+                "",
+                "--- Cluster ---",
+                f"  Node Role:      {self.config.get('role', '-')}",
+                f"  VIP:            {self.config.get('vip', '-')}",
+                f"  VIP Interface:  {self.config.get('vip_interface', '-')}",
                 "",
                 "--- PXE Config ---",
                 f"  DHCP Range:     {self.config.get('dhcp_start', '-')}-{self.config.get('dhcp_end', '-')}",

@@ -6,10 +6,9 @@ from widgets import menu
 logger = logging.getLogger("vdi-installer")
 
 MODES = [
-    ("1", "Fresh Install  - OS + VDI Cluster (Master)"),
-    ("2", "Append Deploy  - VDI Cluster only (Master)"),
-    ("3", "Join Node      - Add Worker to cluster"),
-    ("4", "PXE Server     - Network boot service"),
+    ("1", "Master Node    - Install OS + Deploy VDI Cluster (first node)"),
+    ("2", "Worker Node    - Install OS + Join existing cluster"),
+    ("3", "PXE Server     - Install OS + Network boot service"),
 ]
 
 
@@ -23,7 +22,7 @@ class WelcomeScreen:
             stdscr: curses 标准屏幕
 
         Returns:
-            模式编号 (1-4)，取消返回 None
+            模式编号 (1-3)，取消返回 None
         """
         text = "Select deployment mode:"
 
