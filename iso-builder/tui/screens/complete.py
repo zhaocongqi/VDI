@@ -31,6 +31,17 @@ class CompleteScreen:
         """
         vip = self.config.get("vip", "N/A")
         had_skip = self.config.get("_had_skip", False)
+        # 读取 install-key（bootstrap 模式生成，供后续 control-plane join）
+        install_key = ""
+        for _kp in ["/etc/vdi/install.key",
+                    os.path.expanduser("~/vdi-config/install.key")]:
+            try:
+                with open(_kp) as f:
+                    install_key = f.read().strip()
+                if install_key:
+                    break
+            except (OSError, IOError):
+                continue
         # 有步骤被跳过时顶部加警告（ASCII，避免 TERM=linux 下符号乱码）
         skip_warning = ""
         if had_skip:
@@ -84,6 +95,13 @@ class CompleteScreen:
             )
         else:
             message = "Deployment complete."
+
+        if install_key and self.mode in (1, 2):
+            message += (
+                f"\n--- Control-Plane Join Key ---\n"
+                f"  Install Key: {install_key}\n"
+                f"  (第 2/3 台 Master 装机时填此 key 加入集群)"
+            )
 
         message = skip_warning + message
         choice = menu(stdscr,
