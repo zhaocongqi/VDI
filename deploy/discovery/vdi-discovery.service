@@ -1,0 +1,16 @@
+[Unit]
+Description=VDI Master Discovery Service
+After=network-online.target kubelet.service
+Wants=network-online.target
+ConditionPathExists=/etc/vdi/env-config.sh
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /opt/vdi/discovery/server.py --config-dir /etc/vdi --install-key-file /etc/vdi/install.key --port 8090
+Restart=on-failure
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
