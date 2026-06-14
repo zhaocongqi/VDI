@@ -91,7 +91,7 @@ VIP_INTERFACE="{config.get('vip_interface', 'ens160')}"
 LONGHORN_DISK="{config.get('longhorn_disk', '/dev/sdb')}"
 LONGHORN_DATA_DIR="{config.get('longhorn_data_dir', '/var/lib/longhorn')}"
 
-# ── OS 安装配置（Mode 1 专用）──
+# ── OS 安装配置 ──
 INSTALL_DISK="{config.get('install_disk', '')}"
 PARTITION_SCHEME="{config.get('partition_scheme', 'auto')}"
 SWAP_SIZE="{config.get('swap_size', '8G')}"

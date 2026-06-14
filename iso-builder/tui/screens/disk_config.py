@@ -14,7 +14,7 @@ logger = logging.getLogger("vdi-installer")
 class DiskConfigScreen:
     """磁盘分区配置界面"""
 
-    def show(self, stdscr):
+    def show(self, stdscr, default_hostname="vdi-node-01"):
         """收集磁盘分区配置
 
         Returns:
@@ -76,7 +76,7 @@ class DiskConfigScreen:
         hostname = inputbox(stdscr,
                             title="System Configuration",
                             text="Enter hostname for the installed system:",
-                            default="vdi-node-01")
+                            default=default_hostname)
         if hostname is None:
             return None
         config["hostname"] = hostname

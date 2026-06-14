@@ -167,8 +167,23 @@ class JoinConfigScreen:
                             "可能原因:\n"
                             "  - Install Key 不正确\n"
                             "  - 首节点 discovery 服务不可达\n\n"
-                            "请确认后重试。")
-                return None
+                            "回退为手动输入。")
+
+                cp_join_cmd = inputbox(stdscr,
+                                       title="管理节点配置",
+                                       text="输入完整的 control-plane join 命令:\n\n"
+                                            "在首节点执行:\n"
+                                            "  kubeadm token create --print-join-command\n"
+                                            "  kubeadm init phase upload-certs --upload-certs\n\n"
+                                            "拼接为:\n"
+                                            "  kubeadm join <vip>:6443 --token <token> \\\n"
+                                            "    --discovery-token-ca-cert-hash <hash> \\\n"
+                                            "    --control-plane --certificate-key <key>",
+                                       default="")
+                if cp_join_cmd is None:
+                    return None
+                config["join_command"] = cp_join_cmd
+                config["join_method"] = "control-plane"
 
         # 工作节点: 获取 worker join token
         else:

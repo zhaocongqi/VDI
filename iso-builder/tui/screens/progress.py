@@ -77,11 +77,11 @@ class ProgressScreen:
         self.mode = mode
         self.log_file = "/var/log/vdi-deploy/installer.log"
 
-        if mode == 1 and not phase2:
-            # Mode 1 Phase 1: Live 环境装机
+        if not phase2:
+            # Phase 1: Live 环境装机（所有模式）
             self.steps = DEPLOY_STEPS_PHASE1.get(mode, [])
         else:
-            # Mode 1 Phase 2（续跑）或 Mode 2/3/4
+            # Phase 2: 硬盘环境 VDI 部署（续跑）
             self.steps = DEPLOY_STEPS_PHASE2.get(mode, [])
 
     def run(self, stdscr, deploy_engine, mode, config):
