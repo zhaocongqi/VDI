@@ -25,7 +25,7 @@ class ConfigGenerator:
         """根据模式和配置生成所有配置文件
 
         Args:
-            mode: 部署模式 (1=Master, 2=Worker)
+            mode: 部署模式 (1=首节点, 2=管理节点, 3=工作节点)
             config: TUI 收集的配置字典
         """
         config["mode"] = mode

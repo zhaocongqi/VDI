@@ -201,25 +201,27 @@ class DeployEngine:
         if not os.path.exists(script):
             logger.warning("Offline image loader not found, skipping")
             return True
-        component = "all" if mode in (1, 3) else "worker"
+        component = "all" if mode == 1 else "worker"
         return self._run_streaming(["bash", script, component], "load-images", timeout=3600)
 
     def _join_cluster(self, config):
-        """Worker 节点加入集群
+        """加入集群（管理节点控制面 / 工作节点）
 
         优先使用从 discovery 服务获取的 join_command；
         回退到手动拼接 kubeadm join 命令。
+        管理节点的 join_command 已包含 --control-plane --certificate-key。
         """
         # 优先使用 discovery 服务返回的完整 join command
         join_cmd = config.get("join_command", "")
         if join_cmd:
-            logger.info("使用 discovery 服务获取的 join command")
+            logger.info(f"使用 discovery 获取的 join command (method={config.get('join_method')})")
             return self._run_streaming(join_cmd, "join-cluster", timeout=1800)
 
         # 回退：手动拼接
         master_ip = config.get("master_ip", "")
         token = config.get("join_token", "")
         ca_hash = config.get("ca_cert_hash", "")
+        join_method = config.get("join_method", "worker")
 
         if token and master_ip:
             cmd = f"kubeadm join {master_ip}:6443 --token {token}"
@@ -227,6 +229,11 @@ class DeployEngine:
                 cmd += f" --discovery-token-ca-cert-hash {ca_hash}"
             else:
                 cmd += " --discovery-token-unsafe-skip-ca-verification"
+            if join_method == "control-plane":
+                cert_key = config.get("certificate_key", "")
+                cmd += " --control-plane"
+                if cert_key:
+                    cmd += f" --certificate-key {cert_key}"
             return self._run_streaming(cmd, "join-cluster", timeout=1800)
 
         self._reset_log_buffer("join-cluster")

@@ -32,8 +32,9 @@ from utils.offline import OfflineManager
 from utils.install_state import is_resumable, load_state, save_state, update_phase, clear_state
 
 # 部署模式常量
-MODE_MASTER = 1     # Master 节点：装机 + 部署集群 + 启动发现服务
-MODE_WORKER = 2     # Worker 节点：装机 + 从 Master 获取信息 + 加入集群
+MODE_FIRST = 1      # 首节点：装机 + 创建集群 + 启动发现服务
+MODE_CONTROL = 2    # 管理节点：装机 + 加入控制面（HA）
+MODE_WORKER = 3     # 工作节点：装机 + 加入集群运行桌面
 
 
 class VDIInstaller:
@@ -190,7 +191,7 @@ class VDIInstaller:
             self.config.update(net_config)
 
             # 根据模式收集特定配置
-            if self.mode == MODE_MASTER:
+            if self.mode == MODE_FIRST:
                 cluster_config = ClusterConfigScreen().show(stdscr)
                 if cluster_config is None:
                     return False
@@ -201,8 +202,8 @@ class VDIInstaller:
                     return False
                 self.config.update(storage_config)
 
-            elif self.mode == MODE_WORKER:
-                join_config = JoinConfigScreen().show(stdscr)
+            elif self.mode in (MODE_CONTROL, MODE_WORKER):
+                join_config = JoinConfigScreen().show(stdscr, self.mode)
                 if join_config is None:
                     return False
                 self.config.update(join_config)
@@ -221,7 +222,7 @@ class VDIInstaller:
         Mode 2 (Worker): Phase 1 装机 → 重启 → Phase 2 加入集群
         """
         try:
-            is_fresh = self.mode in (MODE_MASTER, MODE_WORKER)
+            is_fresh = self.mode in (MODE_FIRST, MODE_CONTROL, MODE_WORKER)
             progress = ProgressScreen(self.mode, phase2=False)
             result = progress.run(stdscr, self.deploy_engine, self.mode, self.config)
 

@@ -6,8 +6,9 @@ from widgets import menu
 logger = logging.getLogger("vdi-installer")
 
 MODES = [
-    ("1", "Master Node    - Install OS + Deploy VDI Cluster (first node)"),
-    ("2", "Worker Node    - Install OS + Join existing cluster"),
+    ("1", "First Node      - Create VDI Cluster (bootstrap)"),
+    ("2", "Control Node    - Join as control plane (HA)"),
+    ("3", "Worker Node     - Join as worker (run desktops)"),
 ]
 
 

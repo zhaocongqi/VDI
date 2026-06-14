@@ -6,8 +6,9 @@ from widgets import menu, msgbox
 logger = logging.getLogger("vdi-installer")
 
 MODE_NAMES = {
-    1: "Master Node",
-    2: "Worker Node",
+    1: "首节点",
+    2: "管理节点",
+    3: "工作节点",
 }
 
 
@@ -94,18 +95,27 @@ class CompleteScreen:
                 f"  kubectl get nodes\n"
                 f"  kubectl get pods -A\n"
                 f"  kubectl get sc\n\n"
-                f"--- Add Worker Nodes ---\n"
-                f"Boot other nodes with this ISO, select Mode 2 (Worker Node).\n\n"
-                f"--- Add Worker Manually ---\n"
-                f"  kubeadm token create --print-join-command\n\n"
+                f"--- Add More Nodes ---\n"
+                f"Mode 2 (管理节点): Join as control plane for HA\n"
+                f"Mode 3 (工作节点): Join as worker to run desktops\n\n"
                 f"Log Directory: /var/log/vdi-deploy/"
             )
         elif self.mode == 2:
             message = (
+                "Control plane node joined cluster successfully!\n\n"
+                f"Node IP:   {self.config.get('node_ip', '')}\n"
+                f"Hostname:  {self.config.get('hostname', '')}\n\n"
+                f"Verify:\n"
+                f"  kubectl get nodes\n"
+                f"  kubectl get pods -A | grep {self.config.get('hostname', '')}\n\n"
+                f"Log Directory: /var/log/vdi-deploy/"
+            )
+        elif self.mode == 3:
+            message = (
                 "Worker node joined cluster successfully!\n\n"
                 f"Node IP:   {self.config.get('node_ip', '')}\n"
                 f"Hostname:  {self.config.get('hostname', '')}\n\n"
-                f"Verify on Master node:\n"
+                f"Verify on first node:\n"
                 f"  kubectl get nodes\n"
                 f"  kubectl get pods -A | grep {self.config.get('hostname', '')}\n\n"
                 f"Log Directory: /var/log/vdi-deploy/"
