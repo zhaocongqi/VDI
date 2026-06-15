@@ -22,3 +22,13 @@ ca-certificates
 gnupg
 lsb-release
 sudo
+
+# OS 安装工具（install.sh 依赖）
+gdisk
+parted
+squashfs-tools
+grub-pc-bin
+grub-efi-amd64-bin
+grub2-common
+grub-efi-amd64-signed
+shim-signed
