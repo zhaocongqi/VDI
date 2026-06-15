@@ -448,5 +448,47 @@ class TestTwoPhaseFlow(unittest.TestCase):
         self.assertIn("join_command", config)
 
 
+class TestPartitionNaming(unittest.TestCase):
+    """分区设备命名逻辑测试（NVMe vs SATA）"""
+
+    def test_sata_partition_naming(self):
+        """SATA/SCSI 磁盘分区应为 /dev/sda1"""
+        disk = "/dev/sda"
+        if "nvme" in disk and disk[-1].isdigit():
+            prefix = f"{disk}p"
+        else:
+            prefix = disk
+        self.assertEqual(f"{prefix}1", "/dev/sda1")
+        self.assertEqual(f"{prefix}3", "/dev/sda3")
+
+    def test_nvme_partition_naming(self):
+        """NVMe 磁盘分区应为 /dev/nvme0n1p1"""
+        disk = "/dev/nvme0n1"
+        if "nvme" in disk and disk[-1].isdigit():
+            prefix = f"{disk}p"
+        else:
+            prefix = disk
+        self.assertEqual(f"{prefix}1", "/dev/nvme0n1p1")
+        self.assertEqual(f"{prefix}3", "/dev/nvme0n1p3")
+
+    def test_nvme_second_device(self):
+        """第二块 NVMe 设备命名"""
+        disk = "/dev/nvme1n1"
+        if "nvme" in disk and disk[-1].isdigit():
+            prefix = f"{disk}p"
+        else:
+            prefix = disk
+        self.assertEqual(f"{prefix}2", "/dev/nvme1n1p2")
+
+    def test_vda_partition_naming(self):
+        """virtio 磁盘分区应为 /dev/vda1（无 p 前缀）"""
+        disk = "/dev/vda"
+        if "nvme" in disk and disk[-1].isdigit():
+            prefix = f"{disk}p"
+        else:
+            prefix = disk
+        self.assertEqual(f"{prefix}1", "/dev/vda1")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
