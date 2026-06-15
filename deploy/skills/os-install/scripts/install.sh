@@ -38,6 +38,14 @@ if [ -n "$LIVE_DEV" ] && [ "/dev/$LIVE_DEV" = "$DISK" ]; then
     exit 1
 fi
 
+# ── 分区命名辅助 ──
+# NVMe 设备分区格式为 /dev/nvme0n1p1，普通磁盘为 /dev/sda1
+if echo "$DISK" | grep -qE '/nvme[0-9]+n[0-9]+$'; then
+    PART_PREFIX="${DISK}p"
+else
+    PART_PREFIX="${DISK}"
+fi
+
 # ── 1. 分区 ──
 echo "$LOG_TAG 开始分区..."
 
@@ -53,21 +61,22 @@ if [ "$SCHEME" = "auto" ] && [ "$SWAP_SIZE" != "0" ]; then
     sgdisk -n 1:0:+512M -t 1:ef00 -c 1:"EFI System" "$DISK"
     sgdisk -n 2:0:+${SWAP_SIZE} -t 2:8200 -c 2:"Linux Swap" "$DISK"
     sgdisk -n 3:0:0 -t 3:8300 -c 3:"Linux Root" "$DISK"
-    EFI_PART="${DISK}1"
-    SWAP_PART="${DISK}2"
-    ROOT_PART="${DISK}3"
+    EFI_PART="${PART_PREFIX}1"
+    SWAP_PART="${PART_PREFIX}2"
+    ROOT_PART="${PART_PREFIX}3"
 else
     # Minimal: EFI(512M) + root(rest)
     sgdisk -n 1:0:+512M -t 1:ef00 -c 1:"EFI System" "$DISK"
     sgdisk -n 2:0:0 -t 2:8300 -c 2:"Linux Root" "$DISK"
-    EFI_PART="${DISK}1"
+    EFI_PART="${PART_PREFIX}1"
     SWAP_PART=""
-    ROOT_PART="${DISK}2"
+    ROOT_PART="${PART_PREFIX}2"
 fi
 
 # 等待分区设备节点就绪
 partprobe "$DISK" 2>/dev/null || true
-sleep 2
+udevadm settle 2>/dev/null || true
+sleep 1
 
 echo "$LOG_TAG 分区完成: EFI=$EFI_PART ROOT=$ROOT_PART SWAP=$SWAP_PART"
 
@@ -80,18 +89,14 @@ fi
 mkfs.ext4 -F -q "$ROOT_PART"
 echo "$LOG_TAG 格式化完成"
 
-# ── 3. 挂载 ──
-echo "$LOG_TAG 挂载分区..."
+# ── 3. 挂载根分区 + 提取 rootfs ──
+echo "$LOG_TAG 挂载根分区..."
 mkdir -p "$TARGET"
 mount "$ROOT_PART" "$TARGET"
-mkdir -p "$TARGET/boot/efi"
-mount "$EFI_PART" "$TARGET/boot/efi"
 if [ -n "$SWAP_PART" ]; then
     swapon "$SWAP_PART"
 fi
-echo "$LOG_TAG 挂载完成"
 
-# ── 4. 提取 rootfs ──
 echo "$LOG_TAG 提取 rootfs 到目标磁盘（此步骤较慢，请耐心等待）..."
 
 SQUASHFS=""
@@ -110,8 +115,15 @@ if [ -z "$SQUASHFS" ]; then
     exit 1
 fi
 
-unsquashfs -d "$TARGET" "$SQUASHFS"
+# -f: 强制覆盖已有文件（mkfs.ext4 创建的 lost+found 等）
+unsquashfs -f -d "$TARGET" "$SQUASHFS"
 echo "$LOG_TAG rootfs 提取完成"
+
+# 提取完成后再挂载 EFI 分区（避免 squashfs 文件写入 VFAT）
+echo "$LOG_TAG 挂载 EFI 分区..."
+mkdir -p "$TARGET/boot/efi"
+mount "$EFI_PART" "$TARGET/boot/efi"
+echo "$LOG_TAG 挂载完成"
 
 # ── 5. 生成 fstab ──
 echo "$LOG_TAG 生成 /etc/fstab..."
@@ -149,15 +161,54 @@ if [ -d /cdrom ]; then
     mount --bind /cdrom "$TARGET/cdrom" 2>/dev/null || true
 fi
 
+# chroot 内需要 /etc/default/grub
+if [ ! -f "$TARGET/etc/default/grub" ]; then
+    cat > "$TARGET/etc/default/grub" <<'GRUBCFG'
+GRUB_DEFAULT=0
+GRUB_TIMEOUT=5
+GRUB_DISTRIBUTOR=VDI
+GRUB_CMDLINE_LINUX_DEFAULT="quiet splash"
+GRUB_CMDLINE_LINUX=""
+GRUB_TERMINAL=console
+GRUB_DISABLE_OS_PROBER=false
+GRUB_DISABLE_SUBMENU=y
+GRUB_GFXPAYLOAD_LINUX=text
+GRUB_HIDDEN_TIMEOUT_QUIET=true
+GRUB_TIMEOUT_STYLE=menu
+GRUBCFG
+fi
+
+# 创建 grub 目录
+mkdir -p "$TARGET/boot/grub"
+
+EFI_OK=0
+BIOS_OK=0
+
+# UEFI 引导安装
 chroot "$TARGET" grub-install --target=x86_64-efi \
     --efi-directory=/boot/efi \
     --bootloader-id=VDI \
-    --recheck --no-nvram 2>/dev/null || true
+    --recheck --no-nvram && EFI_OK=1 || {
+    echo "$LOG_TAG 警告: UEFI grub-install 失败（BIOS 模式仍可用）"
+}
 
+# BIOS 引导安装
 chroot "$TARGET" grub-install --target=i386-pc \
-    "$DISK" 2>/dev/null || true
+    "$DISK" && BIOS_OK=1 || {
+    echo "$LOG_TAG 警告: BIOS grub-install 失败"
+}
 
-chroot "$TARGET" update-grub 2>/dev/null || true
+# 生成 grub 配置
+chroot "$TARGET" update-grub || {
+    echo "$LOG_TAG 警告: update-grub 失败，手动生成配置"
+    chroot "$TARGET" bash -c 'grub-mkconfig -o /boot/grub/grub.cfg' 2>/dev/null || true
+}
+
+if [ "$EFI_OK" = "1" ] || [ "$BIOS_OK" = "1" ]; then
+    echo "$LOG_TAG GRUB 安装完成 (UEFI=$EFI_OK BIOS=$BIOS_OK)"
+else
+    echo "$LOG_TAG 警告: GRUB 安装均失败，系统可能无法从硬盘引导！" >&2
+fi
 
 echo "$LOG_TAG GRUB 安装完成"
 
@@ -199,7 +250,10 @@ chroot "$TARGET" systemctl enable ssh 2>/dev/null || true
 chroot "$TARGET" systemctl enable systemd-networkd 2>/dev/null || true
 
 # 更新 initramfs（适配目标硬件）
-chroot "$TARGET" update-initramfs -u -k all 2>/dev/null || true
+if [ -f "$TARGET/etc/initramfs-tools/initramfs.conf" ]; then
+    chroot "$TARGET" update-initramfs -u -k all 2>/dev/null || \
+        echo "$LOG_TAG 警告: update-initramfs 失败，首次启动可能较慢"
+fi
 
 echo "$LOG_TAG 目标系统配置完成"
 
