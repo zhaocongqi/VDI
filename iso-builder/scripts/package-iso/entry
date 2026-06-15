@@ -68,9 +68,6 @@ echo "${ISO_NAME}" > "${ISO_ROOT}/.disk/base_installable"
 step "打包 ISO"
 source "${SCRIPT_DIR}/iso.sh"
 
-step "生成 PXE 产物"
-source "${SCRIPT_DIR}/pxe.sh"
-
 step "生成校验和"
 source "${SCRIPT_DIR}/checksum.sh"
 
