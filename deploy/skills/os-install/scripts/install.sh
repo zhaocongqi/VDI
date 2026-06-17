@@ -57,20 +57,23 @@ swapoff "${DISK}"* 2>/dev/null || true
 sgdisk --zap-all "$DISK" 2>/dev/null || true
 
 if [ "$SCHEME" = "auto" ] && [ "$SWAP_SIZE" != "0" ]; then
-    # Auto: EFI(512M) + swap + root(rest)
-    sgdisk -n 1:0:+512M -t 1:ef00 -c 1:"EFI System" "$DISK"
-    sgdisk -n 2:0:+${SWAP_SIZE} -t 2:8200 -c 2:"Linux Swap" "$DISK"
-    sgdisk -n 3:0:0 -t 3:8300 -c 3:"Linux Root" "$DISK"
-    EFI_PART="${PART_PREFIX}1"
-    SWAP_PART="${PART_PREFIX}2"
-    ROOT_PART="${PART_PREFIX}3"
+    # Auto: BIOS Boot(1M) + EFI(512M) + swap + root(rest)
+    # GPT + BIOS 引导需要 BIOS Boot 分区存放 GRUB core.img
+    sgdisk -n 1:0:+1M -t 1:ef02 -c 1:"BIOS Boot" "$DISK"
+    sgdisk -n 2:0:+512M -t 2:ef00 -c 2:"EFI System" "$DISK"
+    sgdisk -n 3:0:+${SWAP_SIZE} -t 3:8200 -c 3:"Linux Swap" "$DISK"
+    sgdisk -n 4:0:0 -t 4:8300 -c 4:"Linux Root" "$DISK"
+    EFI_PART="${PART_PREFIX}2"
+    SWAP_PART="${PART_PREFIX}3"
+    ROOT_PART="${PART_PREFIX}4"
 else
-    # Minimal: EFI(512M) + root(rest)
-    sgdisk -n 1:0:+512M -t 1:ef00 -c 1:"EFI System" "$DISK"
-    sgdisk -n 2:0:0 -t 2:8300 -c 2:"Linux Root" "$DISK"
-    EFI_PART="${PART_PREFIX}1"
+    # Minimal: BIOS Boot(1M) + EFI(512M) + root(rest)
+    sgdisk -n 1:0:+1M -t 1:ef02 -c 1:"BIOS Boot" "$DISK"
+    sgdisk -n 2:0:+512M -t 2:ef00 -c 2:"EFI System" "$DISK"
+    sgdisk -n 3:0:0 -t 3:8300 -c 3:"Linux Root" "$DISK"
+    EFI_PART="${PART_PREFIX}2"
     SWAP_PART=""
-    ROOT_PART="${PART_PREFIX}2"
+    ROOT_PART="${PART_PREFIX}3"
 fi
 
 # 等待分区设备节点就绪
@@ -154,6 +157,10 @@ mount --bind /dev/pts "$TARGET/dev/pts"
 mount --bind /proc "$TARGET/proc"
 mount --bind /sys "$TARGET/sys"
 mount --bind /run "$TARGET/run"
+# /dev/disk 包含设备的符号链接，grub-install 需要
+if [ -d /dev/disk ]; then
+    mount --bind /dev/disk "$TARGET/dev/disk" 2>/dev/null || true
+fi
 
 # 确保 /cdrom 可用于 chroot 内的离线源
 if [ -d /cdrom ]; then
@@ -193,9 +200,15 @@ chroot "$TARGET" grub-install --target=x86_64-efi \
 }
 
 # BIOS 引导安装
+# --force: 允许在已有分区表的设备上安装（覆盖旧MBR代码）
+# --recheck: 重新检查设备映射（应对设备节点变化）
 chroot "$TARGET" grub-install --target=i386-pc \
-    "$DISK" && BIOS_OK=1 || {
+    --force --recheck "$DISK" && BIOS_OK=1 || {
     echo "$LOG_TAG 警告: BIOS grub-install 失败"
+    # 尝试诊断失败原因
+    if ! chroot "$TARGET" dpkg -l grub-pc >/dev/null 2>&1; then
+        echo "$LOG_TAG 提示: chroot 内可能缺少 grub-pc 包"
+    fi
 }
 
 # 关闭 os-prober：chroot 内 bind 的 /cdrom 会被识别为可启动系统，
@@ -351,6 +364,7 @@ umount "$TARGET/cdrom" 2>/dev/null || true
 umount "$TARGET/run" 2>/dev/null || true
 umount "$TARGET/sys" 2>/dev/null || true
 umount "$TARGET/proc" 2>/dev/null || true
+umount "$TARGET/dev/disk" 2>/dev/null || true
 umount "$TARGET/dev/pts" 2>/dev/null || true
 umount "$TARGET/dev" 2>/dev/null || true
 if [ -n "$SWAP_PART" ]; then
