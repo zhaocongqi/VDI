@@ -38,6 +38,18 @@ if [ -n "$LIVE_DEV" ] && [ "/dev/$LIVE_DEV" = "$DISK" ]; then
     exit 1
 fi
 
+# 不允许安装在当前根文件系统所在设备（防止破坏运行中的系统）
+ROOT_DEV=$(findmnt -n -o SOURCE / 2>/dev/null | sed 's/[0-9]*$//' | sed 's/p$//')
+if [ -n "$ROOT_DEV" ] && [ "$ROOT_DEV" = "$DISK" ]; then
+    # 检查是否在 Live 环境中（Live 环境的根是 tmpfs 或 squashfs）
+    ROOT_FSTYPE=$(findmnt -n -o FSTYPE / 2>/dev/null)
+    if [ "$ROOT_FSTYPE" != "tmpfs" ] && [ "$ROOT_FSTYPE" != "squashfs" ] && [ "$ROOT_FSTYPE" != "overlay" ]; then
+        echo "$LOG_TAG 错误: 目标磁盘 $DISK 是当前系统根设备，不能在运行中的系统上安装" >&2
+        echo "$LOG_TAG 请从 Live ISO 启动后再运行安装" >&2
+        exit 1
+    fi
+fi
+
 # ── 分区命名辅助 ──
 # NVMe 设备分区格式为 /dev/nvme0n1p1，普通磁盘为 /dev/sda1
 if echo "$DISK" | grep -qE '/nvme[0-9]+n[0-9]+$'; then
@@ -49,9 +61,17 @@ fi
 # ── 1. 分区 ──
 echo "$LOG_TAG 开始分区..."
 
-# 确保旧分区未挂载
+# 强制卸载目标磁盘的所有分区（防止在已安装系统上运行时失败）
+echo "$LOG_TAG 卸载目标磁盘所有分区..."
+for part in "${DISK}"*; do
+    [ "$part" = "$DISK" ] && continue
+    umount -l "$part" 2>/dev/null || true
+done
 umount -R "$TARGET" 2>/dev/null || true
 swapoff "${DISK}"* 2>/dev/null || true
+
+# 等待卸载完成
+sleep 1
 
 # sgdisk 全新分区表（GPT）
 sgdisk --zap-all "$DISK" 2>/dev/null || true
