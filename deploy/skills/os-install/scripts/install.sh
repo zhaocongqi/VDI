@@ -97,9 +97,27 @@ else
 fi
 
 # 等待分区设备节点就绪
+echo "$LOG_TAG 更新内核分区表..."
 partprobe "$DISK" 2>/dev/null || true
+partx -u "$DISK" 2>/dev/null || true
 udevadm settle 2>/dev/null || true
-sleep 1
+
+# 强制等待内核刷新分区表（关键！）
+sleep 3
+
+# 验证分区是否存在
+for part in "$EFI_PART" "$ROOT_PART"; do
+    if [ ! -b "$part" ]; then
+        echo "$LOG_TAG 错误: 分区 $part 不存在，内核分区表未更新" >&2
+        echo "$LOG_TAG 尝试重新读取分区表..." >&2
+        partprobe "$DISK" 2>/dev/null || true
+        sleep 2
+        if [ ! -b "$part" ]; then
+            echo "$LOG_TAG 错误: 分区 $part 仍然不存在，放弃" >&2
+            exit 1
+        fi
+    fi
+done
 
 echo "$LOG_TAG 分区完成: EFI=$EFI_PART ROOT=$ROOT_PART SWAP=$SWAP_PART"
 
