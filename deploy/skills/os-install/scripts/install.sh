@@ -170,7 +170,7 @@ GRUB_DISTRIBUTOR=VDI
 GRUB_CMDLINE_LINUX_DEFAULT="quiet splash"
 GRUB_CMDLINE_LINUX=""
 GRUB_TERMINAL=console
-GRUB_DISABLE_OS_PROBER=false
+GRUB_DISABLE_OS_PROBER=true
 GRUB_DISABLE_SUBMENU=y
 GRUB_GFXPAYLOAD_LINUX=text
 GRUB_HIDDEN_TIMEOUT_QUIET=true
@@ -197,6 +197,18 @@ chroot "$TARGET" grub-install --target=i386-pc \
     "$DISK" && BIOS_OK=1 || {
     echo "$LOG_TAG 警告: BIOS grub-install 失败"
 }
+
+# 关闭 os-prober：chroot 内 bind 的 /cdrom 会被识别为可启动系统，
+# 生成无效的 CD-ROM 启动项；目标盘是单系统，无需探测其它 OS。
+# 无论 /etc/default/grub 来自 squashfs 还是上方模板，统一强制为 true。
+if [ -f "$TARGET/etc/default/grub" ]; then
+    if grep -q '^GRUB_DISABLE_OS_PROBER=' "$TARGET/etc/default/grub"; then
+        sed -i 's/^GRUB_DISABLE_OS_PROBER=.*/GRUB_DISABLE_OS_PROBER=true/' \
+            "$TARGET/etc/default/grub"
+    else
+        echo 'GRUB_DISABLE_OS_PROBER=true' >> "$TARGET/etc/default/grub"
+    fi
+fi
 
 # 生成 grub 配置
 chroot "$TARGET" update-grub || {
