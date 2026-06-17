@@ -63,7 +63,7 @@ create_efi_image() {
         -o "${efi_tmp}/EFI/BOOT/BOOTX64.EFI" \
         -p "/boot/grub" \
         -d /usr/lib/grub/x86_64-efi \
-        linux normal iso9660 part_msdos part_gpt fat \
+        linuxefi linux normal iso9660 part_msdos part_gpt fat \
         search search_fs_file search_fs_uuid search_label \
         serial terminal gfxterm gfxterm_background gfxterm_menu \
         halt reboot configfile echo ls cat chain loadenv
