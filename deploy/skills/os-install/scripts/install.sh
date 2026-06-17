@@ -61,6 +61,9 @@ fi
 # ── 1. 分区 ──
 echo "$LOG_TAG 开始分区..."
 
+# 禁用自动挂载服务（防止分区创建后被自动挂载）
+systemctl stop udisks2 2>/dev/null || true
+
 # 强制卸载目标磁盘的所有分区（防止在已安装系统上运行时失败）
 echo "$LOG_TAG 卸载目标磁盘所有分区..."
 for part in "${DISK}"*; do
