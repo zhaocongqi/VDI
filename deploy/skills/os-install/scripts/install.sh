@@ -204,6 +204,32 @@ chroot "$TARGET" update-grub || {
     chroot "$TARGET" bash -c 'grub-mkconfig -o /boot/grub/grub.cfg' 2>/dev/null || true
 }
 
+# ── 补 UEFI 引导入口（根治：拔 CD-ROM 重启后进 PXE）──
+# 原因：grub-install 用了 --no-nvram + --bootloader-id=VDI，既未写 NVRAM
+# 启动项、也未放置 UEFI fallback，固件无法发现硬盘上的引导程序，重启后
+# fallback 到 PXE。下方同时补 fallback（跟随磁盘，最可靠）与 NVRAM 启动项。
+if [ "$EFI_OK" = "1" ]; then
+    # 1) UEFI 可移动介质入口 —— 固件在无 NVRAM 启动项时的兜底发现路径
+    mkdir -p "$TARGET/boot/efi/EFI/BOOT"
+    if cp "$TARGET/boot/efi/EFI/VDI/grubx64.efi" \
+          "$TARGET/boot/efi/EFI/BOOT/BOOTX64.EFI" 2>/dev/null; then
+        echo "$LOG_TAG 已放置 UEFI fallback: \\EFI\\BOOT\\BOOTX64.EFI"
+    else
+        echo "$LOG_TAG 警告: 放置 UEFI fallback 失败（检查 \\EFI\\VDI\\grubx64.efi 是否存在）" >&2
+    fi
+
+    # 2) NVRAM 启动项（让固件 BootOrder 显式记住这块盘，本机启动更稳）
+    if [ -d /sys/firmware/efi ] && command -v efibootmgr >/dev/null 2>&1; then
+        EFI_PARTNUM="${EFI_PART##*[!0-9]}"   # /dev/sda1→1, /dev/nvme0n1p1→1
+        if efibootmgr -c -d "$DISK" -p "$EFI_PARTNUM" \
+                -L "VDI" -l '\EFI\VDI\grubx64.efi' >/dev/null 2>&1; then
+            echo "$LOG_TAG NVRAM 启动项已写入"
+        else
+            echo "$LOG_TAG 警告: efibootmgr 写入失败（将依赖 fallback 引导）" >&2
+        fi
+    fi
+fi
+
 if [ "$EFI_OK" = "1" ] || [ "$BIOS_OK" = "1" ]; then
     echo "$LOG_TAG GRUB 安装完成 (UEFI=$EFI_OK BIOS=$BIOS_OK)"
 else
