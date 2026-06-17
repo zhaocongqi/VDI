@@ -75,3 +75,6 @@ deploy/hosts
 
 # Python 缓存
 __pycache__/
+
+# QEMU/测试临时目录
+tmp/
