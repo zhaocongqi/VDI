@@ -9,8 +9,14 @@ logger = logging.getLogger("vdi-installer")
 class OfflineManager:
     """离线资源管理器"""
 
-    # ISO 挂载点候选路径
-    MOUNT_CANDIDATES = ["/cdrom", "/mnt/iso", "/media/cdrom"]
+    # 离线资源候选路径（硬盘优先，然后ISO挂载点）
+    MOUNT_CANDIDATES = [
+        "/var/lib/vdi",      # Phase 2: 硬盘上的离线资源
+        "/opt/vdi",          # Phase 2: 硬盘上的部署脚本
+        "/cdrom",            # Phase 1: ISO 挂载点
+        "/mnt/iso",
+        "/media/cdrom"
+    ]
 
     def __init__(self):
         self.base_dir = None

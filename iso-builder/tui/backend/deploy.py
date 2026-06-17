@@ -48,10 +48,15 @@ class DeployEngine:
             # 非 root 环境回退到用户目录
             self.log_dir = os.path.expanduser("~/vdi-deploy-logs")
             os.makedirs(self.log_dir, exist_ok=True)
-        # env-config.sh 来源优先级：TUI 生成 > ISO 内置 > 离线包
+        # env-config.sh 来源优先级：TUI 生成 > 硬盘副本 > ISO 内置
         self.env_config = "/etc/vdi/env-config.sh"
         if not os.path.exists(self.env_config):
-            for candidate in ["/cdrom/scripts/deploy/env-config.sh", "/cdrom/offline/env-config.sh"]:
+            for candidate in [
+                "/opt/vdi/deploy/env-config.sh",
+                "/var/lib/vdi/offline/env-config.sh",
+                "/cdrom/scripts/deploy/env-config.sh",
+                "/cdrom/offline/env-config.sh"
+            ]:
                 if os.path.exists(candidate):
                     self.env_config = candidate
                     break
@@ -175,12 +180,14 @@ class DeployEngine:
         return self._run_script(script_path, step_id)
 
     def _resolve_script(self, step_id):
-        """解析脚本路径（ISO 内优先）"""
+        """解析脚本路径（硬盘优先，然后ISO）"""
         relative = SCRIPT_MAP.get(step_id)
         if relative:
-            for base in ["/cdrom/scripts/deploy", "deploy"]:
+            # 优先从硬盘路径查找（Phase 2 重启后）
+            for base in ["/opt/vdi/deploy", "/cdrom/scripts/deploy", "deploy"]:
                 full_path = os.path.join(base, relative)
                 if os.path.exists(full_path):
+                    logger.info(f"脚本路径: {full_path}")
                     return full_path
 
         offline_path = OFFLINE_SCRIPT_MAP.get(step_id)

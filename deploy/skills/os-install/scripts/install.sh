@@ -341,20 +341,42 @@ fi
 RESUME
 chmod +x "$TARGET/etc/profile.d/vdi-resume.sh"
 
-# 复制 TUI 和部署脚本到目标系统
+# 复制离线资源到目标硬盘（关键！重启后 /cdrom 会变空）
+echo "$LOG_TAG 复制离线资源到硬盘..."
 mkdir -p "$TARGET/opt/vdi"
-if [ -d /opt/vdi/tui ]; then
+mkdir -p "$TARGET/var/lib/vdi"
+
+# 复制 TUI 安装器（从实际路径，不是符号链接）
+if [ -d /cdrom/tui ]; then
     rm -rf "$TARGET/opt/vdi/tui"
-    cp -a /opt/vdi/tui "$TARGET/opt/vdi/tui"
+    cp -a /cdrom/tui "$TARGET/opt/vdi/tui"
+    echo "$LOG_TAG ✓ TUI 安装器已复制"
 fi
-if [ -d /opt/vdi/deploy ]; then
+
+# 复制部署脚本
+if [ -d /cdrom/scripts/deploy ]; then
     rm -rf "$TARGET/opt/vdi/deploy"
-    cp -a /opt/vdi/deploy "$TARGET/opt/vdi/deploy"
+    cp -a /cdrom/scripts/deploy "$TARGET/opt/vdi/deploy"
+    echo "$LOG_TAG ✓ 部署脚本已复制"
 fi
+
+# 复制离线二进制和资源
+if [ -d /cdrom/offline ]; then
+    cp -a /cdrom/offline "$TARGET/var/lib/vdi/"
+    echo "$LOG_TAG ✓ 离线资源已复制"
+fi
+
+# 重建符号链接，指向硬盘上的实际路径
+rm -f "$TARGET/opt/vdi/deploy" "$TARGET/opt/vdi/tui" 2>/dev/null || true
+
 # 复制 TUI 生成的配置
 if [ -d /etc/vdi ]; then
     cp -a /etc/vdi/* "$TARGET/etc/vdi/" 2>/dev/null || true
+    echo "$LOG_TAG ✓ VDI 配置已复制"
 fi
+
+# 统计复制结果
+du -sh "$TARGET/opt/vdi" "$TARGET/var/lib/vdi" 2>/dev/null || true
 
 echo "$LOG_TAG 装机状态标记已写入"
 

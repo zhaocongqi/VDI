@@ -5,10 +5,16 @@ set -euo pipefail
 # [部署时] 将 docker-archive + zstd 格式镜像导入到 containerd k8s.io 命名空间
 # 基于 metadata.yaml 索引逐条导入
 
-# 离线资源路径（优先 bundle/，兼容旧版 offline/）
+# 离线资源路径（硬盘优先，然后ISO挂载点）
 OFFLINE_BASE="${OFFLINE_BASE:-}"
 if [ -z "$OFFLINE_BASE" ]; then
-    for dir in /cdrom/bundle /cdrom/offline /mnt/iso/bundle /mnt/iso/offline; do
+    for dir in \
+        /var/lib/vdi/offline \
+        /var/lib/vdi/bundle \
+        /cdrom/bundle \
+        /cdrom/offline \
+        /mnt/iso/bundle \
+        /mnt/iso/offline; do
         [ -d "$dir" ] && OFFLINE_BASE="$dir" && break
     done
 fi
