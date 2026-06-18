@@ -58,6 +58,8 @@ ExecStart=-/sbin/agetty -n -l /usr/bin/start-installer.sh %I \$TERM
 EOF
 # 启用串口 getty（Ubuntu live 环境默认不启用）
 RUN systemctl enable serial-getty@ttyS0.service
+# 启用网络接口自动激活（参考 Harvester 90_network.yaml）
+RUN systemctl enable vdi-network-setup.service
 
 ARG VDI_PRETTY_NAME="VDI Platform"
 RUN sed -i "s/^PRETTY_NAME.*/PRETTY_NAME=\"$VDI_PRETTY_NAME\"/g" /etc/os-release
