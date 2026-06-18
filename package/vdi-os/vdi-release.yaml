@@ -1,6 +1,6 @@
-vdi: 12d30c2a-dirty
-installer: 12d30c2a
-os: VDI 12d30c2a-dirty
+vdi: 1a2f69ba-dirty
+installer: 1a2f69ba
+os: VDI 1a2f69ba-dirty
 rke2: v1.31.4+rke2r1
 kubevirt: v1.5.0
 longhorn: v1.8.1

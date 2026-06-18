@@ -1,169 +1,105 @@
-harvester-installer
-========
-[![Build Status](https://github.com/harvester/harvester-installer/actions/workflows/build.yml/badge.svg)](https://github.com/harvester/harvester-installer/actions/workflows/build.yml)
+# VDI 离线安装器
 
-Repo for building the [Harvester](https://github.com/harvester/harvester)
-ISO image.  This includes the various scripts necessary to build the ISO
-itself, plus the `harvester-installer` binary and related scripts that
-perform system installation when the ISO is booted.
+基于 [Harvester Installer](https://github.com/harvester/harvester-installer) 架构改造的 VDI (Virtual Desktop Infrastructure) 离线安装器，使用 RKE2 + HelmChart CRD 声明式部署 KubeVirt/Longhorn/Kube-OVN/kagent 组件栈。
 
-## Building
+## 技术栈
 
-### Prerequisite
-- [Docker](https://docs.docker.com/engine/install/)
+| 组件 | 技术 |
+|------|------|
+| K8s 运行时 | RKE2 (Rancher Kubernetes Engine 2) |
+| addon 管理 | HelmChart CRD (helm.cattle.io/v1) |
+| 网络 | Kube-OVN |
+| 存储 | Longhorn |
+| 虚拟化 | KubeVirt |
+| AI Agent | kagent |
+| 安装器 | Go + gocui |
+| ISO 构建 | elemental + xorriso |
+| 构建系统 | Dapper (Docker-in-Docker) |
+
+## 快速开始
+
+### 前置条件
+
+- Docker
 - Git
-- Go (see `go.mod` for version)
+- Go 1.26+
 - Helm
 
-To build an ISO image, run:
+### 构建 ISO
 
-`make`
+```bash
+# 完整构建（编译 + 下载离线资源 + 打包 ISO）
+make default
 
-This will:
-
-1. Build the `harvester-installer` binary.
-2. Create an archive of all the necessary Harvester and Rancher charts
-   and container images.
-3. Create the `harvester-cluster-repo` container image, which provides
-   a helm repository including the charts from the previous step.
-4. Package everything from the above steps into an ISO image.  The ISO
-   image is built using [Elemental Toolkit](https://github.com/rancher/elemental-toolkit/),
-   and is based on [harvester/os2](https://github.com/harvester/os2),
-   which in turn is based on [SLE Micro](https://www.suse.com/products/micro/).
-
-The built ISO image is written to the `dist/artifacts` directory.
-
-During the build, the harvester source and addons will be pulled
-automatically from https://github.com/harvester/harvester.git and
-https://github.com/harvester/addons.git resectively.  If you would
-like to use an exiting local copy of either or both repositories
-instead, for example to pick up some development work in progress,
-you can do so as follows:
-
-```sh
- $ export LOCAL_HARVESTER_SRC=/path/to/local/harvester/repo
- $ export LOCAL_ADDONS_SRC=/path/to/local/addons/repo
- $ make
+# 或分步执行
+make build              # 编译 Go 安装器
+make build-bundle       # 下载离线资源
+make package-vdi-os     # 构建 OS 镜像 + ISO
 ```
 
-### Download the ISO image build during GitHub actions
+ISO 产物位于 `dist/artifacts/vdi-$VERSION-$ARCH.iso`。
 
-If you want to download the ISO image built during GitHub actions of your
-PR, then add the label `iso-artifacts` to your pull request. The ISO image
-will be available as an artifact in the `Build ISO images` workflow run.
-You can download the ISO images from the `Artifacts` section after clicking
-on the relevant workflow run at https://github.com/harvester/harvester-installer/actions.
-The ISO images will be automatically deleted after 1 day.
+### 测试 ISO
 
-## Harvester Installation Process
+```bash
+# BIOS 模式
+make test-iso
 
-Harvester can be installed by either [booting the Harvester ISO](https://docs.harvesterhci.io/v1.2/install/index/),
-or via [PXE Boot](https://docs.harvesterhci.io/v1.2/install/pxe-boot-install).
-When booting via ISO, `harvester-installer` runs interactively on the
-system console to allow you to configure the system.  When booting via
-PXE, you don't get the interactive installer - instead you need to
-provide YAML files specifying the configuration to apply.
-
-In both cases (ISO boot and PXE boot), the `harvester-installer` binary
-still _runs_ in order to provision the system.  This is put in place by
-[system/oem/91_installer.yaml](https://github.com/harvester/harvester-installer/blob/master/package/harvester-os/files/system/oem/91_installer.yaml)
-which in turn calls [setup-installer.sh](https://github.com/harvester/harvester-installer/blob/master/package/harvester-os/files/usr/bin/setup-installer.sh)
-to start the installer on tty1.
-
-When booted via ISO, the installer will prompt for configuration
-information (create a new cluster / join an existing cluster, what
-disks to use, network config, etc.).  When booted via PXE, the kernel
-command line parameter `harvester.install.automatic=true` causes the
-interactive part to be skipped, and config will be retrieved from the
-URL specified by `harvester.install.config_url`.
-
-The installer will run some preflight checks to ensure the system
-meets minimum hardware requirements.  If any of these checks
-fail when run interactively, the first page of the installer will
-indicate which checks failed, and give you the option to proceed or
-not.  When installing via PXE, if any checks fail, installation will
-abort and the failed checks will be visible on the system console,
-and also logged to /var/log/console.log in the installation environment.
-If you wish to bypass the preflight checks for testing purposes during
-automated installation, set the `harvester.install.skipchecks=true`
-kernel command line parmaeter.
-
-Either way (ISO or PXE), the installer writes the final config out to
-a temporary file which is passed to [harv-install](https://github.com/harvester/harvester-installer/blob/master/package/harvester-os/files/usr/sbin/harv-install)
-which in turn calls `elemental install` to provision the system.
-The harv-install script also preloads all the container images.
-Finally, the system is rebooted.
-
-On the newly installed system, `harvester-installer` remains active
-on the console in order to show the cluster management URL along with
-the current node's hostname and IP address.
-
-## Hacking the Interactive Part of `harvester-installer`
-
-Ordinarily `harvester-installer` needs to be run from a booted ISO,
-so it can actually install a system.  But, if you're only working
-on changes to the interactive part of the installer (e.g. adding
-or changing fields, or altering the workflow) and don't actually
-need to perform final installation, the binary can be quickly tested
-using vagrant with vagrant-libvirt.  Here's how:
-
-```sh
- $ USE_LOCAL_IMAGES=true make build
- $ vagrant up
- $ vagrant ssh
- > sudo DEBUG=true TTY=/dev/tty /vagrant/harvester-installer
+# UEFI 模式
+qemu-system-x86_64 -m 4096 -smp 2 \
+    -cdrom dist/artifacts/vdi-*.iso \
+    -boot d -bios /usr/share/ovmf/OVMF.fd -nographic
 ```
 
-Be sure the terminal window you use is fairly tall, or it will bail
-out with "panic: invalid dimensions" after you get past the networking
-screen.  To break out of the installer, hit CTRL-C.  If you rebuild
-the binary it can be sync'd back to a running vagrant box with
-`vagrant rsync`.
+## 安装流程
 
-To remote debug the `harvester-installer` in your IDE, you need to
-install the `delve` package in your Vagrant box first.
+1. **TUI 配置收集** — 选择安装模式（首节点/管理节点/工作节点），配置网络、磁盘、VIP
+2. **配置生成** — 生成 RKE2 config.yaml + HelmChart manifests
+3. **OS 安装** — elemental install 将 OS 写入目标磁盘
+4. **镜像预加载** — 将离线镜像导入目标 OS 的 containerd
+5. **首次启动** — RKE2 server/agent 启动，HelmChart 控制器自动部署组件
 
-```sh
- $ zypper addrepo https://download.opensuse.org/repositories/devel:/languages:/go/SLE_15_SP4/devel:languages:go.repo
- $ zypper refresh
- $ zypper install delve
+## 目录结构
+
+```
+VDI/
+├── main.go              # 安装器入口
+├── Makefile             # Dapper 构建系统
+├── Dockerfile.dapper    # Ubuntu 22.04 + Go + elemental 构建环境
+├── go.mod / go.sum      # Go module (vdi-installer)
+├── pkg/                 # Go 代码
+│   ├── config/          # VDIConfig 结构体 + RKE2 模板
+│   ├── console/         # gocui TUI 安装器
+│   ├── preflight/       # 硬件预检
+│   ├── util/            # 工具函数
+│   └── widgets/         # gocui 控件
+├── scripts/             # 构建脚本
+│   ├── version-*        # 组件版本
+│   ├── build            # 编译 Go 安装器
+│   ├── build-bundle     # 下载离线资源
+│   ├── package-vdi-os   # 构建 OS 镜像 + ISO
+│   └── package-vdi-repo # 构建 Helm Chart 仓库镜像
+├── package/             # Docker 镜像定义
+│   ├── vdi-os/          # Ubuntu 22.04 + RKE2 + HelmChart manifests
+│   ├── vdi-installer/   # 安装器二进制镜像
+│   └── vdi-cluster-repo/# Helm Chart 仓库
+└── docs/                # 设计文档 + 实施计划
 ```
 
-Then rebuild the `harvester-installer` app and start it in the
-Vagrant box.
+## 版本管理
 
-```sh
- $ REMOTE_DEBUG=true USE_LOCAL_IMAGES=true make build
- $ vagrant rsync
- $ vagrant ssh
- > sudo DEBUG=true TTY=/dev/tty dlv --listen=:2345 --headless=true --api-version=2 --accept-multiclient exec /vagrant/harvester-installer
-```
+版本号通过 `scripts/version-*` 脚本管理，Go 二进制通过 ldflags 注入：
 
-The `harvester-installer` app will now listen for remote connections
-on port `2345`.
-
-Run `vagrant ssh-config` on your host to get the IP address that is 
-needed to connect the IDE debugger to the `harvester-installer` app.
-
-If you are using the Goland IDE, check out their [documentation](https://www.jetbrains.com/help/go/go-remote.html)
-for information on how to attach to the `harvester-installer` process
-on the remote Vagrant box.
-
-If you are using VS Code, create a remote debug configuration in
-`.vscode/launch.json` then press F5 to start debugging:
-
-```json
-{
-	"name": "Remote",
-	"type": "go",
-	"request": "attach",
-	"mode": "remote",
-	"port": 2345,
-	"host": "IP_ADDRESS_OF_VAGRANT_BOX",
-}
+```bash
+scripts/version-rke2      # RKE2_VERSION="v1.31.4+rke2r1"
+scripts/version-kubevirt  # KUBEVIRT_VERSION="v1.5.0"
+scripts/version-longhorn  # LONGHORN_VERSION="v1.8.1"
+scripts/version-kubeovn   # KUBEOVN_VERSION="v1.17.0"
+scripts/version-kagent    # KAGENT_VERSION="0.9.6"
 ```
 
 ## License
+
 Copyright (c) 2026 [SUSE, LLC.](https://www.suse.com/)
 
 Licensed under the Apache License, Version 2.0 (the "License");
