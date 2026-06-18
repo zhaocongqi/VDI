@@ -78,3 +78,5 @@ __pycache__/
 
 # QEMU/测试临时目录
 tmp/
+bin/
+dist/
