@@ -1,4 +1,7 @@
 #!/bin/bash -e
+# 构建 VDI OS 镜像和 ISO
+# 参考 Harvester 的 scripts/package-harvester-os
+
 TOP_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )/.." &> /dev/null && pwd )"
 SCRIPTS_DIR="${TOP_DIR}/scripts"
 PACKAGE_VDI_OS_DIR="${TOP_DIR}/package/vdi-os"
@@ -9,10 +12,15 @@ source ${SCRIPTS_DIR}/version-longhorn
 source ${SCRIPTS_DIR}/version-kubeovn
 source ${SCRIPTS_DIR}/version-kagent
 source ${SCRIPTS_DIR}/version
-source ${SCRIPTS_DIR}/lib/iso
 
 VDI_OS_IMAGE=rancher/vdi-os:${VERSION}
 PRETTY_NAME="VDI ${VERSION}"
+
+echo "============================================"
+echo "  构建 VDI OS 镜像"
+echo "  版本: ${VERSION}"
+echo "  RKE2: ${RKE2_VERSION}"
+echo "============================================"
 
 # 生成 vdi-release.yaml
 cat > ${PACKAGE_VDI_OS_DIR}/vdi-release.yaml <<EOF
@@ -32,26 +40,148 @@ docker build --pull \
     --build-arg BASE_OS_IMAGE="ubuntu:22.04" \
     --build-arg VDI_PRETTY_NAME="${PRETTY_NAME}" \
     --build-arg ARCH="${ARCH}" \
+    --build-arg http_proxy="${http_proxy}" \
+    --build-arg https_proxy="${https_proxy}" \
     -t ${VDI_OS_IMAGE} .
 
 # 提取 kernel/initrd
 ARTIFACTS_DIR="${TOP_DIR}/dist/artifacts"
 mkdir -p ${ARTIFACTS_DIR}
 KERNEL=$(docker run --rm ${VDI_OS_IMAGE} readlink -f /boot/vmlinuz)
-INITRD=$(docker run --rm ${VDI_OS_IMAGE} readlink -f /boot/initrd)
+INITRD=$(docker run --rm ${VDI_OS_IMAGE} readlink -f /boot/initrd.img)
 docker create --cidfile=os-img-container ${VDI_OS_IMAGE} -- tail -f /dev/null
 docker cp $(<os-img-container):${KERNEL} ${ARTIFACTS_DIR}/vdi-vmlinuz-${ARCH}
 docker cp $(<os-img-container):${INITRD} ${ARTIFACTS_DIR}/vdi-initrd-${ARCH}
 docker rm $(<os-img-container) && rm -f os-img-container
 
-# 构建 ISO
+echo "============================================"
+echo "  构建 ISO"
+echo "============================================"
+
+# 构建 ISO（使用 squashfs + xorriso）
 ISO_PREFIX="vdi-${VERSION}-${ARCH}"
-elemental build-iso --config-dir "${PACKAGE_VDI_OS_DIR}" --debug \
-    "docker:${VDI_OS_IMAGE}" --local \
-    -n "${ISO_PREFIX}" -o "${ARTIFACTS_DIR}" \
-    --overlay-iso "${PACKAGE_VDI_OS_DIR}/iso" \
-    -x "-comp xz" --platform "linux/${ARCH}"
+ISO_ROOT="${TOP_DIR}/cache/iso-staging"
+rm -rf "${ISO_ROOT}"
+mkdir -p "${ISO_ROOT}"/{boot/grub,efi/boot,isolinux,casper,bundle,scripts,configs,.disk}
+
+# 创建 squashfs
+echo ">>> 创建 squashfs"
+ROOTFS_DIR="${TOP_DIR}/cache/rootfs"
+mkdir -p "${ROOTFS_DIR}"
+
+# 从 Docker 镜像中提取 rootfs
+docker export $(docker create ${VDI_OS_IMAGE} -- tail -f /dev/null) | tar -C "${ROOTFS_DIR}" -xf -
+docker rm $(docker ps -a -q --filter ancestor=${VDI_OS_IMAGE} --latest) 2>/dev/null || true
+
+mksquashfs "${ROOTFS_DIR}" "${ISO_ROOT}/casper/filesystem.squashfs" \
+    -comp xz -no-progress -noappend \
+    -e boot/grub -e var/cache -e var/lib/apt/lists
+
+# 复制内核和 initrd
+cp "${ARTIFACTS_DIR}/vdi-vmlinuz-${ARCH}" "${ISO_ROOT}/casper/vmlinuz"
+cp "${ARTIFACTS_DIR}/vdi-initrd-${ARCH}" "${ISO_ROOT}/casper/initrd"
+
+# 复制离线资源
+if [ -d "${PACKAGE_VDI_OS_DIR}/iso/bundle" ]; then
+    rsync -a --exclude='.gitkeep' "${PACKAGE_VDI_OS_DIR}/iso/bundle/" "${ISO_ROOT}/bundle/"
+fi
+
+# 复制部署脚本
+if [ -d "${TOP_DIR}/deploy" ]; then
+    rsync -a --exclude='hosts' --exclude='k8s/inventory.yaml' --exclude='.git' \
+        "${TOP_DIR}/deploy/" "${ISO_ROOT}/scripts/deploy/"
+fi
+
+# 复制 TUI 安装器
+if [ -d "${TOP_DIR}/tui" ]; then
+    rsync -a "${TOP_DIR}/tui/" "${ISO_ROOT}/tui/"
+fi
+
+# 创建 .disk/info
+echo "VDI Offline Install ${VERSION} - amd64 ($(date '+%Y-%m-%d %H:%M:%S'))" > "${ISO_ROOT}/.disk/info"
+echo "${ISO_PREFIX}" > "${ISO_ROOT}/.disk/base_installable"
+
+# 配置 GRUB
+echo ">>> 配置 GRUB"
+cat > "${ISO_ROOT}/boot/grub/grub.cfg" <<EOF
+set timeout=10
+set default=0
+
+menuentry "VDI Installer" {
+    linux /casper/vmlinuz boot=casper quiet splash ---
+    initrd /casper/initrd
+}
+
+menuentry "VDI Installer (Debug)" {
+    linux /casper/vmlinuz boot=casper debug ---
+    initrd /casper/initrd
+}
+EOF
+
+# 配置 isolinux
+cat > "${ISO_ROOT}/isolinux/isolinux.cfg" <<EOF
+DEFAULT vdi
+LABEL vdi
+    SAY VDI Installer
+    LINUX /casper/vmlinuz
+    APPEND initrd=/casper/initrd boot=casper quiet splash ---
+EOF
+
+# 复制 isolinux 文件
+if [ -d /usr/lib/ISOLINUX ]; then
+    cp /usr/lib/ISOLINUX/isolinux.bin "${ISO_ROOT}/isolinux/"
+    cp /usr/lib/syslinux/modules/bios/ldlinux.c32 "${ISO_ROOT}/isolinux/" 2>/dev/null || true
+fi
+
+# 创建 EFI 引导镜像
+echo ">>> 创建 EFI 引导镜像"
+EFI_IMG="${ISO_ROOT}/efi/boot/efiboot.img"
+mkdir -p "${ISO_ROOT}/efi/boot"
+dd if=/dev/zero of="${EFI_IMG}" bs=1M count=8 2>/dev/null
+mkfs.vfat -F 12 "${EFI_IMG}"
+mmd -i "${EFI_IMG}" ::EFI ::EFI/BOOT
+
+# 创建 GRUB EFI 镜像
+GRUB_EFI="${TOP_DIR}/cache/grubx64.efi"
+grub-mkimage -O x86_64-efi \
+    -o "${GRUB_EFI}" \
+    -p "/boot/grub" \
+    -d /usr/lib/grub/x86_64-efi \
+    linuxefi linux normal iso9660 part_msdos part_gpt fat \
+    search search_fs_file search_fs_uuid search_label \
+    serial terminal gfxterm gfxterm_background gfxterm_menu \
+    halt reboot configfile echo ls cat chain loadenv
+
+mcopy -i "${EFI_IMG}" "${GRUB_EFI}" "::EFI/BOOT/BOOTX64.EFI"
+
+# 打包 ISO
+echo ">>> 打包 ISO"
+ISO_FILE="${ARTIFACTS_DIR}/${ISO_PREFIX}.iso"
+xorriso -volid "VDI-INSTALL" \
+    -joliet on -padding 0 \
+    -outdev "${ISO_FILE}" \
+    -map "${ISO_ROOT}" / -chmod 0755 -- \
+    -append_partition 2 0xef "${EFI_IMG}" \
+    -boot_image isolinux bin_path="isolinux/isolinux.bin" \
+    -boot_image isolinux cat_path="boot/boot.catalog" \
+    -boot_image isolinux cat_hidden=on \
+    -boot_image isolinux load_size=2048 \
+    -boot_image isolinux boot_info_table=on \
+    -boot_image any next \
+    -boot_image any efi_path="--interval:appended_partition_2:all::" \
+    -boot_image any platform_id=0xef \
+    -boot_image any appended_part_as=gpt \
+    -boot_image any partition_offset=16
+
+# 清理
+rm -rf "${ISO_ROOT}" "${ROOTFS_DIR}" "${GRUB_EFI}"
 
 # 生成校验和
 cd ${ARTIFACTS_DIR}
-sha512sum vdi-* > ${ISO_PREFIX}.sha512
+sha512sum ${ISO_PREFIX}.iso > ${ISO_PREFIX}.sha512
+
+echo "============================================"
+echo "  构建完成!"
+echo "  ISO: ${ISO_FILE}"
+echo "  大小: $(du -sh ${ISO_FILE} | cut -f1)"
+echo "============================================"

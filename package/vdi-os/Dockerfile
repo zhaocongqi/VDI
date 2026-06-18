@@ -2,24 +2,36 @@ ARG BASE_OS_IMAGE=ubuntu:22.04
 FROM ${BASE_OS_IMAGE}
 
 ARG ARCH=amd64
+ARG http_proxy
+ARG https_proxy
 
-# elemental
-ARG ELEMENTAL_VERSION=v0.10.0
-RUN curl -sfL "https://github.com/rancher/elemental/releases/download/${ELEMENTAL_VERSION}/elemental-${ARCH}" \
-    -o /usr/bin/elemental && chmod +x /usr/bin/elemental
+ENV http_proxy=${http_proxy}
+ENV https_proxy=${https_proxy}
 
-# wharfie
-ARG WHARFIE_VERSION=v0.6.8
-RUN curl -sfL "https://github.com/rancher/wharfie/releases/download/${WHARFIE_VERSION}/wharfie-${ARCH}" \
-    -o /usr/bin/wharfie && chmod +x /usr/bin/wharfie
-
-# 系统组件
+# 安装基础工具和内核
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl wget jq \
     systemd systemd-sysv \
+    linux-image-5.15.0-134-generic \
+    initramfs-tools \
     open-iscsi nfs-common \
     conntrack ipvsadm ebtables \
-    jq curl wget \
     && rm -rf /var/lib/apt/lists/*
+
+# 生成 initrd
+RUN update-initramfs -u
+
+# elemental (pre-downloaded)
+COPY files/usr/bin/elemental /usr/bin/elemental
+RUN chmod +x /usr/bin/elemental
+
+# wharfie (pre-downloaded)
+COPY files/usr/bin/wharfie /usr/bin/wharfie
+RUN chmod +x /usr/bin/wharfie
+
+# 清理代理环境变量（运行时不需要）
+ENV http_proxy=
+ENV https_proxy=
 
 COPY files/ /
 COPY vdi-release.yaml /etc/
