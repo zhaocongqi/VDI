@@ -37,9 +37,27 @@ ENV https_proxy=
 COPY files/ /
 COPY vdi-release.yaml /etc/
 
-# 启用 VDI 安装器服务，禁用默认 getty
-RUN systemctl enable vdi-installer.service && \
-    systemctl mask getty@tty1.service
+# 创建安装器 drop-in 覆盖（在构建时完成，而非运行时）
+# 覆盖 VGA console (tty1) 和 serial console (ttyS0)
+RUN mkdir -p /etc/systemd/system/getty@tty1.service.d && \
+    cat > /etc/systemd/system/getty@tty1.service.d/override.conf <<"EOF"
+[Service]
+ExecStartPre=/usr/bin/setterm --msg off
+ExecStartPre=/usr/bin/kill -s 55 1
+ExecStopPost=/usr/bin/kill -s 54 1
+ExecStart=
+ExecStart=-/sbin/agetty -n -l /usr/bin/start-installer.sh %I \$TERM
+EOF
+RUN mkdir -p /etc/systemd/system/serial-getty@ttyS0.service.d && \
+    cat > /etc/systemd/system/serial-getty@ttyS0.service.d/override.conf <<"EOF"
+[Service]
+ExecStartPre=/usr/bin/kill -s 55 1
+ExecStopPost=/usr/bin/kill -s 54 1
+ExecStart=
+ExecStart=-/sbin/agetty -n -l /usr/bin/start-installer.sh %I \$TERM
+EOF
+# 启用串口 getty（Ubuntu live 环境默认不启用）
+RUN systemctl enable serial-getty@ttyS0.service
 
 ARG VDI_PRETTY_NAME="VDI Platform"
 RUN sed -i "s/^PRETTY_NAME.*/PRETTY_NAME=\"$VDI_PRETTY_NAME\"/g" /etc/os-release

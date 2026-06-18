@@ -1,0 +1,14 @@
+[Unit]
+Description=Setup VDI Installer on TTY
+DefaultDependencies=no
+After=systemd-udevd.service
+Before=systemd-logind.service getty@.service serial-getty@.service
+ConditionPathExists=/usr/bin/vdi-installer
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/setup-installer.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
