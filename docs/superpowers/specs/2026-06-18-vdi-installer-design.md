@@ -21,11 +21,13 @@
 | 决策项 | 选择 | 理由 |
 |--------|------|------|
 | OS 基础 | Ubuntu 22.04 + elemental 工具链 | 保持 Ubuntu 生态兼容性，引入 elemental ISO 构建能力 |
+| K8s 运行时 | RKE2（替代 KubeKey） | 与 Harvester 底层一致，内置 HelmChart CRD 声明式 addon 管理，离线部署成熟，生产可靠性最高 |
 | 安装器语言 | Go + gocui | 与 Harvester 代码复用度最高，单二进制部署 |
 | 版本管理 | 独立 version-* 脚本 + ldflags 注入 | 每个组件版本独立管理，构建时注入 Go 二进制 |
 | Bundle 架构 | Harvester bundle 模式（metadata.yaml + docker save + zstd） | 支持增量更新、历史版本归档、标准化索引 |
 | Docker 镜像 | 三镜像架构（vdi-os、vdi-installer、vdi-cluster-repo） | 支持 ISO 构建、PXE 引导、网络安装 |
 | 配置校验 | Go 强类型配置结构体 + mergo 合并 | 类型安全、多源配置合并、深度拷贝 |
+| addon 管理 | RKE2 HelmChart CRD（helm.cattle.io/v1） | 声明式 Helm 部署，自动 reconcile，失败自动重试，替代分散的独立部署脚本 |
 
 ## 3. 整体架构
 
@@ -112,11 +114,12 @@ vdi-installer/
 | 维度 | Harvester 原版 | VDI 改造后 |
 |------|---------------|-----------|
 | OS 基础 | SLE Micro (rancher/harvester-os) | Ubuntu 22.04 (rancher/vdi-os) |
-| 组件栈 | RKE2 + Rancher + Harvester Chart | KubeKey + Kube-OVN + Longhorn + KubeVirt + kagent |
+| K8s 运行时 | RKE2 | RKE2（一致） |
+| 组件栈 | RKE2 + Rancher + Harvester Chart | RKE2 + Kube-OVN + Longhorn + KubeVirt + kagent |
 | 安装模式 | 创建/加入 Harvester 集群 | 首节点/管理节点/工作节点 |
 | 配置结构体 | HarvesterConfig | VDIConfig |
-| 版本脚本 | version-harvester + version-rancher + version-rke2 | version-kubernetes + version-kubevirt + ... |
-| addon 系统 | 外部 addons 仓库 | 暂不需要，组件直接内嵌 |
+| addon 管理 | HelmChart CRD + ManagedChart CRD | HelmChart CRD（复用 RKE2 原生机制） |
+| 版本脚本 | version-harvester + version-rancher + version-rke2 | version-rke2 + version-kubevirt + ... |
 | initrd 生成 | dracut | update-initramfs |
 
 ## 4. 构建系统详细设计
@@ -153,14 +156,14 @@ $(TARGETS): .dapper
 
 ```bash
 ENV DAPPER_ENV REPO TAG DRONE_TAG DRONE_BRANCH ARCH \
-    KUBE_VERSION KUBEVIRT_VERSION LONGHORN_VERSION KUBEOVN_VERSION KAGENT_VERSION \
+    RKE2_VERSION KUBEVIRT_VERSION LONGHORN_VERSION KUBEOVN_VERSION KAGENT_VERSION \
     USE_LOCAL_IMAGES DISABLE_BUILD_NET_INSTALL_ISO
 ```
 
 ### 4.2 scripts/build（编译安装器）
 
 ```
-1. source scripts/version-kubernetes
+1. source scripts/version-rke2
 2. source scripts/version-kubevirt
 3. source scripts/version-longhorn
 4. source scripts/version-kubeovn
@@ -177,7 +180,7 @@ LINKFLAGS 注入的版本变量：
 ```go
 // pkg/config/constants.go
 var (
-    KubernetesVersion string // -X ...config.KubernetesVersion=$KUBE_VERSION
+    RKE2Version       string // -X ...config.RKE2Version=$RKE2_VERSION
     KubevirtVersion   string // -X ...config.KubevirtVersion=$KUBEVIRT_VERSION
     LonghornVersion   string // -X ...config.LonghornVersion=$LONGHORN_VERSION
     KubeovnVersion    string // -X ...config.KubeovnVersion=$KUBEOVN_VERSION
@@ -191,7 +194,7 @@ var (
 
 | Harvester 原版 | VDI 改造后 |
 |----------------|-----------|
-| RKE2 images | KubeKey + K8s images |
+| RKE2 images | RKE2 images（保留，版本适配 VDI） |
 | Rancher images | 去除 |
 | Harvester chart + images | KubeVirt manifests + images |
 | Longhorn chart + images | 保留 |
@@ -199,6 +202,7 @@ var (
 | KubeOVN operator chart | Kube-OVN chart + images |
 | VM-import/PCI-devices/Seeder | kagent chart + images |
 | Descheduler | 去除 |
+| Rancherd bootstrap images | RKE2 bootstrap images（保留） |
 
 **Bundle 目录结构**：
 
@@ -260,8 +264,8 @@ images:
 ### 4.5 version-* 脚本
 
 ```bash
-# scripts/version-kubernetes
-KUBE_VERSION="v1.34.3"
+# scripts/version-rke2（替代 scripts/version-kubernetes）
+RKE2_VERSION="v1.31.4+rke2r1"
 
 # scripts/version-kubevirt
 KUBEVIRT_VERSION="v1.5.0"
@@ -294,7 +298,7 @@ type VDIConfig struct {
     OS      OSConfig      `json:"os,omitempty"`
     Install InstallConfig `json:"install,omitempty"`
 
-    KubernetesVersion string `json:"kubernetesVersion,omitempty"`
+    RKE2Version       string `json:"rke2Version,omitempty"`
     KubevirtVersion   string `json:"kubevirtVersion,omitempty"`
     LonghornVersion   string `json:"longhornVersion,omitempty"`
     KubeovnVersion    string `json:"kubeovnVersion,omitempty"`
@@ -345,7 +349,7 @@ type NetworkConfig struct {
 
 | 字段 | Harvester | VDI |
 |------|-----------|-----|
-| RuntimeVersion | RKE2 版本 | KubernetesVersion |
+| RuntimeVersion | RKE2 版本 | RKE2Version |
 | RancherVersion | Rancher 版本 | 去除 |
 | HarvesterChartVersion | Harvester Chart | 去除 |
 | MonitoringChartVersion | Monitoring Chart | 去除 |
@@ -430,9 +434,9 @@ doInstall(config VDIConfig)
 | 步骤 | Harvester | VDI |
 |------|-----------|-----|
 | OS 安装 | elemental install + cOS | elemental install + Ubuntu |
-| 集群初始化 | RKE2 server + Rancherd | KubeKey create cluster |
-| 节点加入 | RKE2 agent | KubeKey join |
-| Chart 部署 | Rancherd → Helm | KubeKey addon 或手动 helm install |
+| 集群初始化 | RKE2 server --cluster-init | RKE2 server --cluster-init（一致） |
+| 节点加入 | RKE2 agent --server --token | RKE2 agent --server --token（一致） |
+| Chart 部署 | HelmChart CRD 自动部署 | HelmChart CRD 自动部署（一致） |
 
 ### 5.6 main.go
 
@@ -549,7 +553,7 @@ package/vdi-os/iso/
 vdi: v1.0.0
 installer: abc1234
 os: VDI v1.0.0
-kubernetes: v1.34.3
+rke2: v1.31.4+rke2r1
 kubevirt: v1.5.0
 longhorn: v1.8.1
 kubeovn: v1.17.0
@@ -584,7 +588,6 @@ package/harvester-installer/   → package/vdi-installer/
 scripts/package-harvester-os   → scripts/package-vdi-os
 scripts/package-harvester-installer → scripts/package-vdi-installer
 scripts/package-harvester-repo → scripts/package-vdi-repo
-scripts/version-rke2           → scripts/version-kubernetes
 ```
 
 ### 7.3 需要重写核心逻辑的文件
@@ -622,7 +625,7 @@ scripts/version-rke2           → scripts/version-kubernetes
 ### 7.6 新增的文件
 
 ```
-scripts/version-kubernetes
+scripts/version-rke2                    # RKE2_VERSION="v1.31.4+rke2r1"
 scripts/version-kubevirt
 scripts/version-longhorn
 scripts/version-kubeovn
@@ -632,6 +635,20 @@ package/vdi-cluster-repo/Dockerfile
 package/vdi-os/files/
 package/vdi-os/templates/
 pkg/config/templates/
+
+# RKE2 HelmChart manifests（放入 /var/lib/rancher/rke2/server/manifests/）
+package/vdi-os/files/var/lib/rancher/rke2/server/manifests/10-kube-ovn.yaml
+package/vdi-os/files/var/lib/rancher/rke2/server/manifests/20-longhorn.yaml
+package/vdi-os/files/var/lib/rancher/rke2/server/manifests/30-kubevirt.yaml
+package/vdi-os/files/var/lib/rancher/rke2/server/manifests/40-kagent.yaml
+
+# RKE2 配置模板
+pkg/config/templates/rke2-config.yaml           # RKE2 server 配置
+pkg/config/templates/rke2-agent-config.yaml     # RKE2 agent 配置
+pkg/config/templates/helmchart-kube-ovn.yaml    # Kube-OVN HelmChart
+pkg/config/templates/helmchart-longhorn.yaml    # Longhorn HelmChart
+pkg/config/templates/helmchart-kubevirt.yaml    # KubeVirt HelmChart
+pkg/config/templates/helmchart-kagent.yaml      # kagent HelmChart
 ```
 
 ## 8. 实施阶段
@@ -643,17 +660,19 @@ Dockerfile.dapper → Makefile → scripts/entry → scripts/version → scripts
 验证：go build 编译出 vdi-installer 二进制
 ```
 
-### Phase 2：Bundle 系统
+### Phase 2：Bundle 系统 + RKE2 离线资源
 
 ```
-scripts/version-* → scripts/build-bundle → scripts/lib/image
-验证：make build-bundle 下载所有离线资源
+scripts/version-rke2 → scripts/build-bundle → scripts/lib/image
+新增：RKE2 二进制 + 镜像下载、HelmChart manifests 打包
+验证：make build-bundle 下载所有离线资源（含 RKE2）
 ```
 
 ### Phase 3：OS 镜像 + ISO
 
 ```
 package/vdi-os/Dockerfile → scripts/package-vdi-os → scripts/lib/iso
+新增：RKE2 安装到 OS 镜像、HelmChart manifests 写入 /var/lib/rancher/rke2/server/manifests/
 验证：make package-vdi-os 生成 ISO 并 QEMU 启动
 ```
 
@@ -661,14 +680,18 @@ package/vdi-os/Dockerfile → scripts/package-vdi-os → scripts/lib/iso
 
 ```
 pkg/config/ → pkg/console/ → pkg/preflight/ → pkg/widgets/ → main.go
+关键变化：配置生成输出 RKE2 config.yaml + HelmChart YAML（非 KubeKey config）
 验证：TUI 安装流程走通
 ```
 
-### Phase 5：镜像 + 测试
+### Phase 5：RKE2 集成测试
 
 ```
-package/vdi-installer/Dockerfile → package/vdi-cluster-repo/Dockerfile → CI
-验证：完整 make default 构建 + QEMU 测试
+QEMU 测试完整流程：
+  ISO 启动 → TUI 配置 → elemental install → RKE2 预加载 → 重启
+  → RKE2 server 启动 → HelmChart 自动部署 Kube-OVN/Longhorn/KubeVirt/kagent
+  → kubectl get nodes / helm list 验证
+验证：完整 make default 构建 + QEMU 测试 + 集群功能验证
 ```
 
 ## 9. Harvester 安装机制深度分析
@@ -901,20 +924,22 @@ configureInstalledNode() (pkg/console/util.go:831)
 - 设置 `installModeOnly = true`，跳过网络/Rancherd 配置
 - `harv-install` 中通过 `HARVESTER_MODE=install` 环境变量控制
 
-### 9.9 VDI 的 K8s 安装方式（KubeKey）
+### 9.9 VDI 的 K8s 安装方式（RKE2）
 
-VDI 使用 KubeKey 引导 K8s 集群，KubeKey 底层调用 kubeadm：
+VDI 使用 RKE2 引导 K8s 集群，与 Harvester 底层一致：
 
 ```
-KubeKey create cluster:
-  1. 下载 K8s 二进制（kubelet, kubeadm, kubectl）
-  2. kubeadm init --config <KubeKey 生成的配置>
-  3. 安装 CNI 插件（Kube-OVN）
-  4. 部署 addons（Helm Charts）
+RKE2 创建集群（首节点）：
+  1. 安装 RKE2 DEB 包（或二进制）
+  2. 写入 /etc/rancher/rke2/config.yaml（token, tls-san, cni: none, cluster-cidr 等）
+  3. 写入 HelmChart manifests → /var/lib/rancher/rke2/server/manifests/
+  4. systemctl enable --now rke2-server
+  5. RKE2 自动启动 K8s + 自动部署所有 HelmChart
 
-KubeKey join:
-  1. 下载 K8s 二进制
-  2. kubeadm join <master-ip>:6443 --token <token>
+RKE2 加入集群（工作节点）：
+  1. 安装 RKE2 DEB 包
+  2. 写入 /etc/rancher/rke2/config.yaml（server: https://<VIP>:9345, token）
+  3. systemctl enable --now rke2-agent
 ```
 
 **VDI 的 harv-install 改造**：
@@ -924,14 +949,93 @@ KubeKey join:
 elemental install → 预加载 RKE2 镜像 → 保存 Rancherd 配置 → 重启 → Rancherd 启动 RKE2
 
 # VDI 改造流程：
-elemental install → 预加载 K8s/KubeVirt/Longhorn 镜像 → 保存 KubeKey 配置 → 重启 → KubeKey 引导 K8s
+elemental install → 预加载 RKE2 + VDI 镜像 → 保存 RKE2 配置 + HelmChart manifests → 重启 → RKE2 自动部署
 ```
 
 关键变化：
-- `preload_rke2_images()` → `preload_k8s_images()`（导入 K8s + KubeVirt + Longhorn + Kube-OVN + kagent 镜像）
-- `preload_rancherd_images()` → `preload_kubekey_images()`（导入 KubeKey bootstrap 镜像）
-- Rancherd 配置 → KubeKey 配置（`/etc/kubekey/config.yaml`）
-- RKE2 server/agent → KubeKey create/join
+- `preload_rke2_images()` 保留（导入 RKE2 + KubeVirt + Longhorn + Kube-OVN + kagent 镜像）
+- `preload_rancherd_images()` → `preload_rke2_images()`（合并到统一的镜像预加载）
+- Rancherd 配置 → RKE2 config.yaml（`/etc/rancher/rke2/config.yaml`）
+- Bootstrap 资源 → HelmChart manifests（`/var/lib/rancher/rke2/server/manifests/*.yaml`）
+
+**HelmChart manifests 示例**（放入 `/var/lib/rancher/rke2/server/manifests/`）：
+
+```yaml
+# 10-kube-ovn.yaml
+apiVersion: helm.cattle.io/v1
+kind: HelmChart
+metadata:
+  name: kube-ovn
+  namespace: kube-system
+spec:
+  chart: /var/lib/rancher/rke2/server/charts/kube-ovn-1.17.0.tgz
+  targetNamespace: kube-system
+  createNamespace: true
+  bootstrap: true
+  valuesContent: |-
+    FUNC_OPTS: "--enable-mirror=false"
+
+---
+# 20-longhorn.yaml
+apiVersion: helm.cattle.io/v1
+kind: HelmChart
+metadata:
+  name: longhorn
+  namespace: longhorn-system
+spec:
+  chart: /var/lib/rancher/rke2/server/charts/longhorn-1.8.1.tgz
+  targetNamespace: longhorn-system
+  createNamespace: true
+  valuesContent: |-
+    defaultSettings:
+      defaultDataPath: "/var/lib/longhorn"
+
+---
+# 30-kubevirt.yaml
+apiVersion: kubevirt.io/v1
+kind: KubeVirt
+metadata:
+  name: kubevirt
+  namespace: kubevirt
+spec:
+  imageTag: v1.5.0
+
+---
+# 40-kagent.yaml
+apiVersion: helm.cattle.io/v1
+kind: HelmChart
+metadata:
+  name: kagent
+  namespace: kagent-system
+spec:
+  chart: /var/lib/rancher/rke2/server/charts/kagent-0.9.6.tgz
+  targetNamespace: kagent-system
+  createNamespace: true
+```
+
+**RKE2 config.yaml 模板**（TUI 安装器生成）：
+
+```yaml
+# 首节点（创建集群）
+token: "<cluster-token>"
+tls-san:
+  - <VIP>
+cluster-cidr: "10.52.0.0/16"
+service-cidr: "10.53.0.0/16"
+cluster-dns: "10.53.0.10"
+cni: none  # 禁用内置 CNI，由 Kube-OVN 接管
+disable:
+  - rke2-ingress-nginx
+kubelet-arg:
+  - "max-pods=200"
+  - "node-labels=vdi.io/managed=true"
+
+# 工作节点（加入集群）
+server: https://<VIP>:9345
+token: "<cluster-token>"
+kubelet-arg:
+  - "max-pods=200"
+```
 
 ## 10. 风险与缓解（更新）
 
@@ -939,8 +1043,9 @@ elemental install → 预加载 K8s/KubeVirt/Longhorn 镜像 → 保存 KubeKey 
 |------|------|---------|
 | elemental 不支持 Ubuntu | ISO 构建失败 | 验证 elemental 兼容性，必要时使用 Ubuntu 的 casper/live-build 作为后备 |
 | Ubuntu initrd 生成方式 | initrd 生成失败 | 主方案：使用 Ubuntu 原生 update-initramfs；后备方案：显式安装 dracut 并使用 dracut（与 Harvester 一致）|
-| KubeKey 不支持离线 bootstrap | 集群初始化失败 | 准备 KubeKey 离线配置和本地镜像仓库 |
+| RKE2 Ubuntu DEB 包兼容性 | RKE2 安装失败 | RKE2 官方支持 Ubuntu 22.04，提供 DEB 包；如遇问题可使用二进制安装方式 |
+| RKE2 与 Kube-OVN CNI 兼容性 | 网络不通 | RKE2 支持 `cni: none` 禁用内置 CNI，由 Kube-OVN 接管；需验证 Kube-OVN 在 RKE2 上的兼容性 |
+| HelmChart CRD 与离线 Chart 路径 | Chart 部署失败 | HelmChart spec.chart 使用本地路径（`/var/lib/rancher/rke2/server/charts/xxx.tgz`），不依赖网络 repo |
 | Harvester 上游变更 | 合并冲突 | 定期 rebase，关注关键文件变更 |
 | Ubuntu 包依赖差异 | 运行时错误 | 在 Dockerfile 中显式声明所有依赖 |
-| KubeKey 底层依赖 kubeadm | 与 RKE2 的无 kubeadm 方案不同，需要额外配置 | KubeKey 自动管理 kubeadm 配置，无需手动干预；但需确保 K8s 版本与 KubeKey 兼容 |
-| KubeKey 离线模式限制 | 离线集群初始化可能失败 | 使用 KubeKey 的 manifest 离线模式，预打包所有二进制和镜像 |
+| RKE2 License 风险 | 商业使用受限 | RKE2 使用 Apache 2.0 开源许可，可自由商用；仅 Rancher Prime 管理平台为商业许可 |
