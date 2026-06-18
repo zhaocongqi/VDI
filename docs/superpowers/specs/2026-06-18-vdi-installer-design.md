@@ -671,7 +671,269 @@ package/vdi-installer/Dockerfile → package/vdi-cluster-repo/Dockerfile → CI
 验证：完整 make default 构建 + QEMU 测试
 ```
 
-## 9. 风险与缓解
+## 9. Harvester 安装机制深度分析
+
+### 9.1 三层执行链
+
+Harvester 的安装过程分为三层，每层职责清晰：
+
+```
+Layer 1: Go 安装器 (harvester-installer)
+  └─ TUI 收集配置 → 生成配置文件 → 调用 Layer 2
+
+Layer 2: Shell 安装脚本 (harv-install)
+  └─ elemental install → 镜像预加载 → 配置保存 → 重启
+
+Layer 3: 首次启动 (Rancherd + RKE2)
+  └─ Rancherd 读取配置 → 启动 RKE2 → Helm 部署 Harvester
+```
+
+### 9.2 Layer 1：Go 安装器配置生成
+
+`doInstall()` (`pkg/console/util.go:518`) 的核心流程：
+
+```
+doInstall(config HarvesterConfig)
+  1. updateSystemSettings()      # NTP 写入 SystemSettings
+  2. roleSetup()                 # 节点角色标签（Management/Worker/Witness）
+  3. generateEnvAndConfig()      # 生成三套配置：
+     ├─ ConvertToCOS()          # → yip 配置（rootfs/initramfs/network 阶段）
+     ├─ ConvertToElementalConfig() # → elemental 分区布局
+     └─ 环境变量                # HARVESTER_CONFIG, ELEMENTAL_CONFIG, etc.
+  4. 分区布局决策：
+     ├─ 单盘模式：CreateRootPartitioningLayoutSharedDataDisk()
+     │   OEM(512MB) + STATE(1536MB) + RECOVERY(8192MB) + PERSISTENT(动态) + LH_DEFAULT(剩余)
+     └─ 双盘模式：CreateRootPartitioningLayoutSeparateDataDisk()
+         OEM(512MB) + STATE(1536MB) + RECOVERY(8192MB) + PERSISTENT(剩余)
+  5. 擦除旧安装标记的磁盘
+  6. execute("/usr/sbin/harv-install")  # 调用 Layer 2
+  7. execute("/usr/sbin/cos-installer-shutdown")  # 关机/重启
+```
+
+**yip 配置三阶段**（`ConvertToCOS()` 生成）：
+
+| 阶段 | 作用 | 内容 |
+|------|------|------|
+| rootfs | 根文件系统定制 | 写入 overlay 文件、配置文件 |
+| initramfs | 早期启动配置 | 用户创建、内核模块加载、sysctl、NetworkManager、Rancherd/RKE2 配置 |
+| network | 网络就绪后 | hostname、SSH keys |
+
+### 9.3 Layer 2：harv-install 脚本（OS 安装核心）
+
+`package/harvester-os/files/usr/sbin/harv-install` 是实际执行 OS 安装的脚本：
+
+```bash
+# 阶段 1：环境准备
+blkdeactivate                          # 卸载 LVM/MD 设备
+clear_disk_label                       # 清除旧 COS_OEM/COS_STATE/COS_PERSISTENT 标签
+
+# 阶段 2：OS 安装（elemental）
+elemental install --config-dir $ELEMENTAL_CONFIG_DIR --debug
+# elemental 做了什么：
+#   1. 读取 ElementalConfig（target、firmware、part-table、partitions）
+#   2. 在目标磁盘上创建分区（OEM/STATE/RECOVERY/PERSISTENT）
+#   3. 将当前运行的 OS（squashfs）写入 STATE 分区的 active.img
+#   4. 安装 GRUB 引导
+
+# 阶段 3：数据盘格式化
+do_data_disk_format                    # 如果配置了独立数据盘，格式化为 EXT4
+
+# 阶段 4：挂载已安装的 OS
+do_detect                              # blkid 查找 COS_OEM/COS_STATE/COS_PERSISTENT
+do_mount                               # mount STATE → loopback → active.img → /run/cos/target
+
+# 阶段 5：镜像预加载（离线安装的核心）
+do_preload
+  ├─ preload_rancherd_images           # Rancherd bootstrap 镜像 → /var/lib/rancher/agent/images
+  └─ preload_rke2_images               # RKE2 + Harvester 镜像预加载（见下文详解）
+
+# 阶段 6：配置保存
+save_configs                           # HARVESTER_CONFIG → /oem/harvester.config
+                                       # ELEMENTAL_CONFIG → /oem/elemental.config
+save_nm_state                          # NetworkManager 连接配置 → persistent 分区
+
+# 阶段 7：引导配置
+update_grub_settings                   # TTY、crashkernel、debug menu entry
+save_installation_log                  # 安装日志 → /oem/install/
+```
+
+### 9.4 镜像预加载机制（preload_rke2_images）
+
+这是离线安装的核心，分 ISO 和 PXE 两种模式：
+
+**ISO 模式**：
+```bash
+# 1. 复制镜像到目标 OS
+rsync ${ISOMNT}/bundle/harvester/images/rke2-images.*.tar.zst → TARGET/var/lib/rancher/rke2/agent/images/
+rsync ${ISOMNT}/bundle/harvester/images/ → TARGET/var/lib/rancher/tmp/images/
+rsync ${ISOMNT}/bundle/harvester/images-lists/ → TARGET/tmp/images-lists/
+
+# 2. chroot 进入目标 OS
+mount --bind /dev dev && mount --bind /proc proc && mount --rbind /sys sys
+chroot . /bin/bash
+
+# 3. 从 bootstrap 镜像中提取 RKE2 二进制
+wharfie --images-dir /var/lib/rancher/agent/images/ $rke2_image $inst_tmp
+tar xf $inst_tmp/rke2.linux-amd64.tar.gz -C $rke2_tmp
+
+# 4. 启动临时 RKE2 server（仅用于容器镜像导入）
+$rke2_tmp/bin/rke2 server &> /rke2.log &
+wait_for_containerd_ready
+
+# 5. 停止 RKE2，启动独立 containerd
+pkill rke2
+containerd -c /var/lib/rancher/rke2/agent/etc/containerd/config.toml &
+
+# 6. 导入所有离线镜像
+for i in $tmp_images_dir/*.tar.zst; do
+    zstd -d $i -o /usr/local/images.tar
+    ctr -n k8s.io images import --no-unpack /usr/local/images.tar
+done
+
+# 7. 验证镜像完整性
+for i in $images_lists_dir/*.txt; do
+    ctr-check-images.sh $i
+done
+
+# 8. 清理
+pkill containerd
+rm -rf tmp_images_dir images_lists_dir
+```
+
+**PXE 模式**：使用 bind-mount 代替 rsync，直接从网络 ISO 挂载镜像目录。
+
+### 9.5 Layer 3：首次启动（Rancherd + RKE2 Bootstrap）
+
+系统重启后，yip 框架读取 `/oem/*.config`，执行 initramfs 阶段：
+
+```
+initramfs 阶段（yip 执行）：
+  1. 创建用户 rancher（密码哈希）
+  2. 加载内核模块（kvm, vhost_net）
+  3. 设置 sysctl、环境变量
+  4. 写入 Rancherd 配置 → /etc/rancher/rancherd/config.yaml.d/
+  5. 写入 RKE2 配置 → /etc/rancher/rke2/config.yaml.d/
+  6. 配置 NetworkManager 连接
+  7. 启用 NTP 服务
+
+Rancherd 启动：
+  1. 读取 /etc/rancher/rancherd/config.yaml.d/ 中的 bootstrap 资源
+  2. 启动 RKE2：
+     - 创建集群：role: cluster-init（不使用 kubeadm，RKE2 自有引导机制）
+     - 加入集群：server: <管理节点 URL> + token
+  3. RKE2 内置 HelmChart 控制器自动部署：
+     - Harvester Chart（从 cluster-repo 镜像）
+     - Harvester CRD Chart
+     - Monitoring Chart
+     - Logging Chart
+     - KubeOVN Operator Chart
+```
+
+**Rancherd 配置**（`rancherd-config.yaml` 模板）：
+
+```yaml
+# 创建集群时：
+role: cluster-init
+nodeName: <hostname>
+token: "<token>"
+kubernetesVersion: v1.35.5+rke2r1
+rancherVersion: v2.11.3
+
+# 加入集群时：
+server: https://<管理节点VIP>:9345
+role: agent
+nodeName: <hostname>
+token: "<token>"
+```
+
+**RKE2 Server 配置**（`rke2-90-harvester-server.yaml`）：
+
+```yaml
+cni: multus,canal
+cluster-cidr: 10.52.0.0/16
+service-cidr: 10.53.0.0/16
+cluster-dns: 10.53.0.10
+tls-san:
+  - <VIP>
+kubelet-arg:
+  - "max-pods=200"
+  - "node-labels=harvesterhci.io/managed=true"
+```
+
+### 9.6 Harvester 的 K8s 安装方式
+
+**Harvester 不使用 kubeadm**。它使用 RKE2（Rancher Kubernetes Engine 2），这是 Rancher 的 K8s 发行版：
+
+| 维度 | kubeadm | RKE2 (Harvester) | KubeKey (VDI) |
+|------|---------|-------------------|---------------|
+| 引导方式 | kubeadm init/join | RKE2 自有引导（cluster-init/agent） | 底层调用 kubeadm |
+| 安装方式 | 包管理器 (apt/yum) | 从容器镜像提取二进制 (wharfie) | 下载预编译二进制 |
+| 配置方式 | kubeadm-config.yaml | /etc/rancher/rke2/config.yaml.d/ | KubeKey config.yaml |
+| CNI | 手动安装 | 内置 (multus, canal) | 指定 CNI plugin |
+| 镜像管理 | 手动预加载 | 内置 HelmChart 控制器 | 手动 helm install |
+| 加入方式 | kubeadm join + token | RKE2 agent + server URL + token | KubeKey join + token |
+
+**RKE2 的特殊之处**：
+1. **不用 kubeadm**：RKE2 有自己的集群引导机制，不依赖 kubeadm init/join
+2. **二进制嵌入容器镜像**：RKE2 二进制打包在 `rancher/system-agent-installer-rke2` 镜像中，通过 `wharfie` 工具提取
+3. **内置 HelmChart 控制器**：RKE2 自动监听 `HelmChart` CRD，自动部署 Chart
+4. **内置 containerd**：RKE2 自带 containerd，不依赖系统 containerd
+
+### 9.7 加入集群的流程
+
+```
+configureInstalledNode() (pkg/console/util.go:831)
+  1. roleSetup()                    # 设置节点角色标签
+  2. generateTempConfigFiles()      # 生成 COS + Harvester 配置文件
+  3. applyRancherdConfig()          # 应用 Rancherd 配置
+     ├─ GenerateRancherdConfig()    # 生成 yip 配置
+     │   └─ initRancherdStage()     # 写入 rancherd-config.yaml（含 server URL + token）
+     ├─ yip -s live <config>        # 应用 live 阶段（网络、用户、RKE2 配置）
+     └─ yip -s finalise <config>    # 应用 finalise 阶段（持久化配置文件）
+  4. restartCoreServices()          # 重启 rancherd/rke2-agent
+```
+
+### 9.8 Install-only 模式
+
+"Install Harvester binaries only" 模式（`ModeInstall`）：
+- 仅将 OS 写入磁盘，不配置网络、不启动 Rancherd
+- 用于预装 QCOW2 镜像场景
+- 设置 `installModeOnly = true`，跳过网络/Rancherd 配置
+- `harv-install` 中通过 `HARVESTER_MODE=install` 环境变量控制
+
+### 9.9 VDI 的 K8s 安装方式（KubeKey）
+
+VDI 使用 KubeKey 引导 K8s 集群，KubeKey 底层调用 kubeadm：
+
+```
+KubeKey create cluster:
+  1. 下载 K8s 二进制（kubelet, kubeadm, kubectl）
+  2. kubeadm init --config <KubeKey 生成的配置>
+  3. 安装 CNI 插件（Kube-OVN）
+  4. 部署 addons（Helm Charts）
+
+KubeKey join:
+  1. 下载 K8s 二进制
+  2. kubeadm join <master-ip>:6443 --token <token>
+```
+
+**VDI 的 harv-install 改造**：
+
+```bash
+# 原 Harvester 流程：
+elemental install → 预加载 RKE2 镜像 → 保存 Rancherd 配置 → 重启 → Rancherd 启动 RKE2
+
+# VDI 改造流程：
+elemental install → 预加载 K8s/KubeVirt/Longhorn 镜像 → 保存 KubeKey 配置 → 重启 → KubeKey 引导 K8s
+```
+
+关键变化：
+- `preload_rke2_images()` → `preload_k8s_images()`（导入 K8s + KubeVirt + Longhorn + Kube-OVN + kagent 镜像）
+- `preload_rancherd_images()` → `preload_kubekey_images()`（导入 KubeKey bootstrap 镜像）
+- Rancherd 配置 → KubeKey 配置（`/etc/kubekey/config.yaml`）
+- RKE2 server/agent → KubeKey create/join
+
+## 10. 风险与缓解（更新）
 
 | 风险 | 影响 | 缓解措施 |
 |------|------|---------|
@@ -680,3 +942,5 @@ package/vdi-installer/Dockerfile → package/vdi-cluster-repo/Dockerfile → CI
 | KubeKey 不支持离线 bootstrap | 集群初始化失败 | 准备 KubeKey 离线配置和本地镜像仓库 |
 | Harvester 上游变更 | 合并冲突 | 定期 rebase，关注关键文件变更 |
 | Ubuntu 包依赖差异 | 运行时错误 | 在 Dockerfile 中显式声明所有依赖 |
+| KubeKey 底层依赖 kubeadm | 与 RKE2 的无 kubeadm 方案不同，需要额外配置 | KubeKey 自动管理 kubeadm 配置，无需手动干预；但需确保 K8s 版本与 KubeKey 兼容 |
+| KubeKey 离线模式限制 | 离线集群初始化可能失败 | 使用 KubeKey 的 manifest 离线模式，预打包所有二进制和镜像 |
