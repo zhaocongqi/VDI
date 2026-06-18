@@ -37,5 +37,9 @@ ENV https_proxy=
 COPY files/ /
 COPY vdi-release.yaml /etc/
 
+# 启用 VDI 安装器服务，禁用默认 getty
+RUN systemctl enable vdi-installer.service && \
+    systemctl mask getty@tty1.service
+
 ARG VDI_PRETTY_NAME="VDI Platform"
 RUN sed -i "s/^PRETTY_NAME.*/PRETTY_NAME=\"$VDI_PRETTY_NAME\"/g" /etc/os-release

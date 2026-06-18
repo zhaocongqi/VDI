@@ -1,0 +1,6 @@
+name: "Setup installer"
+stages:
+  initramfs:
+    - commands:
+      - setup-installer.sh
+      if: '! grep -q "vdi.installer.disable=true" /proc/cmdline'
