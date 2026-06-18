@@ -80,3 +80,6 @@ __pycache__/
 tmp/
 bin/
 dist/
+package/vdi-os/files/usr/bin/elemental
+package/vdi-os/files/usr/bin/wharfie
+package/vdi-os/files/usr/bin/elemental-iso-build
