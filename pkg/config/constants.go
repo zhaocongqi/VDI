@@ -51,3 +51,14 @@ var (
 	KubeovnVersion  string
 	KagentVersion   string
 )
+
+// Partition size constants (in MiB)
+const (
+	DefaultCosOemSizeMiB        = 512
+	DefaultCosStateSizeMiB      = 1536
+	DefaultCosRecoverySizeMiB   = 8192
+	PersistentSizeMinGiB        = 30
+)
+
+// Default persistent partition percentage
+const DefaultPersistentPercentageNum = 0.3

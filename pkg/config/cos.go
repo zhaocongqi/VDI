@@ -38,9 +38,6 @@ const (
 )
 
 var (
-	// Following variables are replaced by ldflags
-	RKE2Version = ""
-
 	originalNetworkConfigs        = make(map[string][]byte)
 	saveOriginalNetworkConfigOnce sync.Once
 )

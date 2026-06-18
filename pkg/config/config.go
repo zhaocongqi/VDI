@@ -64,6 +64,12 @@ type Webhook struct {
 	BasicAuth HTTPBasicAuth       `json:"basicAuth,omitempty"`
 }
 
+// SSHDConfig is the SSHD configuration for the node
+type SSHDConfig struct {
+	SFTP                bool `json:"sftp,omitempty"`
+	DisablePasswordAuth bool `json:"disablePasswordAuth,omitempty"`
+}
+
 type OSConfig struct {
 	Hostname                   string   `json:"hostname,omitempty"`
 	SSHAuthorizedKeys          []string `json:"sshAuthorizedKeys,omitempty"`
@@ -75,6 +81,7 @@ type OSConfig struct {
 	Password                   string            `json:"password,omitempty"`
 	Environment                map[string]string `json:"environment,omitempty"`
 	Labels                     map[string]string `json:"labels,omitempty"`
+	SSHD                       SSHDConfig        `json:"sshd,omitempty"`
 	PersistentStatePaths       []string          `json:"persistentStatePaths,omitempty"`
 	AdditionalKernelArguments  string            `json:"additionalKernelArguments,omitempty"`
 	AfterInstallChrootCommands []string          `json:"afterInstallChrootCommands,omitempty"`
@@ -133,11 +140,30 @@ type InstallConfig struct {
 type VDIConfig struct {
 	// SchemeVersion is used to determine current version and migrate config to new scheme version.
 	SchemeVersion uint32        `json:"schemeVersion,omitempty"`
+	Automatic     bool          `json:"automatic,omitempty"`
 	ServerURL     string        `json:"serverUrl,omitempty"`
 	Token         string        `json:"token,omitempty"`
 	SANS          []string      `json:"sans,omitempty"`
 	OS            OSConfig      `json:"os,omitempty"`
 	Install       InstallConfig `json:"install,omitempty"`
+
+	// Hostname is the node hostname.
+	Hostname string `json:"hostname,omitempty"`
+
+	// SSHAuthorizedKeys is a deprecated alias for OS.SSHAuthorizedKeys.
+	// Deprecated: Use OS.SSHAuthorizedKeys instead.
+	SSHAuthorizedKeys []string `json:"sshAuthorizedKeys,omitempty"`
+
+	// Cluster network configuration
+	ClusterPodCIDR     string `json:"clusterPodCidr,omitempty"`
+	ClusterServiceCIDR string `json:"clusterServiceCidr,omitempty"`
+	ClusterDNS         string `json:"clusterDns,omitempty"`
+
+	// ManagementInterface is the network interface configuration for the management network.
+	ManagementInterface Network `json:"managementInterface,omitempty"`
+
+	// SkipChecks disables preflight hardware checks.
+	SkipChecks bool `json:"skipchecks,omitempty"`
 
 	RKE2Version     string `json:"rke2Version,omitempty"`
 	KubevirtVersion string `json:"kubevirtVersion,omitempty"`
@@ -148,6 +174,19 @@ type VDIConfig struct {
 
 func NewVDIConfig() *VDIConfig {
 	return &VDIConfig{}
+}
+
+// GetSystemSettingsAllowList returns the list of allowed system settings.
+func GetSystemSettingsAllowList() []string {
+	return []string{
+		"additional-ca",
+		"server-version",
+		"log-level",
+		"ssl-certificates",
+		"ssl-parameters",
+		"http-proxy",
+		"ntp-servers",
+	}
 }
 
 func (c *VDIConfig) DeepCopy() (*VDIConfig, error) {

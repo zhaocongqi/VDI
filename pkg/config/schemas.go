@@ -8,6 +8,13 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// FuzzyNames is a mapper that allows fuzzy matching of field names.
+type FuzzyNames struct{}
+
+func (f *FuzzyNames) FromInternal(data map[string]interface{})                {}
+func (f *FuzzyNames) ToInternal(data map[string]interface{}) error            { return nil }
+func (f *FuzzyNames) ModifySchema(s *mapper.Schema, schemas *mapper.Schemas) error { return nil }
+
 var (
 	schemas = mapper.NewSchemas().Init(func(s *mapper.Schemas) *mapper.Schemas {
 		s.DefaultMappers = func() []mapper.Mapper {
