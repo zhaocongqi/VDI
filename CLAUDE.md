@@ -4,139 +4,146 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目概览
 
-本仓库是一个自研云桌面 (VDI) 平台的全栈技术集合，包含六个独立的 Kubernetes 子项目，每个子项目拥有独立的 Git 仓库。顶层架构文档 `云桌面产品技术架构图.md` 描述了七层技术栈。
+本仓库是 VDI (Virtual Desktop Infrastructure) 离线安装器，基于 Harvester Installer 架构改造，使用 RKE2 + HelmChart CRD 声明式部署 KubeVirt/Longhorn/Kube-OVN/kagent 组件栈。
 
-**七层架构**：
-- L1 客户端层：Web 客户端、Tauri 原生客户端
-- L2 媒体/接入层：Coturn TURN、Pion WebRTC、GStreamer
-- L3 业务编排层：云桌面控制台、Session Broker
-- L4 云桌面交付：Linux 容器 Pod、Windows VM
-- L5 K8s 工作负载：KubeVirt、Longhorn、Kube-OVN、Prometheus Operator
-- L6 K8s 编排：Kubernetes 控制平面
-- L7 基础设施：物理服务器、网络、存储
+**技术栈**：
+- **语言**：Go 1.26
+- **TUI**：gocui (终端 UI 框架)
+- **K8s 运行时**：RKE2
+- **addon 管理**：HelmChart CRD (helm.cattle.io/v1)
+- **ISO 构建**：elemental + xorriso
+- **构建系统**：Docker + Dapper
 
-## 子项目与组件关系
+## 目录结构
 
-| 子项目 | 定位 | 语言 |
-|--------|------|------|
-| `iso-builder/` | VDI 离线 ISO 构建系统（Dapper + TUI + PXE） | Shell, Python |
-| `kagent/` | CNCF：Kubernetes 原生 AI Agent 框架 | Go, Python, TypeScript |
-| `kubekey/` | KubeSphere：K8s 集群生命周期管理工具 | Go |
-| `kube-ovn/` | CNCF Sandbox：基于 OVN 的网络虚拟化 | Go |
-| `kubevirt/` | CNCF：Kubernetes VM 管理插件 | Go |
-| `longhorn/` | CNCF Incubating：分布式块存储 | Go (代码在其他仓库) |
-
-**组件协作关系**：KubeKey 负责集群部署 → Kube-OVN 提供网络层 → Longhorn 提供存储层 → KubeVirt 运行 Windows 桌面 VM → kagent 提供 AI 驱动的监控与自愈能力。iso-builder 提供离线 ISO 构建能力。
-
-## 各子项目构建命令速查
-
-### iso-builder (`cd iso-builder`)
-```bash
-make iso               # 完整构建（三阶段 pipeline: rootfs → bundle → ISO）
-make build-rootfs      # 阶段 1: 构建 rootfs
-make build-bundle      # 阶段 2: 下载离线资源
-make package-iso       # 阶段 3: 打包 ISO
-make package-iso-only  # 增量: 仅重新打包 ISO（不重建 rootfs/bundle）
-make build-bundle-only # 增量: 仅更新离线资源
-make shell             # 进入构建容器调试
-make verify            # 校验离线资源完整性
-make clean             # 清理构建产物（保留缓存）
-make distclean         # 清理全部（含缓存）
+```
+VDI/
+├── main.go              # 安装器入口
+├── Makefile             # Dapper 构建系统
+├── Dockerfile.dapper    # Ubuntu 22.04 + Go + elemental 构建环境
+├── go.mod / go.sum      # Go module (vdi-installer)
+├── pkg/                 # Go 代码
+│   ├── config/          # VDIConfig 结构体 + RKE2 模板
+│   ├── console/         # gocui TUI 安装器
+│   ├── preflight/       # 硬件预检
+│   ├── util/            # 工具函数
+│   └── widgets/         # gocui 控件
+├── scripts/             # 构建脚本
+│   ├── version-*        # 组件版本（RKE2/KubeVirt/Longhorn/Kube-OVN/kagent）
+│   ├── build            # 编译 Go 安装器
+│   ├── build-bundle     # 下载离线资源
+│   ├── package-vdi-os   # 构建 OS 镜像 + ISO
+│   └── package-vdi-repo # 构建 Helm Chart 仓库镜像
+├── package/             # Docker 镜像定义
+│   ├── vdi-os/          # Ubuntu 22.04 + RKE2 + HelmChart manifests
+│   ├── vdi-installer/   # 安装器二进制镜像
+│   └── vdi-cluster-repo/# Helm Chart 仓库
+└── docs/                # 设计文档 + 实施计划
 ```
 
-### kagent (`cd kagent`)
-```bash
-make build              # 构建所有组件镜像
-make build-cli          # 构建 kagent CLI
-make lint               # Go + Python 代码检查
-make test               # 运行全部测试
-make -C go generate     # 生成 CRD 代码
-make -C go e2e          # 端到端测试
-make create-kind-cluster  # 创建本地 Kind 集群
-make helm-install       # 构建镜像 + 加载到 Kind + Helm 部署
-make helm-test          # 渲染 Helm 模板并运行 helm unittest
-```
+## 构建命令
 
-### kubekey (`cd kubekey`)
 ```bash
-make kk                 # 构建 kk 二进制
-make generate           # 生成 deepcopy、manifests、modules、goimports
-make lint               # golangci-lint
-make test               # 单元测试 + 集成测试 (setup-envtest)
-make verify             # 全部校验检查
-```
-
-### kube-ovn (`cd kube-ovn`)
-```bash
-make build-go           # 编译 Go 二进制 (linux/amd64)
-make gen-crd            # 从 kubebuilder 注解重新生成 CRD YAML
-make lint               # golangci-lint + Go "modernize"
-make ut                 # 单元测试 (Ginkgo + go test with coverage)
-make install-chart      # Helm 安装
-make local-dev          # 完整本地开发环境搭建
-```
-
-### kubevirt (`cd kubevirt`)
-```bash
-make all                # 格式化 + bazel-build + manifests
-make go-all             # Go build + manifests (不用 bazel)
-make generate           # 生成代码、manifests、protobuf
-make lint               # golangci-lint + license 检查
+make default            # 完整构建（编译 + 打包 ISO）
+make build              # 编译 Go 安装器
+make build-bundle       # 下载离线资源
+make package-vdi-os     # 构建 OS 镜像 + ISO
+make package-vdi-repo   # 构建 Helm Chart 仓库镜像
+make shell              # 进入构建容器调试
 make test               # 运行测试
-make functest           # 功能测试
-make cluster-up         # 启动 CI 集群
+make validate           # golangci-lint 检查
 ```
 
-### longhorn (`cd longhorn`)
-本仓库仅包含 Helm chart、部署文档和增强提案。核心代码分布在 longhorn-manager、longhorn-engine 等其他仓库中。
+## 关键配置
 
-## 关键技术栈
+### VDIConfig 结构体
 
-- **主要语言**：Go (所有子项目)、Python (kagent Agent 运行时)、TypeScript (kagent UI)
-- **构建系统**：Make (通用)、Bazel (kubevirt)、Docker Buildx (kagent)
-- **代码检查**：golangci-lint (Go)、Ruff (Python)
-- **测试框架**：Ginkgo/Gomega (kube-ovn, kubevirt)、envtest (kubekey, kagent)、pytest (kagent Python)、Jest/Vitest (kagent UI)
-- **部署方式**：Helm Charts (kagent, kubekey, kube-ovn, longhorn)、Operator 模式 (kubevirt)
-- **Go 版本**：1.24.0 ~ 1.26.4 (各子项目不同)
+安装器的核心配置结构体，定义在 `pkg/config/config.go`：
 
-## 部署目录结构
-
-`deploy/` 目录包含完整的集群部署自动化：
-
-```
-deploy/
-├── env-config.sh          # 共享环境配置（用户名、网段、VIP、版本号）
-├── hosts.template         # Ansible 清单模板（实际 hosts 已 gitignore）
-├── skills/                # AI Skill 定义（按组件拆分）
-│   ├── os-init/           # OS 初始化（swap/内核/防火墙/依赖）
-│   ├── kubekey-deploy-k8s/# K8s 集群部署
-│   ├── kubevip-deploy/    # API Server VIP（HA static Pod）
-│   ├── kubeovn-deploy/    # Kube-OVN CNI
-│   ├── longhorn-deploy/   # Longhorn 分布式存储
-│   ├── kubevirt-deploy/   # KubeVirt 虚拟化
-│   └── kagent-deploy/     # kagent AI Agent 框架
-├── kagent/                # kagent Agent CRD 定义
-│   └── agents/            # VDI 专用 Agent（cluster-doctor/vm-manager/storage-ops/network-debug）
-├── k8s/                   # KubeKey 配置和 inventory
-├── kube-vip/              # kube-vip manifest 和脚本
-├── kube-ovn/              # Kube-OVN 本地 Helm chart + values
-├── longhorn/              # Longhorn values.yaml + 脚本
-└── kubevirt/              # KubeVirt 脚本
+```go
+type VDIConfig struct {
+    SchemeVersion       uint32
+    Automatic           bool
+    ServerURL           string
+    Token               string
+    OS                  OSConfig
+    Install             InstallConfig
+    Hostname            string
+    ClusterPodCIDR      string
+    ClusterServiceCIDR  string
+    ClusterDNS          string
+    ManagementInterface Network
+    RKE2Version         string
+    KubevirtVersion     string
+    LonghornVersion     string
+    KubeovnVersion      string
+    KagentVersion       string
+}
 ```
 
-**部署顺序**：os-init → kubekey-deploy-k8s → kubevip-deploy → kubeovn-deploy → longhorn-deploy → kubevirt-deploy → kagent-deploy
+### RKE2 配置模板
 
-**关键约定**：
-- `deploy/env-config.sh` 是所有部署参数的唯一来源，脚本和 skill 统一 `source` 引用
-- `deploy/hosts` 和 `deploy/k8s/inventory.yaml` 含敏感信息，已在 `.gitignore` 排除，仅保留 `.template` 模板
-- kube-vip 使用 static Pod 模式分发到每个控制平面节点，不使用 `kubectl apply`
-- 离线部署：`deploy/env-config.sh` 自动检测 `OFFLINE_BASE`，一套脚本支持在线和离线两种模式
+- `pkg/config/templates/rke2-server.yaml` — RKE2 server 配置
+- `pkg/config/templates/rke2-agent.yaml` — RKE2 agent 配置
+- `pkg/config/templates/helmchart-*.yaml` — HelmChart manifests
 
-## 子项目独立 CLAUDE.md
+### 版本管理
 
-各子项目可能包含自己的 CLAUDE.md 文件，提供更细粒度的开发指南：
-- `iso-builder/CLAUDE.md` — 构建系统、TUI 安装器、PXE 服务、离线资源管理
-- `kagent/CLAUDE.md` — 架构详解、语言约定、测试模式
-- `kube-ovn/CLAUDE.md` — 项目结构、构建命令、编码规范
+版本号通过 `scripts/version-*` 脚本管理，Go 二进制通过 ldflags 注入：
 
-工作时请先进入对应子项目目录，再参考其本地 CLAUDE.md。
+```bash
+scripts/version-rke2      # RKE2_VERSION="v1.31.4+rke2r1"
+scripts/version-kubevirt  # KUBEVIRT_VERSION="v1.5.0"
+scripts/version-longhorn  # LONGHORN_VERSION="v1.8.1"
+scripts/version-kubeovn   # KUBEOVN_VERSION="v1.17.0"
+scripts/version-kagent    # KAGENT_VERSION="0.9.6"
+```
+
+## 安装流程
+
+1. **TUI 配置收集** — 用户选择安装模式（首节点/管理节点/工作节点），配置网络、磁盘、VIP 等
+2. **配置生成** — 生成 RKE2 config.yaml + HelmChart manifests
+3. **OS 安装** — elemental install 将 OS 写入目标磁盘
+4. **镜像预加载** — 将离线镜像导入目标 OS 的 containerd
+5. **首次启动** — RKE2 server/agent 启动，HelmChart 控制器自动部署组件
+
+## HelmChart CRD
+
+VDI 使用 RKE2 内置的 HelmChart CRD 声明式管理组件：
+
+```yaml
+apiVersion: helm.cattle.io/v1
+kind: HelmChart
+metadata:
+  name: kube-ovn
+  namespace: kube-system
+spec:
+  chart: /var/lib/rancher/rke2/server/charts/kube-ovn.tgz
+  targetNamespace: kube-system
+  bootstrap: true
+```
+
+RKE2 启动时自动 apply `/var/lib/rancher/rke2/server/manifests/` 目录下的所有 YAML 文件。
+
+## 开发指南
+
+### 编译
+
+```bash
+export PATH=~/go-sdk/go/bin:$PATH
+export GOROOT=~/go-sdk/go
+go build ./...
+```
+
+### 测试
+
+```bash
+go test ./pkg/...
+```
+
+### 添加新组件
+
+1. 在 `scripts/version-*` 中添加版本号
+2. 在 `scripts/build-bundle` 中添加下载逻辑
+3. 在 `package/vdi-os/files/var/lib/rancher/rke2/server/manifests/` 中添加 HelmChart YAML
+4. 在 `pkg/config/templates/` 中添加 Go template（如需动态配置）
