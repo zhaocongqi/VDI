@@ -3,10 +3,8 @@ set -e
 
 cd $(dirname $0)
 
-./check-images
 ./build
-./test
 ./build-bundle
-./package-harvester-repo
-./package-harvester-installer
-./package-harvester-os
+./package-vdi-repo
+./package-vdi-installer
+./package-vdi-os

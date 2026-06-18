@@ -101,11 +101,19 @@ save_image()
 
   local archive_name="$(basename ${image_list%.txt}).tar"
   local archive_file="${save_dir}/${archive_name}"
+  local zst_file="${archive_file}.zst"
+
+  if [ -f "$zst_file" ]; then
+    echo "Archive already exists: ${zst_file}"
+    add_image_list_to_metadata $image_type $bundle_dir $image_list "$zst_file"
+    return 0
+  fi
+
   pull_images $image_list
   docker image save -o $archive_file $(<${image_list})
   zstd --rm $archive_file
 
-  add_image_list_to_metadata $image_type $bundle_dir $image_list "${archive_file}.zst"
+  add_image_list_to_metadata $image_type $bundle_dir $image_list "$zst_file"
 }
 
 # Add image list to bundle metadata

@@ -5,6 +5,11 @@ get_url()
   local from=$1
   local save_to=$2
 
+  if [ -f "$save_to" ]; then
+    echo "File already exists: ${save_to}"
+    return 0
+  fi
+
   echo "Download ${from} to ${save_to}..."
   curl -sfL $from -o $save_to
 }

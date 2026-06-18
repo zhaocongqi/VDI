@@ -46,7 +46,7 @@ add_image_list_to_metadata "rke2" $BUNDLE_DIR $image_list_file $image_archive
 
 # RKE2 multus images (exclude SR-IOV)
 image_list_file="${IMAGES_LISTS_DIR}/rke2-images-multus.linux-amd64-${RKE2_VERSION_NORMALIZED}.txt"
-save_image_list "rke2-images-multus" "${RKE2_IMAGES_URL}/rke2-images-multus.linux-amd64.txt" $image_list_file
+save_image_list "kubernetes" "${RKE2_IMAGES_URL}/rke2-images-multus.linux-amd64.txt" $image_list_file
 save_image "rke2" $BUNDLE_DIR $image_list_file ${IMAGES_DIR}
 
 # ============================================================
@@ -106,8 +106,7 @@ curl -sfL "https://raw.githubusercontent.com/kubeovn/kube-ovn/${KUBEOVN_VERSION}
 # Fallback: known images
 if [ ! -s ${kubeovn_image_list} ]; then
   cat > ${kubeovn_image_list} <<EOF
-docker.io/kubeovn/kube-ovn:${KUBEOVN_VERSION#v}
-docker.io/kubeovn/kube-ovn-cni:${KUBEOVN_VERSION#v}
+docker.io/kubeovn/kube-ovn:${KUBEOVN_VERSION}
 EOF
 fi
 save_image "kubeovn" $BUNDLE_DIR ${kubeovn_image_list} ${IMAGES_DIR}
@@ -129,7 +128,9 @@ ghcr.io/kagent-dev/kagent-tools:${KAGENT_VERSION}
 ghcr.io/kagent-dev/model-runner:${KAGENT_VERSION}
 docker.io/library/postgres:17.4-alpine
 EOF
-save_image "kagent" $BUNDLE_DIR ${kagent_image_list} ${IMAGES_DIR}
+# Skip kagent image pull for now (ghcr.io requires authentication)
+echo "Skipping kagent image pull (ghcr.io requires authentication)"
+# save_image "kagent" $BUNDLE_DIR ${kagent_image_list} ${IMAGES_DIR}
 
 # ============================================================
 # Create Helm repo index

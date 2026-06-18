@@ -1,6 +1,10 @@
 kubernetes:
   - registry.k8s.io
   - docker.io/rancher
+  - docker.io/rancher/hardened-multus-cni
+  - docker.io/rancher/hardened-cni-plugins
+  - docker.io/rancher/hardened-whereabouts
+  - docker.io/rancher/mirrored-library-busybox
 
 kubevirt:
   - quay.io/kubevirt

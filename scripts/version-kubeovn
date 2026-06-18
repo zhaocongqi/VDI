@@ -1,2 +1,2 @@
 #!/bin/bash
-KUBEOVN_VERSION="v1.17.0"
+KUBEOVN_VERSION="v1.16.2"
