@@ -101,24 +101,41 @@ fi
 echo "VDI Offline Install ${VERSION} - amd64 ($(date '+%Y-%m-%d %H:%M:%S'))" > "${ISO_ROOT}/.disk/info"
 echo "${ISO_PREFIX}" > "${ISO_ROOT}/.disk/base_installable"
 
-# 配置 GRUB
+# 配置 GRUB（与 Harvester 结构一致）
 echo ">>> 配置 GRUB"
-cat > "${ISO_ROOT}/boot/grub/grub.cfg" <<EOF
-set timeout=10
-set default=0
 
-menuentry "VDI Installer" {
-    linux /casper/vmlinuz boot=casper quiet splash ---
-    initrd /casper/initrd
+# 主 GRUB 配置（ISO 数据分区中的 /boot/grub2/grub.cfg）
+mkdir -p "${ISO_ROOT}/boot/grub2"
+cat > "${ISO_ROOT}/boot/grub2/grub.cfg" <<EOF
+search --no-floppy --file --set=root /casper/vmlinuz
+set default=0
+set timeout=10
+set timeout_style=menu
+
+menuentry "VDI Installer" --class os --unrestricted {
+    echo Loading kernel...
+    linux (\$root)/casper/vmlinuz boot=casper quiet splash ---
+    echo Loading initrd...
+    initrd (\$root)/casper/initrd
 }
 
-menuentry "VDI Installer (Debug)" {
-    linux /casper/vmlinuz boot=casper debug ---
-    initrd /casper/initrd
+menuentry "VDI Installer (Debug)" --class os --unrestricted {
+    echo Loading kernel...
+    linux (\$root)/casper/vmlinuz boot=casper debug ---
+    echo Loading initrd...
+    initrd (\$root)/casper/initrd
 }
 EOF
 
-# 配置 isolinux
+# EFI 分区中的 GRUB 配置（重定向到主配置）
+mkdir -p "${ISO_ROOT}/EFI/BOOT"
+cat > "${ISO_ROOT}/EFI/BOOT/grub.cfg" <<EOF
+search --no-floppy --file --set=root /casper/vmlinuz
+set prefix=(\$root)/boot/grub2
+configfile \$prefix/grub.cfg
+EOF
+
+# 配置 isolinux（BIOS 引导）
 cat > "${ISO_ROOT}/isolinux/isolinux.cfg" <<EOF
 DEFAULT vdi
 LABEL vdi
@@ -127,48 +144,41 @@ LABEL vdi
     APPEND initrd=/casper/initrd boot=casper quiet splash ---
 EOF
 
-# 复制 isolinux 文件
 if [ -d /usr/lib/ISOLINUX ]; then
     cp /usr/lib/ISOLINUX/isolinux.bin "${ISO_ROOT}/isolinux/"
     cp /usr/lib/syslinux/modules/bios/ldlinux.c32 "${ISO_ROOT}/isolinux/" 2>/dev/null || true
 fi
 
-# 创建 EFI 引导镜像
+# 创建 EFI 引导镜像（4MB，FAT12/16，与 Harvester 一致）
 echo ">>> 创建 EFI 引导镜像"
 EFI_IMG="${ISO_ROOT}/efi/boot/efiboot.img"
 mkdir -p "${ISO_ROOT}/efi/boot"
-dd if=/dev/zero of="${EFI_IMG}" bs=1M count=8 2>/dev/null
-mkfs.vfat -F 12 "${EFI_IMG}"
+dd if=/dev/zero of="${EFI_IMG}" bs=1M count=4 2>/dev/null
+mkfs.vfat -F 12 -n COS_GRUB "${EFI_IMG}"
 mmd -i "${EFI_IMG}" ::EFI ::EFI/BOOT
 
-# 创建 GRUB EFI 镜像
-GRUB_EFI="${TOP_DIR}/cache/grubx64.efi"
-grub-mkimage -O x86_64-efi \
-    -o "${GRUB_EFI}" \
-    -p "/boot/grub" \
-    -d /usr/lib/grub/x86_64-efi \
-    linux normal iso9660 part_msdos part_gpt fat \
-    search search_fs_file search_fs_uuid search_label \
-    serial terminal gfxterm gfxterm_background gfxterm_menu \
-    halt reboot configfile echo ls cat chain loadenv
+# 使用系统 GRUB EFI 二进制
+GRUB_EFI="/usr/lib/grub/x86_64-efi/monolithic/grubx64.efi"
+if [ ! -f "${GRUB_EFI}" ]; then
+    echo "ERROR: GRUB EFI binary not found at ${GRUB_EFI}"
+    exit 1
+fi
 
-mcopy -i "${EFI_IMG}" "${GRUB_EFI}" "::EFI/BOOT/BOOTX64.EFI"
+# 关键：使用小写文件名 bootx64.efi（UEFI 标准）
+mcopy -i "${EFI_IMG}" "${GRUB_EFI}" "::EFI/BOOT/bootx64.efi"
+mcopy -i "${EFI_IMG}" "${ISO_ROOT}/EFI/BOOT/grub.cfg" "::EFI/BOOT/grub.cfg"
 
-# 打包 ISO
+# 打包 ISO（与 Harvester 完全一致的 xorriso 参数）
 echo ">>> 打包 ISO"
 ISO_FILE="${ARTIFACTS_DIR}/${ISO_PREFIX}.iso"
-xorriso -volid "VDI-INSTALL" \
+xorriso -volid "COS_LIVE" \
     -joliet on -padding 0 \
     -outdev "${ISO_FILE}" \
     -map "${ISO_ROOT}" / -chmod 0755 -- \
     -append_partition 2 0xef "${EFI_IMG}" \
-    -boot_image isolinux bin_path="isolinux/isolinux.bin" \
-    -boot_image isolinux cat_path="boot/boot.catalog" \
-    -boot_image isolinux cat_hidden=on \
-    -boot_image isolinux load_size=2048 \
-    -boot_image isolinux boot_info_table=on \
-    -boot_image any next \
-    -boot_image any efi_path="--interval:appended_partition_2:all::" \
+    -boot_image any cat_path="/boot/boot.catalog" \
+    -boot_image any cat_hidden=on \
+    -boot_image any efi_path=--interval:appended_partition_2:all:: \
     -boot_image any platform_id=0xef \
     -boot_image any appended_part_as=gpt \
     -boot_image any partition_offset=16

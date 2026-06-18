@@ -1,6 +1,6 @@
-vdi: f9704faf-dirty
-installer: f9704faf
-os: VDI f9704faf-dirty
+vdi: 12d30c2a-dirty
+installer: 12d30c2a
+os: VDI 12d30c2a-dirty
 rke2: v1.31.4+rke2r1
 kubevirt: v1.5.0
 longhorn: v1.8.1
