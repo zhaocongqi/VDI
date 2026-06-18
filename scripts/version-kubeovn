@@ -1,0 +1,2 @@
+#!/bin/bash
+KUBEOVN_VERSION="v1.17.0"

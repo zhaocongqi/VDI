@@ -1,0 +1,20 @@
+token: {{ printf "%q" .Token }}
+tls-san:
+  - {{ .Install.Vip }}
+{{- if .SANS }}
+{{- range .SANS }}
+  - {{ . }}
+{{- end }}
+{{- end }}
+cluster-cidr: "10.52.0.0/16"
+service-cidr: "10.53.0.0/16"
+cluster-dns: "10.53.0.10"
+cni: none
+disable:
+  - rke2-ingress-nginx
+kubelet-arg:
+{{- with $args := .GetKubeletArgs }}
+{{- range $arg := $args }}
+  - {{ printf "%q" $arg }}
+{{- end }}
+{{- end }}

@@ -1,0 +1,2 @@
+#!/bin/bash
+RKE2_VERSION="v1.31.4+rke2r1"

@@ -1,0 +1,44 @@
+#!/bin/bash
+set -e
+
+TOP_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )/.." &> /dev/null && pwd )"
+SCRIPTS_DIR="${TOP_DIR}/scripts"
+
+cd ${TOP_DIR}
+
+source ${SCRIPTS_DIR}/version-rke2
+source ${SCRIPTS_DIR}/version-kubevirt
+source ${SCRIPTS_DIR}/version-longhorn
+source ${SCRIPTS_DIR}/version-kubeovn
+source ${SCRIPTS_DIR}/version-kagent
+source ${SCRIPTS_DIR}/version
+
+echo "Installer version: ${VERSION}"
+echo "RKE2 version: ${RKE2_VERSION}"
+echo "KubeVirt version: ${KUBEVIRT_VERSION}"
+echo "Longhorn version: ${LONGHORN_VERSION}"
+echo "KubeOVN version: ${KUBEOVN_VERSION}"
+echo "kagent version: ${KAGENT_VERSION}"
+echo "ARCH: ${ARCH}"
+
+mkdir -p bin
+
+LINKFLAGS="-X vdi-installer/pkg/config.RKE2Version=${RKE2_VERSION}
+           -X vdi-installer/pkg/config.KubevirtVersion=${KUBEVIRT_VERSION}
+           -X vdi-installer/pkg/config.LonghornVersion=${LONGHORN_VERSION}
+           -X vdi-installer/pkg/config.KubeovnVersion=${KUBEOVN_VERSION}
+           -X vdi-installer/pkg/config.KagentVersion=${KAGENT_VERSION}
+           -X vdi-installer/pkg/version.Version=${VERSION}
+           -X vdi-installer/pkg/version.GitCommit=${COMMIT}"
+
+if [ "$(uname)" = "Linux" ]; then
+    OTHER_LINKFLAGS="-extldflags -static -s"
+fi
+
+CGO_ENABLED=0 go build -ldflags "$LINKFLAGS $OTHER_LINKFLAGS" -o bin/vdi-installer .
+
+# 复制到 package 目录
+mkdir -p package/harvester-os/files/usr/bin
+install bin/vdi-installer package/harvester-os/files/usr/bin/
+mkdir -p package/harvester-installer
+install bin/vdi-installer package/harvester-installer/

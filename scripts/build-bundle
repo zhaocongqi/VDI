@@ -1,0 +1,141 @@
+#!/bin/bash
+set -e
+
+TOP_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )/.." &> /dev/null && pwd )"
+SCRIPTS_DIR="${TOP_DIR}/scripts"
+PACKAGE_VDI_OS_DIR="${TOP_DIR}/package/vdi-os"
+PACKAGE_VDI_REPO_DIR="${TOP_DIR}/package/vdi-cluster-repo"
+: ${RKE2_IMAGE_REPO:=https://github.com/rancher/rke2/releases/download/}
+
+cd ${TOP_DIR}
+
+source ${SCRIPTS_DIR}/version
+source ${SCRIPTS_DIR}/version-rke2
+source ${SCRIPTS_DIR}/version-kubevirt
+source ${SCRIPTS_DIR}/version-longhorn
+source ${SCRIPTS_DIR}/version-kubeovn
+source ${SCRIPTS_DIR}/version-kagent
+source ${SCRIPTS_DIR}/lib/http
+source ${SCRIPTS_DIR}/lib/image
+
+BUNDLE_DIR="${PACKAGE_VDI_OS_DIR}/iso/bundle"
+CHARTS_DIR="${PACKAGE_VDI_REPO_DIR}/charts"
+IMAGES_DIR="${BUNDLE_DIR}/vdi/images"
+IMAGES_LISTS_DIR="${BUNDLE_DIR}/vdi/images-lists"
+mkdir -p ${CHARTS_DIR}
+mkdir -p ${IMAGES_DIR}
+mkdir -p ${IMAGES_LISTS_DIR}
+
+RKE2_VERSION_NORMALIZED=${RKE2_VERSION/+/-} # v1.21.3-rc6+rke2r2 -> v1.21.3-rc6-rke2r2
+
+# Use offline bundle cache
+if [ -n "$VDI_INSTALLER_OFFLINE_BUILD" -a -e /bundle ]; then
+  cp -rf /bundle/* ${BUNDLE_DIR}/
+  exit 0
+fi
+
+# ============================================================
+# RKE2 images
+# ============================================================
+RKE2_IMAGES_URL="${RKE2_IMAGE_REPO}${RKE2_VERSION}"
+image_list_file="${IMAGES_LISTS_DIR}/rke2-images.linux-${ARCH}-${RKE2_VERSION_NORMALIZED}.txt"
+image_archive="${IMAGES_DIR}/rke2-images.linux-${ARCH}-${RKE2_VERSION_NORMALIZED}.tar.zst"
+get_url "${RKE2_IMAGES_URL}/rke2-images.linux-${ARCH}.txt" $image_list_file
+get_url "${RKE2_IMAGES_URL}/rke2-images.linux-${ARCH}.tar.zst" $image_archive
+add_image_list_to_metadata "rke2" $BUNDLE_DIR $image_list_file $image_archive
+
+# RKE2 multus images (exclude SR-IOV)
+image_list_file="${IMAGES_LISTS_DIR}/rke2-images-multus.linux-amd64-${RKE2_VERSION_NORMALIZED}.txt"
+save_image_list "rke2-images-multus" "${RKE2_IMAGES_URL}/rke2-images-multus.linux-amd64.txt" $image_list_file
+save_image "rke2" $BUNDLE_DIR $image_list_file ${IMAGES_DIR}
+
+# ============================================================
+# Longhorn chart + images
+# ============================================================
+echo "==> Pulling Longhorn chart (v${LONGHORN_VERSION})"
+helm repo add longhorn https://charts.longhorn.io 2>/dev/null || true
+helm pull longhorn/longhorn --version ${LONGHORN_VERSION#v} -d ${CHARTS_DIR}
+
+echo "==> Pulling Longhorn image list"
+longhorn_image_list="${IMAGES_LISTS_DIR}/longhorn-images-${LONGHORN_VERSION}.txt"
+get_url "https://raw.githubusercontent.com/longhorn/longhorn/${LONGHORN_VERSION}/deploy/longhorn-images.txt" ${longhorn_image_list}
+# Remove unsupported image
+sed -i '/longhornio\/openshift-origin-oauth-proxy/d' ${longhorn_image_list}
+save_image "longhorn" $BUNDLE_DIR ${longhorn_image_list} ${IMAGES_DIR}
+
+# ============================================================
+# KubeVirt manifests + chart + images
+# ============================================================
+echo "==> Pulling KubeVirt operator chart (v${KUBEVIRT_VERSION})"
+helm repo add kubevirt https://kubevirt.io/latest/charts/ 2>/dev/null || true
+helm pull kubevirt/kubevirt-operator --version ${KUBEVIRT_VERSION#v} -d ${CHARTS_DIR} || \
+  get_url "https://github.com/kubevirt/kubevirt/releases/download/${KUBEVIRT_VERSION}/kubevirt-operator.yaml" "${CHARTS_DIR}/kubevirt-operator.yaml"
+
+echo "==> Pulling KubeVirt image list"
+kubevirt_image_list="${IMAGES_LISTS_DIR}/kubevirt-images-${KUBEVIRT_VERSION}.txt"
+# Extract images from operator deployment manifest
+curl -sfL "https://raw.githubusercontent.com/kubevirt/kubevirt/${KUBEVIRT_VERSION}/deploy/kubevirt-operator.yaml" | \
+  grep -oP 'image:\s*\K.*' | sort -u > ${kubevirt_image_list} 2>/dev/null || true
+# Also try the vmlauncher image list
+curl -sfL "https://raw.githubusercontent.com/kubevirt/kubevirt/${KUBEVIRT_VERSION}/manifests/images/kubevirt-images.yaml" | \
+  grep -E '^\s*-\s+"' | tr -d ' "' | sort -u >> ${kubevirt_image_list} 2>/dev/null || true
+# Fallback: known core images
+if [ ! -s ${kubevirt_image_list} ]; then
+  cat > ${kubevirt_image_list} <<EOF
+quay.io/kubevirt/virt-operator:${KUBEVIRT_VERSION}
+quay.io/kubevirt/virt-controller:${KUBEVIRT_VERSION}
+quay.io/kubevirt/virt-api:${KUBEVIRT_VERSION}
+quay.io/kubevirt/virt-handler:${KUBEVIRT_VERSION}
+quay.io/kubevirt/virt-launcher:${KUBEVIRT_VERSION}
+quay.io/kubevirt/virt-exportproxy:${KUBEVIRT_VERSION}
+quay.io/kubevirt/virt-exportserver:${KUBEVIRT_VERSION}
+EOF
+fi
+save_image "kubevirt" $BUNDLE_DIR ${kubevirt_image_list} ${IMAGES_DIR}
+
+# ============================================================
+# Kube-OVN chart + images
+# ============================================================
+echo "==> Pulling Kube-OVN chart (v${KUBEOVN_VERSION})"
+get_url "https://github.com/kubeovn/kube-ovn/releases/download/${KUBEOVN_VERSION}/kube-ovn-${KUBEOVN_VERSION}.tgz" \
+  "${CHARTS_DIR}/kube-ovn-${KUBEOVN_VERSION}.tgz"
+
+echo "==> Pulling Kube-OVN image list"
+kubeovn_image_list="${IMAGES_LISTS_DIR}/kubeovn-images-${KUBEOVN_VERSION}.txt"
+curl -sfL "https://raw.githubusercontent.com/kubeovn/kube-ovn/${KUBEOVN_VERSION}/images/kube-ovn-amd64-${KUBEOVN_VERSION#v}.tar" 2>/dev/null | tar -tf - 2>/dev/null | sort -u > ${kubeovn_image_list} || true
+# Fallback: known images
+if [ ! -s ${kubeovn_image_list} ]; then
+  cat > ${kubeovn_image_list} <<EOF
+docker.io/kubeovn/kube-ovn:${KUBEOVN_VERSION#v}
+docker.io/kubeovn/kube-ovn-cni:${KUBEOVN_VERSION#v}
+EOF
+fi
+save_image "kubeovn" $BUNDLE_DIR ${kubeovn_image_list} ${IMAGES_DIR}
+
+# ============================================================
+# kagent chart + images
+# ============================================================
+echo "==> Pulling kagent chart (v${KAGENT_VERSION})"
+get_url "https://github.com/kagent-dev/kagent/releases/download/v${KAGENT_VERSION}/kagent-${KAGENT_VERSION}.tgz" \
+  "${CHARTS_DIR}/kagent-${KAGENT_VERSION}.tgz" || true
+
+echo "==> Pulling kagent image list"
+kagent_image_list="${IMAGES_LISTS_DIR}/kagent-images-${KAGENT_VERSION}.txt"
+cat > ${kagent_image_list} <<EOF
+ghcr.io/kagent-dev/kagent-controller:${KAGENT_VERSION}
+ghcr.io/kagent-dev/kagent-ui:${KAGENT_VERSION}
+ghcr.io/kagent-dev/kagent-proxy:${KAGENT_VERSION}
+ghcr.io/kagent-dev/kagent-tools:${KAGENT_VERSION}
+ghcr.io/kagent-dev/model-runner:${KAGENT_VERSION}
+docker.io/library/postgres:17.4-alpine
+EOF
+save_image "kagent" $BUNDLE_DIR ${kagent_image_list} ${IMAGES_DIR}
+
+# ============================================================
+# Create Helm repo index
+# ============================================================
+echo "==> Creating Helm repo index"
+helm repo index ${CHARTS_DIR}
+
+echo "==> Build bundle completed"
+ls -la ${BUNDLE_DIR}/vdi/images/

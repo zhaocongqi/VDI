@@ -1,0 +1,422 @@
+package config
+
+import (
+	"fmt"
+	"net"
+	"runtime"
+	"strings"
+
+	"github.com/imdario/mergo"
+	"k8s.io/apimachinery/pkg/util/validation"
+)
+
+const (
+	SchemeVersion = 1
+	SanitizeMask  = "***"
+)
+
+type NetworkInterface struct {
+	Name   string `json:"name,omitempty"`
+	HwAddr string `json:"hwAddr,omitempty"`
+}
+
+const (
+	BondModeBalanceRR    = "balance-rr"
+	BondModeActiveBackup = "active-backup"
+	BondModeBalnaceXOR   = "balance-xor"
+	BondModeBroadcast    = "broadcast"
+	BondModeIEEE802_3ad  = "802.3ad"
+	BondModeBalanceTLB   = "balance-tlb"
+	BondModeBalanceALB   = "balance-alb"
+)
+
+const (
+	SingleDiskMinSizeGiB   uint64 = 250
+	MultipleDiskMinSizeGiB uint64 = 180
+	HardMinDataDiskSizeGiB uint64 = 50
+	MaxPods                       = 200
+)
+
+type Network struct {
+	Interfaces   []NetworkInterface `json:"interfaces,omitempty"`
+	Method       string             `json:"method,omitempty"`
+	IP           string             `json:"ip,omitempty"`
+	SubnetMask   string             `json:"subnetMask,omitempty"`
+	Gateway      string             `json:"gateway,omitempty"`
+	DefaultRoute bool               `json:"-"`
+	BondOptions  map[string]string  `json:"bondOptions,omitempty"`
+	MTU          int                `json:"mtu,omitempty"`
+	VlanID       int                `json:"vlanId,omitempty"`
+}
+
+type HTTPBasicAuth struct {
+	User     string `json:"user,omitempty"`
+	Password string `json:"password,omitempty"`
+}
+
+type Webhook struct {
+	Event     string              `json:"event,omitempty"`
+	Method    string              `json:"method,omitempty"`
+	Headers   map[string][]string `json:"headers,omitempty"`
+	URL       string              `json:"url,omitempty"`
+	Payload   string              `json:"payload,omitempty"`
+	Insecure  bool                `json:"insecure,omitempty"`
+	BasicAuth HTTPBasicAuth       `json:"basicAuth,omitempty"`
+}
+
+type OSConfig struct {
+	Hostname                   string   `json:"hostname,omitempty"`
+	SSHAuthorizedKeys          []string `json:"sshAuthorizedKeys,omitempty"`
+	WriteFiles                 []File   `json:"writeFiles,omitempty"`
+	Modules                    []string          `json:"modules,omitempty"`
+	Sysctls                    map[string]string `json:"sysctls,omitempty"`
+	NTPServers                 []string          `json:"ntpServers,omitempty"`
+	DNSNameservers             []string          `json:"dnsNameservers,omitempty"`
+	Password                   string            `json:"password,omitempty"`
+	Environment                map[string]string `json:"environment,omitempty"`
+	Labels                     map[string]string `json:"labels,omitempty"`
+	PersistentStatePaths       []string          `json:"persistentStatePaths,omitempty"`
+	AdditionalKernelArguments  string            `json:"additionalKernelArguments,omitempty"`
+	AfterInstallChrootCommands []string          `json:"afterInstallChrootCommands,omitempty"`
+}
+
+type File struct {
+	Encoding           string `json:"encoding"`
+	Content            string `json:"content"`
+	Owner              string `json:"owner"`
+	Path               string `json:"path"`
+	RawFilePermissions string `json:"permissions"`
+}
+
+type InstallConfig struct {
+	Automatic           bool    `json:"automatic,omitempty"`
+	SkipChecks          bool    `json:"skipchecks,omitempty"`
+	Mode                string  `json:"mode,omitempty"`
+	ManagementInterface Network `json:"managementInterface,omitempty"`
+
+	Vip       string `json:"vip,omitempty"`
+	VipHwAddr string `json:"vipHwAddr,omitempty"`
+	VipMode   string `json:"vipMode,omitempty"`
+
+	ClusterDNS         string `json:"clusterDns,omitempty"`
+	ClusterPodCIDR     string `json:"clusterPodCidr,omitempty"`
+	ClusterServiceCIDR string `json:"clusterServiceCidr,omitempty"`
+
+	ForceEFI      bool     `json:"forceEfi,omitempty"`
+	Device        string   `json:"device,omitempty"`
+	ConfigURL     string   `json:"configUrl,omitempty"`
+	Silent        bool     `json:"silent,omitempty"`
+	ISOURL        string   `json:"isoUrl,omitempty"`
+	PowerOff      bool     `json:"powerOff,omitempty"`
+	NoFormat      bool     `json:"noFormat,omitempty"`
+	Debug         bool     `json:"debug,omitempty"`
+	TTY           string   `json:"tty,omitempty"`
+	ForceGPT      bool     `json:"forceGpt,omitempty"`
+	Role          string   `json:"role,omitempty"`
+	WithNetImages bool     `json:"withNetImages,omitempty"`
+	WipeAllDisks  bool     `json:"wipeAllDisks,omitempty"`
+	WipeDisksList []string `json:"wipeDisksList,omitempty"`
+
+	// Following options are not cOS installer flag
+	ForceMBR bool   `json:"forceMbr,omitempty"`
+	DataDisk string `json:"dataDisk,omitempty"`
+
+	Webhooks         []Webhook `json:"webhooks,omitempty"`
+	RawDiskImagePath string    `json:"rawDiskImagePath,omitempty"`
+
+	PersistentPartitionSize string `json:"persistentPartitionSize,omitempty"`
+}
+
+// VDIConfig is the top-level configuration for VDI installer.
+// It replaces the former HarvesterConfig, adapted for the VDI component stack:
+// RKE2, KubeVirt, Longhorn, Kube-OVN, and kagent.
+type VDIConfig struct {
+	// SchemeVersion is used to determine current version and migrate config to new scheme version.
+	SchemeVersion uint32        `json:"schemeVersion,omitempty"`
+	ServerURL     string        `json:"serverUrl,omitempty"`
+	Token         string        `json:"token,omitempty"`
+	SANS          []string      `json:"sans,omitempty"`
+	OS            OSConfig      `json:"os,omitempty"`
+	Install       InstallConfig `json:"install,omitempty"`
+
+	RKE2Version     string `json:"rke2Version,omitempty"`
+	KubevirtVersion string `json:"kubevirtVersion,omitempty"`
+	LonghornVersion string `json:"longhornVersion,omitempty"`
+	KubeovnVersion  string `json:"kubeovnVersion,omitempty"`
+	KagentVersion   string `json:"kagentVersion,omitempty"`
+}
+
+func NewVDIConfig() *VDIConfig {
+	return &VDIConfig{}
+}
+
+func (c *VDIConfig) DeepCopy() (*VDIConfig, error) {
+	newConf := NewVDIConfig()
+	if err := mergo.Merge(newConf, c, mergo.WithAppendSlice); err != nil {
+		return nil, fmt.Errorf("fail to create copy of %T at %p: %s", *c, c, err.Error())
+	}
+	return newConf, nil
+}
+
+func (c *VDIConfig) sanitized() (*VDIConfig, error) {
+	copied, err := c.DeepCopy()
+	if err != nil {
+		return nil, err
+	}
+	if copied.OS.Password != "" {
+		copied.OS.Password = SanitizeMask
+	}
+	if copied.Token != "" {
+		copied.Token = SanitizeMask
+	}
+	return copied, nil
+}
+
+func (c *VDIConfig) String() string {
+	s, err := c.sanitized()
+	if err != nil {
+		return err.Error()
+	}
+	return fmt.Sprintf("%+v", *s)
+}
+
+func (c *VDIConfig) GetKubeletArgs() ([]string, error) {
+	// node-labels=key1=val1,key2=val2
+	// max-pods=200
+	labelStrs := make([]string, 0, len(c.OS.Labels))
+	for labelName, labelValue := range c.OS.Labels {
+		if errs := validation.IsQualifiedName(labelName); len(errs) > 0 {
+			errJoined := strings.Join(errs, ", ")
+			return nil, fmt.Errorf("invalid label name '%s': %s", labelName, errJoined)
+		}
+
+		if errs := validation.IsValidLabelValue(labelValue); len(errs) > 0 {
+			errJoined := strings.Join(errs, ", ")
+			return nil, fmt.Errorf("invalid label value '%s': %s", labelValue, errJoined)
+		}
+		labelStrs = append(labelStrs, fmt.Sprintf("%s=%s", labelName, labelValue))
+	}
+
+	var args = []string{
+		fmt.Sprintf("max-pods=%d", MaxPods),
+	}
+
+	if len(labelStrs) > 0 {
+		args = append(args,
+			fmt.Sprintf("node-labels=%s", strings.Join(labelStrs, ",")),
+		)
+	}
+
+	return args, nil
+}
+
+// make system:kube cpu reservation ration 2:3
+func (c *VDIConfig) GetSystemReserved() string {
+	return fmt.Sprintf("system-reserved=cpu=%dm", calculateCPUReservedInMilliCPU(runtime.NumCPU(), MaxPods)*2*2/5)
+}
+
+// make system:kube cpu reservation ration 2:3
+func (c *VDIConfig) GetKubeReserved() string {
+	return fmt.Sprintf("kube-reserved=cpu=%dm", calculateCPUReservedInMilliCPU(runtime.NumCPU(), MaxPods)*2*3/5)
+}
+
+func (c *VDIConfig) ShouldCreateDataPartitionOnOsDisk() bool {
+	// Witness nodes don't need a data partition
+	if c.Install.Role == RoleWitness {
+		return false
+	}
+	// DataDisk is empty means only using the OS disk, and most of the time we should create data
+	// partition on OS disk, unless when ForceMBR=true then we should not create data partition.
+	return c.Install.DataDisk == "" && !c.Install.ForceMBR
+}
+
+func (c *VDIConfig) ShouldMountDataPartition() bool {
+	// Witness nodes don't need a data partition
+	if c.Install.Role == RoleWitness {
+		return false
+	}
+	// With ForceMBR=true and no DataDisk assigned (Using the OS disk), no data partition/disk will
+	// be created, so no need to mount the data disk/partition
+	if c.Install.ForceMBR && c.Install.DataDisk == "" {
+		return false
+	}
+
+	return true
+}
+
+func (c *VDIConfig) Merge(other VDIConfig) error {
+	if err := mergo.Merge(c, other, mergo.WithAppendSlice); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// GenerateBootstrapConfig generates a yip-based bootstrap configuration for node initialization.
+// This replaces the former GenerateRancherdConfig, producing yip stages instead of rancherd config.
+func (c *VDIConfig) GenerateBootstrapConfig() (map[string]interface{}, error) {
+	bootstrap := map[string]interface{}{
+		"hostname": c.OS.Hostname,
+	}
+
+	if len(c.OS.SSHAuthorizedKeys) > 0 {
+		bootstrap["sshAuthorizedKeys"] = c.OS.SSHAuthorizedKeys
+	}
+
+	if c.OS.Password != "" {
+		bootstrap["users"] = []map[string]interface{}{
+			{
+				"name":            "root",
+				"passwordHash":    c.OS.Password,
+				"sshAuthorizedKeys": c.OS.SSHAuthorizedKeys,
+			},
+		}
+	}
+
+	if len(c.OS.NTPServers) > 0 {
+		bootstrap["ntp"] = map[string]interface{}{
+			"servers": c.OS.NTPServers,
+		}
+	}
+
+	if len(c.OS.Modules) > 0 {
+		bootstrap["modules"] = c.OS.Modules
+	}
+
+	if len(c.OS.Sysctls) > 0 {
+		bootstrap["sysctl"] = c.OS.Sysctls
+	}
+
+	if len(c.OS.Environment) > 0 {
+		bootstrap["environment"] = c.OS.Environment
+	}
+
+	// Install role information
+	bootstrap["role"] = c.Install.Role
+
+	// VDI component versions
+	if c.RKE2Version != "" {
+		bootstrap["rke2Version"] = c.RKE2Version
+	}
+	if c.KubevirtVersion != "" {
+		bootstrap["kubevirtVersion"] = c.KubevirtVersion
+	}
+	if c.LonghornVersion != "" {
+		bootstrap["longhornVersion"] = c.LonghornVersion
+	}
+	if c.KubeovnVersion != "" {
+		bootstrap["kubeovnVersion"] = c.KubeovnVersion
+	}
+	if c.KagentVersion != "" {
+		bootstrap["kagentVersion"] = c.KagentVersion
+	}
+
+	return bootstrap, nil
+}
+
+func (n *NetworkInterface) FindNetworkInterfaceNameAndHwAddr() error {
+	if err := n.FindNetworkInterfaceName(); err != nil {
+		return err
+	}
+
+	if err := n.FindNetworkInterfaceHwAddr(); err != nil {
+		return err
+	}
+
+	// Default, there is no Name or HwAddress, do nothing. Let validation capture it
+	return nil
+}
+
+// FindNetworkInterfaceName uses MAC address to lookup interface name
+func (n *NetworkInterface) FindNetworkInterfaceName() error {
+	if n.Name != "" {
+		return nil
+	}
+
+	if n.Name == "" && n.HwAddr != "" {
+		hwAddr, err := net.ParseMAC(n.HwAddr)
+		if err != nil {
+			return err
+		}
+
+		interfaces, err := net.Interfaces()
+		if err != nil {
+			return err
+		}
+
+		for _, iface := range interfaces {
+			if iface.HardwareAddr.String() == hwAddr.String() {
+				n.Name = iface.Name
+				return nil
+			}
+		}
+
+		return fmt.Errorf("no interface matching hardware address %s found", n.HwAddr)
+	}
+
+	// Default, there is no Name or HwAddress, do nothing. Let validation capture it
+	return nil
+
+}
+
+// FindNetworkInterfaceHwAddr uses device name to lookup hardware address
+func (n *NetworkInterface) FindNetworkInterfaceHwAddr() error {
+	if n.HwAddr != "" {
+		return nil
+	}
+
+	if n.Name != "" && n.HwAddr == "" {
+		interfaces, err := net.Interfaces()
+		if err != nil {
+			return err
+		}
+
+		for _, iface := range interfaces {
+			if iface.Name == n.Name {
+				n.HwAddr = iface.HardwareAddr.String()
+				return nil
+			}
+		}
+
+		return fmt.Errorf("no interface matching name %s found", n.Name)
+	}
+
+	// Default, there is no Name or HwAddress, do nothing. Let validation capture it
+	return nil
+}
+
+// inspired by GKE CPU reservations https://cloud.google.com/kubernetes-engine/docs/concepts/plan-node-sizes
+func calculateCPUReservedInMilliCPU(cores int, maxPods int) int64 {
+	// this shouldn't happen
+	if cores <= 0 || maxPods <= 0 {
+		return 0
+	}
+
+	var reserved float64
+
+	// 6% of the first core
+	reserved += float64(6) / 100
+
+	// 1% of the next core (up to 2 cores)
+	if cores > 1 {
+		reserved += float64(1) / 100
+	}
+
+	// 0.5% of the next 2 cores (up to 4 cores)
+	if cores > 2 {
+		reserved += float64(2) * float64(0.5) / 100
+	}
+
+	// 0.25% of any cores above 4 cores
+	if cores > 4 {
+		reserved += float64(cores-4) * float64(0.25) / 100
+	}
+
+	// if the maximum number of Pods per node beyond the default of 110,
+	// reserves an extra 400 mCPU in addition to the preceding reservations.
+	if maxPods > 110 {
+		reserved += 0.4
+	}
+
+	return int64(reserved * 1000)
+}

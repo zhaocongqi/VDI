@@ -1,0 +1,26 @@
+kubernetes:
+  - registry.k8s.io
+  - docker.io/rancher
+
+kubevirt:
+  - quay.io/kubevirt
+
+longhorn:
+  - longhornio/longhorn-manager
+  - longhornio/longhorn-engine
+  - longhornio/longhorn-ui
+  - longhornio/longhorn-instance-manager
+  - longhornio/support-bundle-kit
+  - longhornio/csi-attacher
+  - longhornio/csi-provisioner
+  - longhornio/csi-resizer
+  - longhornio/csi-snapshotter
+  - longhornio/livenessprobe
+  - longhornio/csi-node-driver-registrar
+
+kubeovn:
+  - docker.io/kubeovn/kube-ovn
+
+kagent:
+  - ghcr.io/kagent-dev
+  - docker.io/library/postgres

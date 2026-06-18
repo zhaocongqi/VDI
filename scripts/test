@@ -1,0 +1,25 @@
+#!/bin/bash
+set -e
+
+TOP_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )/.." &> /dev/null && pwd )"
+cd ${TOP_DIR}
+
+SCRIPTS_DIR="${TOP_DIR}/scripts"
+source ${SCRIPTS_DIR}/lib/addon
+
+addons_path=${TOP_DIR}/../addons
+load_and_source_addon ${addons_path} https://github.com/harvester/addons.git main
+
+generate_addon ${addons_path}
+# copy the generated addon yamls to installer
+cp ${addons_path}/*.yaml ./pkg/config/templates
+
+echo "All existing template files"
+ls -alth ./pkg/config/templates
+echo "The templated rancherd-22-addons.yaml file"
+cat ./pkg/config/templates/rancherd-22-addons.yaml
+
+cd ${TOP_DIR}
+
+echo "Running tests"
+go test -cover -tags=test ./pkg/...

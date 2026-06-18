@@ -1,0 +1,29 @@
+#!/bin/bash
+
+unset DIRTY
+if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+    DIRTY="-dirty"
+fi
+
+COMMIT=$(git rev-parse --short HEAD)
+VERSION=${DRONE_TAG:-${DRONE_BRANCH}}
+VERSION=${VERSION:-"master"}
+
+if [[ -n "$DIRTY" ]]; then
+    VERSION="${COMMIT}${DIRTY}"
+fi
+
+if [ -z "$ARCH" ]; then
+    ARCH=$(go env GOHOSTARCH)
+fi
+
+SUFFIX="-${ARCH}"
+
+TAG=${TAG:-${VERSION}${SUFFIX}}
+REPO=${REPO:-rancher}
+
+if echo $TAG | grep -q dirty; then
+    TAG=dev
+fi
+
+

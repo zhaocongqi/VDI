@@ -1,0 +1,57 @@
+#!/bin/bash -e
+TOP_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )/.." &> /dev/null && pwd )"
+SCRIPTS_DIR="${TOP_DIR}/scripts"
+PACKAGE_VDI_OS_DIR="${TOP_DIR}/package/vdi-os"
+
+source ${SCRIPTS_DIR}/version-rke2
+source ${SCRIPTS_DIR}/version-kubevirt
+source ${SCRIPTS_DIR}/version-longhorn
+source ${SCRIPTS_DIR}/version-kubeovn
+source ${SCRIPTS_DIR}/version-kagent
+source ${SCRIPTS_DIR}/version
+source ${SCRIPTS_DIR}/lib/iso
+
+VDI_OS_IMAGE=rancher/vdi-os:${VERSION}
+PRETTY_NAME="VDI ${VERSION}"
+
+# 生成 vdi-release.yaml
+cat > ${PACKAGE_VDI_OS_DIR}/vdi-release.yaml <<EOF
+vdi: ${VERSION}
+installer: ${COMMIT}
+os: ${PRETTY_NAME}
+rke2: ${RKE2_VERSION}
+kubevirt: ${KUBEVIRT_VERSION}
+longhorn: ${LONGHORN_VERSION}
+kubeovn: ${KUBEOVN_VERSION}
+kagent: ${KAGENT_VERSION}
+EOF
+
+# 构建 OS 镜像
+cd ${PACKAGE_VDI_OS_DIR}
+docker build --pull \
+    --build-arg BASE_OS_IMAGE="ubuntu:22.04" \
+    --build-arg VDI_PRETTY_NAME="${PRETTY_NAME}" \
+    --build-arg ARCH="${ARCH}" \
+    -t ${VDI_OS_IMAGE} .
+
+# 提取 kernel/initrd
+ARTIFACTS_DIR="${TOP_DIR}/dist/artifacts"
+mkdir -p ${ARTIFACTS_DIR}
+KERNEL=$(docker run --rm ${VDI_OS_IMAGE} readlink -f /boot/vmlinuz)
+INITRD=$(docker run --rm ${VDI_OS_IMAGE} readlink -f /boot/initrd)
+docker create --cidfile=os-img-container ${VDI_OS_IMAGE} -- tail -f /dev/null
+docker cp $(<os-img-container):${KERNEL} ${ARTIFACTS_DIR}/vdi-vmlinuz-${ARCH}
+docker cp $(<os-img-container):${INITRD} ${ARTIFACTS_DIR}/vdi-initrd-${ARCH}
+docker rm $(<os-img-container) && rm -f os-img-container
+
+# 构建 ISO
+ISO_PREFIX="vdi-${VERSION}-${ARCH}"
+elemental build-iso --config-dir "${PACKAGE_VDI_OS_DIR}" --debug \
+    "docker:${VDI_OS_IMAGE}" --local \
+    -n "${ISO_PREFIX}" -o "${ARTIFACTS_DIR}" \
+    --overlay-iso "${PACKAGE_VDI_OS_DIR}/iso" \
+    -x "-comp xz" --platform "linux/${ARCH}"
+
+# 生成校验和
+cd ${ARTIFACTS_DIR}
+sha512sum vdi-* > ${ISO_PREFIX}.sha512

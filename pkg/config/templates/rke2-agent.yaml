@@ -1,0 +1,8 @@
+server: {{ .ServerURL }}
+token: {{ printf "%q" .Token }}
+kubelet-arg:
+{{- with $args := .GetKubeletArgs }}
+{{- range $arg := $args }}
+  - {{ printf "%q" $arg }}
+{{- end }}
+{{- end }}
