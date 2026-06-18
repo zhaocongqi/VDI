@@ -114,14 +114,14 @@ set timeout_style=menu
 
 menuentry "VDI Installer" --class os --unrestricted {
     echo Loading kernel...
-    linux (\$root)/casper/vmlinuz boot=casper quiet splash ---
+    linux (\$root)/casper/vmlinuz boot=casper console=ttyS0,115200n8 ---
     echo Loading initrd...
     initrd (\$root)/casper/initrd
 }
 
 menuentry "VDI Installer (Debug)" --class os --unrestricted {
     echo Loading kernel...
-    linux (\$root)/casper/vmlinuz boot=casper debug ---
+    linux (\$root)/casper/vmlinuz boot=casper debug console=ttyS0,115200n8 ---
     echo Loading initrd...
     initrd (\$root)/casper/initrd
 }

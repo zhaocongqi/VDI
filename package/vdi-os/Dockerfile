@@ -8,17 +8,18 @@ ARG https_proxy
 ENV http_proxy=${http_proxy}
 ENV https_proxy=${https_proxy}
 
-# 安装基础工具和内核
+# 安装基础工具、内核和 casper（live 启动必需）
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl wget jq \
     systemd systemd-sysv \
     linux-image-5.15.0-134-generic \
     initramfs-tools \
+    casper \
     open-iscsi nfs-common \
     conntrack ipvsadm ebtables \
     && rm -rf /var/lib/apt/lists/*
 
-# 生成 initrd
+# 生成 initrd（包含 casper 脚本）
 RUN update-initramfs -u
 
 # elemental (pre-downloaded)
