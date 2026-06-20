@@ -1,0 +1,13 @@
+# 排除大文件和构建产物
+*.iso
+*.qcow2
+*.img
+*.raw
+dist/
+cache/
+bin/
+.dapper
+*.tar.gz
+*.tar.zst
+*.tgz
+harvester-*.iso
