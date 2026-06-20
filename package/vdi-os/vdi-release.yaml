@@ -1,6 +1,6 @@
-vdi: 686217a3-dirty
-installer: 686217a3
-os: VDI 686217a3-dirty
+vdi: 64ceeaa6-dirty
+installer: 64ceeaa6
+os: VDI 64ceeaa6-dirty
 rke2: v1.31.4+rke2r1
 kubevirt: v1.5.0
 longhorn: v1.8.1
