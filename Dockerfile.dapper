@@ -1,19 +1,12 @@
 FROM golang:1.26-bookworm
 
-ARG http_proxy=$http_proxy
-ARG https_proxy=$https_proxy
-ARG no_proxy=$no_proxy
-ENV http_proxy=$http_proxy
-ENV https_proxy=$https_proxy
-ENV no_proxy=$no_proxy
-
 ARG DAPPER_HOST_ARCH
 ENV ARCH $DAPPER_HOST_ARCH
 
 # 系统工具 (替代 SUSE zypper, 使用 Debian apt-get)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git curl docker.io gzip tar wget zstd squashfs-tools xorriso \
-    awk jq mtools dosfstools unzip rsync patch \
+    gawk jq mtools dosfstools unzip rsync patch \
     && rm -rf /var/lib/apt/lists/*
 
 # yq
@@ -29,11 +22,6 @@ ARG HELM_VERSION=v3.20.0
 RUN curl -sfL "https://get.helm.sh/helm-${HELM_VERSION}-linux-${ARCH}.tar.gz" | \
     tar xz -C /tmp && mv /tmp/linux-${ARCH}/helm /usr/bin/helm && \
     rm -rf /tmp/linux-${ARCH}
-
-# elemental (VDI 安装器核心工具链)
-ARG ELEMENTAL_VERSION=v0.10.0
-RUN curl -sfL "https://github.com/rancher/elemental/releases/download/${ELEMENTAL_VERSION}/elemental-${ARCH}" \
-    -o /usr/bin/elemental && chmod +x /usr/bin/elemental
 
 ENV DAPPER_ENV REPO TAG DRONE_TAG DRONE_BRANCH ARCH \
     RKE2_VERSION KUBEVIRT_VERSION LONGHORN_VERSION KUBEOVN_VERSION KAGENT_VERSION \
