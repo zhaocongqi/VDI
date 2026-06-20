@@ -5,7 +5,7 @@ Before=vdi-setup-installer.service
 
 [Service]
 Type=oneshot
-ExecStart=/bin/bash -c 'for i in /sys/class/net/{eth*,en*,ib*}; do [ -e "$i" ] || continue; ip link set $(basename $i) up; done'
+ExecStart=/bin/bash -c 'echo "VDI: Bringing up network interfaces..."; for i in /sys/class/net/{eth*,en*,ib*,wl*}; do [ -e "$i" ] || continue; iface=$(basename $i); echo "VDI: Setting $iface UP"; ip link set $iface up || echo "VDI: Failed to set $iface UP"; done; echo "VDI: Network interfaces status:"; ip link show | grep -E "^[0-9]+:" | head -10'
 RemainAfterExit=yes
 
 [Install]
