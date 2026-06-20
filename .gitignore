@@ -88,3 +88,4 @@ package/vdi-os/files/usr/bin/elemental-iso-build
 package/vdi-os/iso/bundle/
 package/vdi-cluster-repo/charts/
 cache/
+Dockerfile.dapper*
