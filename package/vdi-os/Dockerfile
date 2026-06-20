@@ -15,6 +15,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     linux-image-5.15.0-134-generic \
     initramfs-tools \
     casper \
+    iproute2 iputils-ping net-tools network-manager \
     open-iscsi nfs-common \
     conntrack ipvsadm ebtables \
     && rm -rf /var/lib/apt/lists/*
@@ -60,6 +61,9 @@ EOF
 RUN systemctl enable serial-getty@ttyS0.service
 # 启用网络接口自动激活（参考 Harvester 90_network.yaml）
 RUN systemctl enable vdi-network-setup.service
+
+# 设置默认密码（root/vdi123）方便调试
+RUN echo 'root:vdi123' | chpasswd
 
 ARG VDI_PRETTY_NAME="VDI Platform"
 RUN sed -i "s/^PRETTY_NAME.*/PRETTY_NAME=\"$VDI_PRETTY_NAME\"/g" /etc/os-release
