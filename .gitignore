@@ -94,3 +94,4 @@ Dockerfile.dapper*
 
 # 构建时自动生成的版本文件
 package/vdi-os/vdi-release.yaml
+/.vscode-ai-images/
