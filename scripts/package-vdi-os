@@ -153,8 +153,8 @@ fi
 echo ">>> 创建 EFI 引导镜像"
 EFI_IMG="${ISO_ROOT}/efi/boot/efiboot.img"
 mkdir -p "${ISO_ROOT}/efi/boot"
-dd if=/dev/zero of="${EFI_IMG}" bs=1M count=4 2>/dev/null
-mkfs.vfat -F 12 -n COS_GRUB "${EFI_IMG}"
+dd if=/dev/zero of="${EFI_IMG}" bs=1k count=4096 status=progress
+mkfs.vfat "${EFI_IMG}" -n COS_GRUB
 mmd -i "${EFI_IMG}" ::EFI ::EFI/BOOT
 
 # 使用系统 GRUB EFI 二进制
