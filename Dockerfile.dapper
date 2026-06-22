@@ -5,9 +5,15 @@ ENV ARCH $DAPPER_HOST_ARCH
 
 # 系统工具 (替代 SUSE zypper, 使用 Debian apt-get)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    git curl docker.io gzip tar wget zstd squashfs-tools xorriso \
+    git curl gzip tar wget zstd squashfs-tools xorriso \
     gawk jq mtools dosfstools unzip rsync patch \
+    ca-certificates gnupg grub-efi-amd64-bin grub-pc-bin \
     && rm -rf /var/lib/apt/lists/*
+
+# Docker CLI (直接下载二进制，保持与宿主机 API 兼容)
+ARG DOCKER_VERSION=27.5.1
+RUN curl -fsSL "https://download.docker.com/linux/static/stable/$(uname -m)/docker-${DOCKER_VERSION}.tgz" | \
+    tar xz -C /tmp && mv /tmp/docker/docker /usr/bin/docker && rm -rf /tmp/docker
 
 # yq
 ARG YQ_VERSION=v4.52.5
@@ -27,7 +33,7 @@ ENV DAPPER_ENV REPO TAG DRONE_TAG DRONE_BRANCH ARCH \
     RKE2_VERSION KUBEVIRT_VERSION LONGHORN_VERSION KUBEOVN_VERSION KAGENT_VERSION \
     USE_LOCAL_IMAGES DISABLE_BUILD_NET_INSTALL_ISO
 ENV DAPPER_SOURCE /go/src/github.com/vdi-installer/
-ENV DAPPER_OUTPUT ./bin ./dist
+ENV DAPPER_OUTPUT ./bin ./dist ./cache
 ENV DAPPER_DOCKER_SOCKET true
 ENV DAPPER_RUN_ARGS "-v /run/containerd/containerd.sock:/run/containerd/containerd.sock --privileged"
 
