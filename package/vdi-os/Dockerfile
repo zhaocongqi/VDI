@@ -53,6 +53,16 @@ RUN systemctl enable serial-getty@ttyS0.service
 # 启用网络接口自动激活（参考 Harvester 90_network.yaml）
 RUN systemctl enable vdi-network-setup.service
 
+# 禁用 systemd-networkd，改用 NetworkManager 管理所有网络接口
+RUN systemctl disable systemd-networkd systemd-networkd-wait-online systemd-resolved 2>/dev/null || true && \
+    systemctl enable NetworkManager
+
+# 配置 NetworkManager 管理所有接口（Ubuntu 默认 systemd-networkd 会抢占）
+RUN mkdir -p /etc/NetworkManager/conf.d && \
+    printf "[main]\nplugins=ifupdown,keyfile\n\n[ifupdown]\nmanaged=true\n" > /etc/NetworkManager/conf.d/10-manage-all.conf && \
+    mkdir -p /etc/netplan && \
+    printf "network:\n  version: 2\n  renderer: NetworkManager\n" > /etc/netplan/01-network-manager.yaml
+
 # 设置默认密码（root/vdi123）方便调试
 RUN echo 'root:vdi123' | chpasswd
 
