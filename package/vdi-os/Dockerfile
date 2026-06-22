@@ -58,9 +58,11 @@ RUN systemctl enable vdi-network-setup.service
 RUN systemctl disable systemd-networkd systemd-networkd-wait-online systemd-resolved 2>/dev/null || true && \
     systemctl enable NetworkManager
 
-# 配置 NetworkManager 管理所有接口（Ubuntu 默认 systemd-networkd 会抢占）
+# 配置 NetworkManager 管理所有接口
+# 移除 ifupdown 插件（它会因 /etc/network/interfaces 为空导致网卡 unmanaged）
 RUN mkdir -p /etc/NetworkManager/conf.d && \
-    printf "[main]\nplugins=ifupdown,keyfile\n\n[ifupdown]\nmanaged=true\n" > /etc/NetworkManager/conf.d/10-manage-all.conf && \
+    printf "[main]\nplugins=keyfile\n" > /etc/NetworkManager/conf.d/10-keyfile-only.conf && \
+    sed -i '/^\[ifupdown\]/,/^\[/{s/managed=false/managed=true/}' /etc/NetworkManager/NetworkManager.conf && \
     mkdir -p /etc/netplan && \
     printf "network:\n  version: 2\n  renderer: NetworkManager\n" > /etc/netplan/01-network-manager.yaml
 
