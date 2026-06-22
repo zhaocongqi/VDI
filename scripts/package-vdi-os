@@ -219,14 +219,14 @@ set timeout_style=menu
 
 menuentry "VDI Installer" --class os --unrestricted {
     echo Loading kernel...
-    linux (\$root)/images/pxeboot/vmlinuz boot=live:LABEL=VDI_LIVE rd.live.dir=LiveOS rd.live.squashimg=squashfs.img console=tty0 console=ttyS0,115200n8 ---
+    linux (\$root)/images/pxeboot/vmlinuz root=live:LABEL=VDI_LIVE rd.live.dir=LiveOS rd.live.squashimg=squashfs.img console=tty0 console=ttyS0,115200n8 ---
     echo Loading initrd...
     initrd (\$root)/images/pxeboot/initrd.img
 }
 
 menuentry "VDI Installer (Debug)" --class os --unrestricted {
     echo Loading kernel...
-    linux (\$root)/images/pxeboot/vmlinuz boot=live:LABEL=VDI_LIVE rd.live.dir=LiveOS rd.live.squashimg=squashfs.img debug console=tty0 console=ttyS0,115200n8 ---
+    linux (\$root)/images/pxeboot/vmlinuz root=live:LABEL=VDI_LIVE rd.live.dir=LiveOS rd.live.squashimg=squashfs.img debug console=tty0 console=ttyS0,115200n8 ---
     echo Loading initrd...
     initrd (\$root)/images/pxeboot/initrd.img
 }
@@ -244,7 +244,7 @@ DEFAULT vdi
 LABEL vdi
     SAY VDI Installer
     LINUX /images/pxeboot/vmlinuz
-    APPEND initrd=/images/pxeboot/initrd.img boot=live:LABEL=VDI_LIVE rd.live.dir=LiveOS rd.live.squashimg=squashfs.img console=tty0 console=ttyS0,115200n8 ---
+    APPEND initrd=/images/pxeboot/initrd.img root=live:LABEL=VDI_LIVE rd.live.dir=LiveOS rd.live.squashimg=squashfs.img console=tty0 console=ttyS0,115200n8 ---
 EOF
 
 if [ -d /usr/lib/ISOLINUX ]; then
