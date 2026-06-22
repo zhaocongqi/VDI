@@ -129,12 +129,27 @@ sudo cp ${PACKAGE_VDI_OS_DIR}/vdi-release.yaml "${WRITABLE_ROOTFS}/etc/"
 sudo mkdir -p "${WRITABLE_ROOTFS}/etc/NetworkManager/conf.d"
 printf "[keyfile]\nunmanaged-devices=none\n" | sudo tee "${WRITABLE_ROOTFS}/etc/NetworkManager/conf.d/10-manage-all.conf" > /dev/null
 
-# 禁用 systemd-networkd，启用 NetworkManager 和 sshd
-sudo chroot "${WRITABLE_ROOTFS}" systemctl disable systemd-networkd systemd-networkd-wait-online systemd-resolved 2>/dev/null || true
-sudo chroot "${WRITABLE_ROOTFS}" systemctl enable NetworkManager 2>/dev/null || true
-sudo chroot "${WRITABLE_ROOTFS}" systemctl enable sshd 2>/dev/null || true
-sudo chroot "${WRITABLE_ROOTFS}" systemctl enable vdi-network-setup.service 2>/dev/null || true
-sudo chroot "${WRITABLE_ROOTFS}" systemctl enable vdi-setup-installer.service 2>/dev/null || true
+# 禁用 Anaconda 图形化安装器，改用 VDI TUI 安装器
+# 直接删除 Anaconda 的 systemd 配置（chroot 中 systemctl 不可靠）
+sudo rm -f "${WRITABLE_ROOTFS}/etc/systemd/system/anaconda.target.wants/"*.service 2>/dev/null || true
+sudo rm -f "${WRITABLE_ROOTFS}/etc/systemd/system/default.target" 2>/dev/null || true
+# 创建 default.target 软链接到 multi-user.target
+sudo ln -sf /lib/systemd/system/multi-user.target "${WRITABLE_ROOTFS}/etc/systemd/system/default.target"
+# 删除 Anaconda 的 wants 目录（阻止自动启动）
+sudo rm -rf "${WRITABLE_ROOTFS}/etc/systemd/system/anaconda.target.wants" 2>/dev/null || true
+# 禁用 Anaconda 服务（通过删除 wants 链接）
+for svc in anaconda anaconda-direct anaconda-noshell anaconda-pre anaconda-sshd instperf; do
+    sudo rm -f "${WRITABLE_ROOTFS}/etc/systemd/system/multi-user.target.wants/${svc}.service" 2>/dev/null || true
+    sudo rm -f "${WRITABLE_ROOTFS}/etc/systemd/system/anaconda.target.wants/${svc}.service" 2>/dev/null || true
+done
+
+# 启用 VDI 安装器服务（通过创建 wants 链接）
+sudo mkdir -p "${WRITABLE_ROOTFS}/etc/systemd/system/multi-user.target.wants"
+sudo ln -sf /etc/systemd/system/vdi-network-setup.service "${WRITABLE_ROOTFS}/etc/systemd/system/multi-user.target.wants/vdi-network-setup.service"
+sudo ln -sf /etc/systemd/system/vdi-setup-installer.service "${WRITABLE_ROOTFS}/etc/systemd/system/multi-user.target.wants/vdi-setup-installer.service"
+# 启用 NetworkManager 和 sshd
+sudo ln -sf /usr/lib/systemd/system/NetworkManager.service "${WRITABLE_ROOTFS}/etc/systemd/system/multi-user.target.wants/NetworkManager.service" 2>/dev/null || true
+sudo ln -sf /usr/lib/systemd/system/sshd.service "${WRITABLE_ROOTFS}/etc/systemd/system/multi-user.target.wants/sshd.service" 2>/dev/null || true
 sudo chroot "${WRITABLE_ROOTFS}" systemctl enable serial-getty@ttyS0.service 2>/dev/null || true
 
 # 配置 SSH 允许 root 密码登录
