@@ -11,6 +11,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     initramfs-tools \
     casper \
     iproute2 iputils-ping net-tools network-manager \
+    openssh-server \
     open-iscsi nfs-common \
     conntrack ipvsadm ebtables \
     && rm -rf /var/lib/apt/lists/*
@@ -65,6 +66,11 @@ RUN mkdir -p /etc/NetworkManager/conf.d && \
 
 # 设置默认密码（root/vdi123）方便调试
 RUN echo 'root:vdi123' | chpasswd
+
+# 启用 SSH 服务，允许 root 密码登录
+RUN systemctl enable ssh && \
+    mkdir -p /etc/ssh/sshd_config.d && \
+    printf "PermitRootLogin yes\nPasswordAuthentication yes\n" > /etc/ssh/sshd_config.d/allow-root.conf
 
 ARG VDI_PRETTY_NAME="VDI Platform"
 RUN sed -i "s/^PRETTY_NAME.*/PRETTY_NAME=\"$VDI_PRETTY_NAME\"/g" /etc/os-release
