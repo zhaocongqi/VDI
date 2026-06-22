@@ -59,9 +59,8 @@ RUN systemctl disable systemd-networkd systemd-networkd-wait-online systemd-reso
     systemctl enable NetworkManager
 
 # 配置 NetworkManager 管理所有接口
-# 移除 ifupdown 插件（它会因 /etc/network/interfaces 为空导致网卡 unmanaged）
-RUN mkdir -p /etc/NetworkManager/conf.d && \
-    printf "[main]\nplugins=keyfile\n" > /etc/NetworkManager/conf.d/10-keyfile-only.conf && \
+# 直接修改主配置：移除 ifupdown 插件，设置 managed=true
+RUN sed -i 's/plugins=ifupdown,keyfile/plugins=keyfile/' /etc/NetworkManager/NetworkManager.conf && \
     sed -i '/^\[ifupdown\]/,/^\[/{s/managed=false/managed=true/}' /etc/NetworkManager/NetworkManager.conf && \
     mkdir -p /etc/netplan && \
     printf "network:\n  version: 2\n  renderer: NetworkManager\n" > /etc/netplan/01-network-manager.yaml
