@@ -90,10 +90,12 @@ docker buildx build \
 # elemental build-iso 需要在宿主机执行
 # ============================================================
 echo ">>> 提取 elemental 二进制到宿主机"
+rm -f /tmp/vdi-elemental-extract
 docker create --cidfile=/tmp/vdi-elemental-extract ${VDI_OS_IMAGE} -- tail -f /dev/null
 CONTAINER_ID=$(</tmp/vdi-elemental-extract)
-# /usr/bin 需要 root，docker cp 默认输出到 stdout，用 sudo tee 写入
-docker cp ${CONTAINER_ID}:/usr/bin/elemental - | sudo tee /usr/bin/elemental > /dev/null
+# docker cp 到文件（不能用 stdout 管道，会变成 tar 流）
+docker cp ${CONTAINER_ID}:/usr/bin/elemental /tmp/elemental-bin
+sudo mv /tmp/elemental-bin /usr/bin/elemental
 sudo chmod +x /usr/bin/elemental
 docker rm ${CONTAINER_ID} && rm -f /tmp/vdi-elemental-extract
 
@@ -107,10 +109,17 @@ ARTIFACTS_DIR="${TOP_DIR}/dist/artifacts"
 mkdir -p ${ARTIFACTS_DIR}
 
 echo ">>> 提取 kernel / initrd"
+rm -f /tmp/vdi-os-img
 docker create --cidfile=/tmp/vdi-os-img ${VDI_OS_IMAGE} -- tail -f /dev/null
 CONTAINER_ID=$(</tmp/vdi-os-img)
-KERNEL_PATH=$(docker run --rm ${VDI_OS_IMAGE} readlink -f /boot/vmlinuz)
-INITRD_PATH=$(docker run --rm ${VDI_OS_IMAGE} readlink -f /boot/initrd)
+# BCLinux 没有 /boot/vmlinuz 软链接，用实际版本路径
+KERNEL_PATH=$(docker run --rm ${VDI_OS_IMAGE} bash -c "ls /boot/vmlinuz-* 2>/dev/null | head -1")
+INITRD_PATH=$(docker run --rm ${VDI_OS_IMAGE} bash -c "ls /boot/initrd-* 2>/dev/null | head -1")
+if [ -z "${KERNEL_PATH}" ] || [ -z "${INITRD_PATH}" ]; then
+    echo "ERROR: 找不到 kernel 或 initrd (KERNEL=${KERNEL_PATH} INITRD=${INITRD_PATH})"
+    docker rm ${CONTAINER_ID} && rm -f /tmp/vdi-os-img
+    exit 1
+fi
 docker cp ${CONTAINER_ID}:${KERNEL_PATH} ${ARTIFACTS_DIR}/vdi-${VERSION}-vmlinuz-${ARCH}
 docker cp ${CONTAINER_ID}:${INITRD_PATH} ${ARTIFACTS_DIR}/vdi-${VERSION}-initrd-${ARCH}
 chmod +r ${ARTIFACTS_DIR}/vdi-${VERSION}-initrd-${ARCH}
@@ -129,7 +138,8 @@ ISO_PREFIX="vdi-${VERSION}-${ARCH}"
 PLATFORM=$(uname -m)
 
 cd ${PACKAGE_VDI_OS_DIR}
-elemental build-iso \
+# DOCKER_API_VERSION: elemental 内嵌的 Docker client 是 1.42，daemon 要求 1.44
+sudo DOCKER_API_VERSION=1.44 DOCKER_HOST=unix:///var/run/docker.sock elemental build-iso \
     --config-dir "${PACKAGE_VDI_OS_DIR}" \
     --debug \
     "docker:${VDI_OS_IMAGE}" \

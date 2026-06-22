@@ -25,6 +25,22 @@ RUN --mount=type=bind,from=bclinux-repo,source=.,target=/iso,rw \
     && dnf clean all && \
     rm -f /etc/yum.repos.d/bclinux.repo
 
+# elemental build-iso 需要 EFI 引导文件在 /usr/share/efi/x86_64/
+# BCLinux shim/grub2-efi 包的 dnf 安装可能因许可证问题失败，直接从 RPM 提取
+RUN --mount=type=bind,from=bclinux-repo,source=.,target=/iso,rw \
+    mkdir -p /tmp/efi-extract /usr/share/efi/x86_64 /usr/share/grub2/x86_64-efi && \
+    cd /tmp/efi-extract && \
+    rpm2cpio /iso/Packages/shim-*.rpm 2>/dev/null | cpio -idm 2>/dev/null && \
+    rpm2cpio /iso/Packages/grub2-efi-x64-*.rpm 2>/dev/null | cpio -idm 2>/dev/null && \
+    cp ./boot/efi/EFI/bclinux/shimx64.efi /usr/share/efi/x86_64/shim.efi && \
+    cp ./boot/efi/EFI/bclinux/mmx64.efi /usr/share/efi/x86_64/MokManager.efi && \
+    cp ./boot/efi/EFI/bclinux/grubx64.efi /usr/share/efi/x86_64/grub.efi && \
+    cp ./boot/efi/EFI/bclinux/grubx64.efi /usr/share/grub2/x86_64-efi/grub.efi && \
+    cp ./boot/efi/EFI/bclinux/fbx64.efi /usr/share/efi/x86_64/fbx64.efi 2>/dev/null || true && \
+    rm -rf /tmp/efi-extract && \
+    ls -la /usr/share/efi/x86_64/ && \
+    ls -la /usr/share/grub2/x86_64-efi/
+
 # 注入 VDI 文件（含 systemd service、脚本、manifests 等）
 COPY files/ /
 COPY vdi-release.yaml /etc/
