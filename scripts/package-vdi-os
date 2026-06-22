@@ -14,7 +14,12 @@ source ${SCRIPTS_DIR}/version-kagent
 source ${SCRIPTS_DIR}/version
 
 BCLINUX_ISO="${TOP_DIR}/dist/iso/BCLinux-21.10U5-dvd-x86_64-260610.iso"
+CACHE_DIR="${TOP_DIR}/cache"
 PRETTY_NAME="VDI ${VERSION}"
+
+# 清理之前的挂载点和临时文件
+sudo umount "${CACHE_DIR}/rootfs" 2>/dev/null || true
+sudo losetup -D 2>/dev/null || true
 
 echo "============================================"
 echo "  构建 VDI OS 镜像 (BCLinux)"
@@ -42,8 +47,12 @@ mkdir -p ${ARTIFACTS_DIR}
 # 步骤 1: 从 BCLinux ISO 提取内核和 initrd
 # ============================================================
 echo ">>> 从 BCLinux ISO 提取内核和 initrd"
-isoinfo -x /IMAGES/PXEBOOT/VMLINUZ\;1 -i "${BCLINUX_ISO}" > ${ARTIFACTS_DIR}/vdi-vmlinuz-${ARCH}
-isoinfo -x /IMAGES/PXEBOOT/INITRD.IMG\;1 -i "${BCLINUX_ISO}" > ${ARTIFACTS_DIR}/vdi-initrd-${ARCH}
+EXTRACT_DIR="${CACHE_DIR}/images"
+if [ ! -f "${EXTRACT_DIR}/pxeboot/vmlinuz" ]; then
+    7z x -o"${CACHE_DIR}" "${BCLINUX_ISO}" images/pxeboot/vmlinuz images/pxeboot/initrd.img -y 2>/dev/null
+fi
+cp "${EXTRACT_DIR}/pxeboot/vmlinuz" ${ARTIFACTS_DIR}/vdi-vmlinuz-${ARCH}
+cp "${EXTRACT_DIR}/pxeboot/initrd.img" ${ARTIFACTS_DIR}/vdi-initrd-${ARCH}
 echo "  内核: $(ls -lh ${ARTIFACTS_DIR}/vdi-vmlinuz-${ARCH} | awk '{print $5}')"
 echo "  initrd: $(ls -lh ${ARTIFACTS_DIR}/vdi-initrd-${ARCH} | awk '{print $5}')"
 
@@ -51,14 +60,17 @@ echo "  initrd: $(ls -lh ${ARTIFACTS_DIR}/vdi-initrd-${ARCH} | awk '{print $5}')
 # 步骤 2: 从 BCLinux ISO 提取 rootfs 并注入 VDI 文件
 # ============================================================
 echo ">>> 从 BCLinux ISO 提取 rootfs"
-CACHE_DIR="${TOP_DIR}/cache"
 ROOTFS_DIR="${CACHE_DIR}/rootfs"
 INSTALL_IMG="${CACHE_DIR}/install.img"
 SQUASHFS_IMG="${CACHE_DIR}/squashfs-root"
-rm -rf "${ROOTFS_DIR}" "${INSTALL_IMG}" "${SQUASHFS_IMG}"
+sudo umount "${ROOTFS_DIR}" 2>/dev/null || true
+sudo rm -rf "${ROOTFS_DIR}" "${INSTALL_IMG}" "${SQUASHFS_IMG}"
 
 # 提取 install.img (squashfs)
-isoinfo -x /IMAGES/INSTALL.IMG\;1 -i "${BCLINUX_ISO}" > "${INSTALL_IMG}"
+if [ ! -f "${CACHE_DIR}/images/install.img" ]; then
+    7z x -o"${CACHE_DIR}" "${BCLINUX_ISO}" images/install.img -y 2>/dev/null
+fi
+cp "${CACHE_DIR}/images/install.img" "${INSTALL_IMG}"
 
 # 解压 squashfs (包含 LiveOS/rootfs.img)
 unsquashfs -f -d "${SQUASHFS_IMG}" "${INSTALL_IMG}" 2>/dev/null || true
@@ -71,11 +83,11 @@ sudo mount -o ro "${ROOTFS_LOOP}" "${ROOTFS_DIR}"
 # 复制 rootfs 到可写目录
 echo ">>> 复制 rootfs"
 WRITABLE_ROOTFS="${CACHE_DIR}/writable-rootfs"
-rm -rf "${WRITABLE_ROOTFS}"
+sudo rm -rf "${WRITABLE_ROOTFS}"
 sudo cp -a "${ROOTFS_DIR}" "${WRITABLE_ROOTFS}"
 sudo umount "${ROOTFS_DIR}"
 sudo losetup -d "${ROOTFS_LOOP}"
-rm -rf "${ROOTFS_DIR}" "${INSTALL_IMG}" "${SQUASHFS_IMG}"
+sudo rm -rf "${ROOTFS_DIR}" "${INSTALL_IMG}" "${SQUASHFS_IMG}"
 
 # ============================================================
 # 步骤 3: 注入 VDI 文件到 rootfs
@@ -99,7 +111,8 @@ sudo cp ${PACKAGE_VDI_OS_DIR}/files/usr/sbin/cos-installer-shutdown "${WRITABLE_
 sudo cp ${PACKAGE_VDI_OS_DIR}/files/usr/sbin/harv-dummy-iface "${WRITABLE_ROOTFS}/usr/sbin/harv-dummy-iface"
 sudo cp ${PACKAGE_VDI_OS_DIR}/files/usr/sbin/harv-restart-services "${WRITABLE_ROOTFS}/usr/sbin/harv-restart-services"
 sudo cp ${PACKAGE_VDI_OS_DIR}/files/usr/sbin/stream-disk "${WRITABLE_ROOTFS}/usr/sbin/stream-disk"
-sudo chmod +x "${WRITABLE_ROOTFS}/usr/bin/"*.sh "${WRITABLE_ROOTFS}/usr/sbin/"*
+sudo find "${WRITABLE_ROOTFS}/usr/bin/" -name "*.sh" -exec chmod +x {} + 2>/dev/null || true
+sudo find "${WRITABLE_ROOTFS}/usr/sbin/" -type f -exec chmod +x {} + 2>/dev/null || true
 
 # 注入 systemd 服务
 sudo cp ${PACKAGE_VDI_OS_DIR}/files/etc/systemd/system/vdi-network-setup.service "${WRITABLE_ROOTFS}/etc/systemd/system/"
@@ -161,12 +174,12 @@ ISO_ROOT="${CACHE_DIR}/iso-staging"
 rm -rf "${ISO_ROOT}"
 mkdir -p "${ISO_ROOT}"/{boot/grub,efi/boot,isolinux,LiveOS,images/pxeboot,bundle,scripts,configs,.disk}
 
-mksquashfs "${WRITABLE_ROOTFS}" "${ISO_ROOT}/LiveOS/squashfs.img" \
+sudo mksquashfs "${WRITABLE_ROOTFS}" "${ISO_ROOT}/LiveOS/squashfs.img" \
     -comp xz -no-progress -noappend \
     -e boot/grub -e var/cache
 
 # 清理 rootfs
-rm -rf "${WRITABLE_ROOTFS}"
+sudo rm -rf "${WRITABLE_ROOTFS}"
 
 # 复制内核和 initrd
 cp ${ARTIFACTS_DIR}/vdi-vmlinuz-${ARCH} "${ISO_ROOT}/images/pxeboot/vmlinuz"
