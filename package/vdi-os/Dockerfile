@@ -59,10 +59,16 @@ RUN systemctl disable systemd-networkd systemd-networkd-wait-online systemd-reso
     systemctl enable NetworkManager
 
 # 配置 NetworkManager 管理所有接口
-# 直接修改主配置：移除 ifupdown 插件，设置 managed=true
+# 1. 移除 ifupdown 插件
 RUN sed -i 's/plugins=ifupdown,keyfile/plugins=keyfile/' /etc/NetworkManager/NetworkManager.conf && \
-    sed -i '/^\[ifupdown\]/,/^\[/{s/managed=false/managed=true/}' /etc/NetworkManager/NetworkManager.conf && \
-    mkdir -p /etc/netplan && \
+    sed -i '/^\[ifupdown\]/,/^\[/{s/managed=false/managed=true/}' /etc/NetworkManager/NetworkManager.conf
+
+# 2. 覆盖 Ubuntu 默认的 "只管 WiFi" 策略（10-globally-managed-devices.conf）
+RUN mkdir -p /etc/NetworkManager/conf.d && \
+    printf "[keyfile]\nunmanaged-devices=none\n" > /etc/NetworkManager/conf.d/10-manage-all.conf
+
+# 3. 配置 Netplan 使用 NetworkManager
+RUN mkdir -p /etc/netplan && \
     printf "network:\n  version: 2\n  renderer: NetworkManager\n" > /etc/netplan/01-network-manager.yaml
 
 # 设置默认密码（root/vdi123）方便调试
