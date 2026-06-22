@@ -1,6 +1,5 @@
 #!/bin/bash -e
-# 构建 VDI OS 镜像和 ISO
-# 参考 Harvester 的 scripts/package-harvester-os
+# 构建 VDI OS 镜像和 ISO（基于 BCLinux）
 
 TOP_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )/.." &> /dev/null && pwd )"
 SCRIPTS_DIR="${TOP_DIR}/scripts"
@@ -17,7 +16,7 @@ VDI_OS_IMAGE=rancher/vdi-os:${VERSION}
 PRETTY_NAME="VDI ${VERSION}"
 
 echo "============================================"
-echo "  构建 VDI OS 镜像"
+echo "  构建 VDI OS 镜像 (BCLinux)"
 echo "  版本: ${VERSION}"
 echo "  RKE2: ${RKE2_VERSION}"
 echo "============================================"
@@ -34,21 +33,21 @@ kubeovn: ${KUBEOVN_VERSION}
 kagent: ${KAGENT_VERSION}
 EOF
 
-# 构建 OS 镜像
+# 构建 OS 镜像（使用 BCLinux 基础镜像）
 cd ${PACKAGE_VDI_OS_DIR}
 docker build --pull \
-    --build-arg BASE_OS_IMAGE="ubuntu:22.04" \
+    --build-arg BASE_OS_IMAGE="bclinux:21.10U5" \
     --build-arg VDI_PRETTY_NAME="${PRETTY_NAME}" \
     --build-arg ARCH="${ARCH}" \
     --build-arg http_proxy="${http_proxy}" \
     --build-arg https_proxy="${https_proxy}" \
     -t ${VDI_OS_IMAGE} .
 
-# 提取 kernel/initrd
+# 提取 kernel/initrd（BCLinux 内核路径不同于 Ubuntu）
 ARTIFACTS_DIR="${TOP_DIR}/dist/artifacts"
 mkdir -p ${ARTIFACTS_DIR}
-KERNEL=$(docker run --rm ${VDI_OS_IMAGE} readlink -f /boot/vmlinuz)
-INITRD=$(docker run --rm ${VDI_OS_IMAGE} readlink -f /boot/initrd.img)
+KERNEL=$(docker run --rm ${VDI_OS_IMAGE} bash -c "ls /boot/vmlinuz-* 2>/dev/null | head -1")
+INITRD=$(docker run --rm ${VDI_OS_IMAGE} bash -c "ls /boot/initrd.img-* 2>/dev/null | head -1")
 docker create --cidfile=os-img-container ${VDI_OS_IMAGE} -- tail -f /dev/null
 docker cp $(<os-img-container):${KERNEL} ${ARTIFACTS_DIR}/vdi-vmlinuz-${ARCH}
 docker cp $(<os-img-container):${INITRD} ${ARTIFACTS_DIR}/vdi-initrd-${ARCH}
@@ -62,9 +61,9 @@ echo "============================================"
 ISO_PREFIX="vdi-${VERSION}-${ARCH}"
 ISO_ROOT="${TOP_DIR}/cache/iso-staging"
 rm -rf "${ISO_ROOT}"
-mkdir -p "${ISO_ROOT}"/{boot/grub,efi/boot,isolinux,casper,bundle,scripts,configs,.disk}
+mkdir -p "${ISO_ROOT}"/{boot/grub,efi/boot,isolinux,LiveOS,images/pxeboot,bundle,scripts,configs,.disk}
 
-# 创建 squashfs
+# 创建 squashfs（BCLinux dracut dmsquash-live 期望 LiveOS/squashfs.img）
 echo ">>> 创建 squashfs"
 ROOTFS_DIR="${TOP_DIR}/cache/rootfs"
 mkdir -p "${ROOTFS_DIR}"
@@ -73,13 +72,13 @@ mkdir -p "${ROOTFS_DIR}"
 docker export $(docker create ${VDI_OS_IMAGE} -- tail -f /dev/null) | tar -C "${ROOTFS_DIR}" -xf -
 docker rm $(docker ps -a -q --filter ancestor=${VDI_OS_IMAGE} --latest) 2>/dev/null || true
 
-mksquashfs "${ROOTFS_DIR}" "${ISO_ROOT}/casper/filesystem.squashfs" \
+mksquashfs "${ROOTFS_DIR}" "${ISO_ROOT}/LiveOS/squashfs.img" \
     -comp xz -no-progress -noappend \
-    -e boot/grub -e var/cache -e var/lib/apt/lists
+    -e boot/grub -e var/cache
 
-# 复制内核和 initrd
-cp "${ARTIFACTS_DIR}/vdi-vmlinuz-${ARCH}" "${ISO_ROOT}/casper/vmlinuz"
-cp "${ARTIFACTS_DIR}/vdi-initrd-${ARCH}" "${ISO_ROOT}/casper/initrd"
+# 复制内核和 initrd（GRUB/isolinux 引导文件）
+cp "${ARTIFACTS_DIR}/vdi-vmlinuz-${ARCH}" "${ISO_ROOT}/images/pxeboot/vmlinuz"
+cp "${ARTIFACTS_DIR}/vdi-initrd-${ARCH}" "${ISO_ROOT}/images/pxeboot/initrd.img"
 
 # 复制离线资源
 if [ -d "${PACKAGE_VDI_OS_DIR}/iso/bundle" ]; then
@@ -101,36 +100,36 @@ fi
 echo "VDI Offline Install ${VERSION} - amd64 ($(date '+%Y-%m-%d %H:%M:%S'))" > "${ISO_ROOT}/.disk/info"
 echo "${ISO_PREFIX}" > "${ISO_ROOT}/.disk/base_installable"
 
-# 配置 GRUB（与 Harvester 结构一致）
+# 配置 GRUB（适配 BCLinux dracut dmsquash-live 启动）
 echo ">>> 配置 GRUB"
 
-# 主 GRUB 配置（ISO 数据分区中的 /boot/grub2/grub.cfg）
+# 主 GRUB 配置
 mkdir -p "${ISO_ROOT}/boot/grub2"
 cat > "${ISO_ROOT}/boot/grub2/grub.cfg" <<EOF
-search --no-floppy --file --set=root /casper/vmlinuz
+search --no-floppy --set=root -l VDI_LIVE
 set default=0
 set timeout=10
 set timeout_style=menu
 
 menuentry "VDI Installer" --class os --unrestricted {
     echo Loading kernel...
-    linux (\$root)/casper/vmlinuz boot=casper console=ttyS0,115200n8 ---
+    linux (\$root)/images/pxeboot/vmlinuz boot=live:LABEL=VDI_LIVE rd.live.dir=LiveOS rd.live.squashimg=squashfs.img console=ttyS0,115200n8 ---
     echo Loading initrd...
-    initrd (\$root)/casper/initrd
+    initrd (\$root)/images/pxeboot/initrd.img
 }
 
 menuentry "VDI Installer (Debug)" --class os --unrestricted {
     echo Loading kernel...
-    linux (\$root)/casper/vmlinuz boot=casper debug console=ttyS0,115200n8 ---
+    linux (\$root)/images/pxeboot/vmlinuz boot=live:LABEL=VDI_LIVE rd.live.dir=LiveOS rd.live.squashimg=squashfs.img debug console=ttyS0,115200n8 ---
     echo Loading initrd...
-    initrd (\$root)/casper/initrd
+    initrd (\$root)/images/pxeboot/initrd.img
 }
 EOF
 
 # EFI 分区中的 GRUB 配置（重定向到主配置）
 mkdir -p "${ISO_ROOT}/EFI/BOOT"
 cat > "${ISO_ROOT}/EFI/BOOT/grub.cfg" <<EOF
-search --no-floppy --file --set=root /casper/vmlinuz
+search --no-floppy --set=root -l VDI_LIVE
 set prefix=(\$root)/boot/grub2
 configfile \$prefix/grub.cfg
 EOF
@@ -140,8 +139,8 @@ cat > "${ISO_ROOT}/isolinux/isolinux.cfg" <<EOF
 DEFAULT vdi
 LABEL vdi
     SAY VDI Installer
-    LINUX /casper/vmlinuz
-    APPEND initrd=/casper/initrd boot=casper quiet splash ---
+    LINUX /images/pxeboot/vmlinuz
+    APPEND initrd=/images/pxeboot/initrd.img boot=live:LABEL=VDI_LIVE rd.live.dir=LiveOS rd.live.squashimg=squashfs.img quiet ---
 EOF
 
 if [ -d /usr/lib/ISOLINUX ]; then
@@ -149,12 +148,12 @@ if [ -d /usr/lib/ISOLINUX ]; then
     cp /usr/lib/syslinux/modules/bios/ldlinux.c32 "${ISO_ROOT}/isolinux/" 2>/dev/null || true
 fi
 
-# 创建 EFI 引导镜像（4MB，FAT12/16，与 Harvester 一致）
+# 创建 EFI 引导镜像（4MB）
 echo ">>> 创建 EFI 引导镜像"
 EFI_IMG="${ISO_ROOT}/efi/boot/efiboot.img"
 mkdir -p "${ISO_ROOT}/efi/boot"
 dd if=/dev/zero of="${EFI_IMG}" bs=1k count=4096 status=progress
-mkfs.vfat "${EFI_IMG}" -n COS_GRUB
+mkfs.vfat "${EFI_IMG}" -n VDI_GRUB
 mmd -i "${EFI_IMG}" ::EFI ::EFI/BOOT
 
 # 使用系统 GRUB EFI 二进制
@@ -168,10 +167,10 @@ fi
 mcopy -i "${EFI_IMG}" "${GRUB_EFI}" "::EFI/BOOT/bootx64.efi"
 mcopy -i "${EFI_IMG}" "${ISO_ROOT}/EFI/BOOT/grub.cfg" "::EFI/BOOT/grub.cfg"
 
-# 打包 ISO（与 Harvester 完全一致的 xorriso 参数）
+# 打包 ISO
 echo ">>> 打包 ISO"
 ISO_FILE="${ARTIFACTS_DIR}/${ISO_PREFIX}.iso"
-xorriso -volid "COS_LIVE" \
+xorriso -volid "VDI_LIVE" \
     -joliet on -padding 0 \
     -outdev "${ISO_FILE}" \
     -map "${ISO_ROOT}" / -chmod 0755 -- \
@@ -184,7 +183,7 @@ xorriso -volid "COS_LIVE" \
     -boot_image any partition_offset=16
 
 # 清理
-rm -rf "${ISO_ROOT}" "${ROOTFS_DIR}" "${GRUB_EFI}"
+rm -rf "${ISO_ROOT}" "${ROOTFS_DIR}"
 
 # 生成校验和
 cd ${ARTIFACTS_DIR}

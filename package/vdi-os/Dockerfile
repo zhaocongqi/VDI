@@ -1,23 +1,24 @@
-ARG BASE_OS_IMAGE=ubuntu:22.04
+ARG BASE_OS_IMAGE=bclinux:21.10U5
 FROM ${BASE_OS_IMAGE}
 
 ARG ARCH=amd64
 
-# 安装基础工具、内核和 casper（live 启动必需）
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# 安装基础工具、内核和 live 启动必需组件
+RUN dnf install -y \
     curl wget jq \
-    systemd systemd-sysv \
-    linux-image-5.15.0-134-generic \
-    initramfs-tools \
-    casper \
-    iproute2 iputils-ping net-tools network-manager \
+    systemd \
+    kernel \
+    dracut dracut-live \
+    iproute iputils net-tools NetworkManager \
     openssh-server \
-    open-iscsi nfs-common \
-    conntrack ipvsadm ebtables \
-    && rm -rf /var/lib/apt/lists/*
+    iscsi-initiator-utils nfs-utils \
+    conntrack-tools ipvsadm ebtables \
+    squashfs-tools \
+    && dnf clean all
 
-# 生成 initrd（包含 casper 脚本）
-RUN update-initramfs -u
+# 获取内核版本并生成 initrd（包含 dmsquash-live 模块用于 live 启动）
+RUN KERNEL_VERSION=$(ls /lib/modules/ | head -1) && \
+    dracut --force --add "dmsquash-live" "/boot/initrd.img-${KERNEL_VERSION}"
 
 # elemental (pre-downloaded)
 COPY files/usr/bin/elemental /usr/bin/elemental
@@ -49,9 +50,9 @@ ExecStopPost=/usr/bin/kill -s 54 1
 ExecStart=
 ExecStart=-/sbin/agetty -n -l /usr/bin/start-installer.sh %I \$TERM
 EOF
-# 启用串口 getty（Ubuntu live 环境默认不启用）
+# 启用串口 getty
 RUN systemctl enable serial-getty@ttyS0.service
-# 启用网络接口自动激活（参考 Harvester 90_network.yaml）
+# 启用网络接口自动激活
 RUN systemctl enable vdi-network-setup.service
 
 # 禁用 systemd-networkd，改用 NetworkManager 管理所有网络接口
@@ -59,23 +60,14 @@ RUN systemctl disable systemd-networkd systemd-networkd-wait-online systemd-reso
     systemctl enable NetworkManager
 
 # 配置 NetworkManager 管理所有接口
-# 1. 移除 ifupdown 插件
-RUN sed -i 's/plugins=ifupdown,keyfile/plugins=keyfile/' /etc/NetworkManager/NetworkManager.conf && \
-    sed -i '/^\[ifupdown\]/,/^\[/{s/managed=false/managed=true/}' /etc/NetworkManager/NetworkManager.conf
-
-# 2. 覆盖 Ubuntu 默认的 "只管 WiFi" 策略（10-globally-managed-devices.conf）
 RUN mkdir -p /etc/NetworkManager/conf.d && \
     printf "[keyfile]\nunmanaged-devices=none\n" > /etc/NetworkManager/conf.d/10-manage-all.conf
-
-# 3. 配置 Netplan 使用 NetworkManager
-RUN mkdir -p /etc/netplan && \
-    printf "network:\n  version: 2\n  renderer: NetworkManager\n" > /etc/netplan/01-network-manager.yaml
 
 # 设置默认密码（root/vdi123）方便调试
 RUN echo 'root:vdi123' | chpasswd
 
 # 启用 SSH 服务，允许 root 密码登录
-RUN systemctl enable ssh && \
+RUN systemctl enable sshd && \
     mkdir -p /etc/ssh/sshd_config.d && \
     printf "PermitRootLogin yes\nPasswordAuthentication yes\n" > /etc/ssh/sshd_config.d/allow-root.conf
 
