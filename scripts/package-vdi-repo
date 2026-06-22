@@ -3,16 +3,10 @@
 TOP_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )/.." &> /dev/null && pwd )"
 SCRIPTS_DIR="${TOP_DIR}/scripts"
 PACKAGE_VDI_REPO_DIR="${TOP_DIR}/package/vdi-cluster-repo"
-BUNDLE_DIR="${TOP_DIR}/package/vdi-os/iso/bundle"
-CHARTS_DIR="${BUNDLE_DIR}/charts"
 
 source ${SCRIPTS_DIR}/version
 
 VDI_REPO_IMAGE=rancher/vdi-cluster-repo:${VERSION}
-
-# 复制 charts 到构建上下文
-mkdir -p ${PACKAGE_VDI_REPO_DIR}/charts
-cp -r ${CHARTS_DIR}/* ${PACKAGE_VDI_REPO_DIR}/charts/
 
 cd ${PACKAGE_VDI_REPO_DIR}
 docker build -t ${VDI_REPO_IMAGE} .
