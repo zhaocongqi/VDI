@@ -91,3 +91,6 @@ package/vdi-os/iso/bundle/
 package/vdi-cluster-repo/charts/
 cache/
 Dockerfile.dapper*
+
+# 构建时自动生成的版本文件
+package/vdi-os/vdi-release.yaml
