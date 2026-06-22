@@ -11,8 +11,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **TUI**：gocui (终端 UI 框架)
 - **K8s 运行时**：RKE2
 - **addon 管理**：HelmChart CRD (helm.cattle.io/v1)
-- **ISO 构建**：elemental + xorriso
-- **构建系统**：Docker + Dapper
+- **ISO 构建**：dracut dmsquash-live + xorriso
+- **基础 OS**：BCLinux 21.10 U5
 
 ## 目录结构
 
@@ -20,7 +20,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 VDI/
 ├── main.go              # 安装器入口
 ├── Makefile             # Dapper 构建系统
-├── Dockerfile.dapper    # Ubuntu 22.04 + Go + elemental 构建环境
+├── Dockerfile.dapper    # 构建宿主机环境（Go + 工具链）
 ├── go.mod / go.sum      # Go module (vdi-installer)
 ├── pkg/                 # Go 代码
 │   ├── config/          # VDIConfig 结构体 + RKE2 模板
@@ -35,7 +35,7 @@ VDI/
 │   ├── package-vdi-os   # 构建 OS 镜像 + ISO
 │   └── package-vdi-repo # 构建 Helm Chart 仓库镜像
 ├── package/             # Docker 镜像定义
-│   ├── vdi-os/          # Ubuntu 22.04 + RKE2 + HelmChart manifests
+│   ├── vdi-os/          # BCLinux 21.10 U5 + VDI 安装器文件
 │   ├── vdi-installer/   # 安装器二进制镜像
 │   └── vdi-cluster-repo/# Helm Chart 仓库
 └── docs/                # 设计文档 + 实施计划
@@ -95,7 +95,7 @@ type VDIConfig struct {
 scripts/version-rke2      # RKE2_VERSION="v1.31.4+rke2r1"
 scripts/version-kubevirt  # KUBEVIRT_VERSION="v1.5.0"
 scripts/version-longhorn  # LONGHORN_VERSION="v1.8.1"
-scripts/version-kubeovn   # KUBEOVN_VERSION="v1.17.0"
+scripts/version-kubeovn   # KUBEOVN_VERSION="v1.16.2"
 scripts/version-kagent    # KAGENT_VERSION="0.9.6"
 ```
 
