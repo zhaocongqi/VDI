@@ -1,0 +1,4 @@
+#!/bin/bash -ex
+systemctl restart --no-block rke2-server 2>/dev/null || true
+systemctl restart --no-block rke2-agent 2>/dev/null || true
+systemctl restart getty@tty1.service

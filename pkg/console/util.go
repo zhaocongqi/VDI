@@ -585,7 +585,7 @@ func doInstall(g *gocui.Gui, hvstConfig *config.VDIConfig, webhooks RendererWebh
 		}
 	}
 
-	if err := execute(ctx, g, env, "/usr/sbin/harv-install"); err != nil {
+	if err := execute(ctx, g, env, "/usr/sbin/vdi-install"); err != nil {
 		webhooks.Handle(EventInstallFailed)
 		printToPanel(g, fmt.Sprintf(installFailureMessage, defaultLogFilePath), installPanel)
 		if hvstConfig.Install.Debug {
