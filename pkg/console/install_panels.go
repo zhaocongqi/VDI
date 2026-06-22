@@ -1643,7 +1643,16 @@ func addNetworkPanel(c *Console) error {
 		mgmtNetwork.Interfaces = interfaces
 		return "", nil
 	}
-	interfaceVConfirm := gotoNextPanel(c, []string{askVlanIDPanel}, validateInterface)
+	interfaceVConfirm := func(_ *gocui.Gui, _ *gocui.View) error {
+		msg, err := validateInterface()
+		if err != nil {
+			return err
+		}
+		if msg != "" {
+			return updateValidatorMessage(msg)
+		}
+		return gotoNextPage(askInterfacePanel)
+	}
 	askInterfaceV.SetMulti(true)
 	askInterfaceV.KeyBindings = map[gocui.Key]func(*gocui.Gui, *gocui.View) error{
 		gocui.KeyArrowUp:   gotoPrevPage,
@@ -1744,7 +1753,7 @@ func addNetworkPanel(c *Console) error {
 		}
 
 		c.CloseElements(mtuPanel, gatewayPanel, addrMaskPanel, addressPanel)
-		return gotoNextPage(askNetworkMethodPanel)
+		return showNext(c, askInterfacePanel)
 	}
 	askNetworkMethodV.KeyBindings = map[gocui.Key]func(*gocui.Gui, *gocui.View) error{
 		gocui.KeyArrowUp:   gotoNextPanel(c, []string{askBondModePanel}),
@@ -1909,7 +1918,7 @@ func addNetworkPanel(c *Console) error {
 			return updateValidatorMessage(msg)
 		}
 
-		return gotoNextPage(mtuPanel)
+		return showNext(c, askInterfacePanel)
 	}
 	mtuV.KeyBindings = map[gocui.Key]func(*gocui.Gui, *gocui.View) error{
 		gocui.KeyArrowUp:   gotoNextPanel(c, []string{gatewayPanel}, validateMTU),
