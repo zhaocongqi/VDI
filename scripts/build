@@ -38,7 +38,7 @@ fi
 CGO_ENABLED=0 go build -ldflags "$LINKFLAGS $OTHER_LINKFLAGS" -o bin/vdi-installer .
 
 # 复制到 package 目录
-mkdir -p package/harvester-os/files/usr/bin
-install bin/vdi-installer package/harvester-os/files/usr/bin/
-mkdir -p package/harvester-installer
-install bin/vdi-installer package/harvester-installer/
+mkdir -p package/vdi-os/files/usr/bin
+install bin/vdi-installer package/vdi-os/files/usr/bin/
+mkdir -p package/vdi-installer
+install bin/vdi-installer package/vdi-installer/
