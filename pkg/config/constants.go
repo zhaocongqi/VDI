@@ -57,7 +57,7 @@ const (
 	DefaultCosOemSizeMiB        = 512
 	DefaultCosStateSizeMiB      = 1536
 	DefaultCosRecoverySizeMiB   = 8192
-	PersistentSizeMinGiB        = 30
+	PersistentSizeMinGiB        = 150
 )
 
 // Default persistent partition percentage
