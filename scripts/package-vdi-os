@@ -1,6 +1,14 @@
 #!/bin/bash -e
-# 构建 VDI OS 镜像和 ISO（基于 BCLinux ISO 直接提取）
-# 不走 Docker 构建，直接从 BCLinux ISO 提取内核/initrd/rootfs
+# 构建 VDI Live ISO（使用 elemental build-iso）
+# 参考 Harvester 的 scripts/package-harvester-os
+#
+# 流程：
+#   1. 生成 vdi-release.yaml
+#   2. 确保 BCLinux 基础镜像存在
+#   3. 准备本地 BCLinux 仓库（供 Dockerfile 中 dnf 使用）
+#   4. docker buildx build 构建 VDI OS 镜像（含 dracut 重建的 initrd）
+#   5. 提取 elemental 二进制到宿主机
+#   6. elemental build-iso 打包 Live ISO（kernel + initrd + squashfs + GRUB）
 
 TOP_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )/.." &> /dev/null && pwd )"
 SCRIPTS_DIR="${TOP_DIR}/scripts"
@@ -13,22 +21,24 @@ source ${SCRIPTS_DIR}/version-kubeovn
 source ${SCRIPTS_DIR}/version-kagent
 source ${SCRIPTS_DIR}/version
 
-BCLINUX_ISO="${TOP_DIR}/dist/iso/BCLinux-21.10U5-dvd-x86_64-260610.iso"
-CACHE_DIR="${TOP_DIR}/cache"
+VDI_OS_IMAGE=rancher/vdi-os:${VERSION}
 PRETTY_NAME="VDI ${VERSION}"
-
-# 清理之前的挂载点和临时文件
-sudo umount "${CACHE_DIR}/rootfs" 2>/dev/null || true
-sudo losetup -D 2>/dev/null || true
+CACHE_DIR="${TOP_DIR}/cache"
+BCLINUX_ISO="${TOP_DIR}/dist/iso/BCLinux-21.10U5-dvd-x86_64-260610.iso"
 
 echo "============================================"
-echo "  构建 VDI OS 镜像 (BCLinux)"
+echo "  构建 VDI Live ISO (BCLinux + elemental)"
 echo "  版本: ${VERSION}"
 echo "  RKE2: ${RKE2_VERSION}"
-echo "  基础 ISO: $(basename ${BCLINUX_ISO})"
+echo "  KubeVirt: ${KUBEVIRT_VERSION}"
+echo "  Longhorn: ${LONGHORN_VERSION}"
+echo "  Kube-OVN: ${KUBEOVN_VERSION}"
+echo "  kagent: ${KAGENT_VERSION}"
 echo "============================================"
 
-# 生成 vdi-release.yaml
+# ============================================================
+# 步骤 0: 生成 vdi-release.yaml
+# ============================================================
 cat > ${PACKAGE_VDI_OS_DIR}/vdi-release.yaml <<EOF
 vdi: ${VERSION}
 installer: ${COMMIT}
@@ -40,277 +50,112 @@ kubeovn: ${KUBEOVN_VERSION}
 kagent: ${KAGENT_VERSION}
 EOF
 
+# ============================================================
+# 步骤 1: 确保 BCLinux 基础镜像存在
+# ============================================================
+if ! docker image inspect bclinux:21.10U5 > /dev/null 2>&1; then
+    echo ">>> BCLinux 基础镜像不存在，开始构建..."
+    ${SCRIPTS_DIR}/build-bclinux-base
+fi
+
+# ============================================================
+# 步骤 2: 准备本地 BCLinux 仓库（供 Dockerfile 中 dnf 使用）
+# Dockerfile 用 RUN --mount=type=bind,from=bclinux-repo 挂载，
+# 因此必须用 docker buildx build --build-context bclinux-repo=<dir>
+# ============================================================
+REPO_DIR="${CACHE_DIR}/bclinux-repo"
+if [ ! -d "${REPO_DIR}/Packages" ] || [ ! -d "${REPO_DIR}/repodata" ]; then
+    echo ">>> 准备本地 BCLinux 仓库"
+    sudo rm -rf "${REPO_DIR}"
+    sudo mkdir -p "${REPO_DIR}"
+    sudo 7z x -o"${REPO_DIR}" "${BCLINUX_ISO}" Packages repodata -y 2>/dev/null
+fi
+
+# ============================================================
+# 步骤 3: 构建 VDI OS Docker 镜像
+# 关键：使用 buildx --build-context 挂载 BCLinux 仓库
+# ============================================================
+echo ">>> 构建 VDI OS 镜像: ${VDI_OS_IMAGE}"
+
+cd ${PACKAGE_VDI_OS_DIR}
+docker buildx build \
+    --build-context bclinux-repo="${REPO_DIR}" \
+    --build-arg BASE_OS_IMAGE="bclinux:21.10U5" \
+    --build-arg VDI_PRETTY_NAME="${PRETTY_NAME}" \
+    --build-arg ARCH="${ARCH}" \
+    -t ${VDI_OS_IMAGE} --load .
+
+# ============================================================
+# 步骤 4: 提取 elemental 二进制到宿主机
+# elemental build-iso 需要在宿主机执行
+# ============================================================
+echo ">>> 提取 elemental 二进制到宿主机"
+docker create --cidfile=/tmp/vdi-elemental-extract ${VDI_OS_IMAGE} -- tail -f /dev/null
+CONTAINER_ID=$(</tmp/vdi-elemental-extract)
+# /usr/bin 需要 root，docker cp 默认输出到 stdout，用 sudo tee 写入
+docker cp ${CONTAINER_ID}:/usr/bin/elemental - | sudo tee /usr/bin/elemental > /dev/null
+sudo chmod +x /usr/bin/elemental
+docker rm ${CONTAINER_ID} && rm -f /tmp/vdi-elemental-extract
+
+elemental_version=$(elemental --version 2>/dev/null || echo "unknown")
+echo "  elemental 版本: ${elemental_version}"
+
+# ============================================================
+# 步骤 5: 复制 kernel / initrd 到 artifacts（供 PXE / 调试使用）
+# ============================================================
 ARTIFACTS_DIR="${TOP_DIR}/dist/artifacts"
 mkdir -p ${ARTIFACTS_DIR}
 
-# ============================================================
-# 步骤 1: 从 BCLinux ISO 提取内核和 initrd
-# ============================================================
-echo ">>> 从 BCLinux ISO 提取内核和 initrd"
-EXTRACT_DIR="${CACHE_DIR}/images"
-if [ ! -f "${EXTRACT_DIR}/pxeboot/vmlinuz" ]; then
-    7z x -o"${CACHE_DIR}" "${BCLINUX_ISO}" images/pxeboot/vmlinuz images/pxeboot/initrd.img -y 2>/dev/null
-fi
-cp "${EXTRACT_DIR}/pxeboot/vmlinuz" ${ARTIFACTS_DIR}/vdi-vmlinuz-${ARCH}
-
-# 修改 initrd：添加强制 live root 的 hook（解决 dmsquash-live 解析问题）
-INITRD_WORK="${CACHE_DIR}/initrd-work"
-sudo rm -rf "${INITRD_WORK}"
-mkdir -p "${INITRD_WORK}"
-cd "${INITRD_WORK}"
-sudo bash -c "xz -dc '${EXTRACT_DIR}/pxeboot/initrd.img' | cpio -id 2>/dev/null"
-sudo tee ./usr/lib/dracut/hooks/cmdline/00-force-live-root.sh > /dev/null <<'HOOKEOF'
-#!/bin/sh
-# 强制设置 live root（绕过 BCLinux initrd 的 dmsquash-live 解析问题）
-if getargbool 0 rd.live.image; then
-    # 使用 LABEL 格式，dmsquash-live 会解析为 /dev/disk/by-label/VDI_LIVE
-    root="live:LABEL=VDI_LIVE"
-    rootok=1
-    # 等待设备出现
-    wait_for_dev /dev/disk/by-label/VDI_LIVE
-    echo "FORCE-LIVE-ROOT: root=$root rootok=$rootok"
-fi
-HOOKEOF
-sudo chmod +x ./usr/lib/dracut/hooks/cmdline/00-force-live-root.sh
-sudo find . | sudo cpio -H newc -o 2>/dev/null | xz -9 > ${ARTIFACTS_DIR}/vdi-initrd-${ARCH}
-cd "${TOP_DIR}"
-sudo rm -rf "${INITRD_WORK}"
-echo "  内核: $(ls -lh ${ARTIFACTS_DIR}/vdi-vmlinuz-${ARCH} | awk '{print $5}')"
-echo "  initrd: $(ls -lh ${ARTIFACTS_DIR}/vdi-initrd-${ARCH} | awk '{print $5}')"
+echo ">>> 提取 kernel / initrd"
+docker create --cidfile=/tmp/vdi-os-img ${VDI_OS_IMAGE} -- tail -f /dev/null
+CONTAINER_ID=$(</tmp/vdi-os-img)
+KERNEL_PATH=$(docker run --rm ${VDI_OS_IMAGE} readlink -f /boot/vmlinuz)
+INITRD_PATH=$(docker run --rm ${VDI_OS_IMAGE} readlink -f /boot/initrd)
+docker cp ${CONTAINER_ID}:${KERNEL_PATH} ${ARTIFACTS_DIR}/vdi-${VERSION}-vmlinuz-${ARCH}
+docker cp ${CONTAINER_ID}:${INITRD_PATH} ${ARTIFACTS_DIR}/vdi-${VERSION}-initrd-${ARCH}
+chmod +r ${ARTIFACTS_DIR}/vdi-${VERSION}-initrd-${ARCH}
+docker rm ${CONTAINER_ID} && rm -f /tmp/vdi-os-img
+echo "  kernel: $(ls -lh ${ARTIFACTS_DIR}/vdi-${VERSION}-vmlinuz-${ARCH} | awk '{print $5}')"
+echo "  initrd: $(ls -lh ${ARTIFACTS_DIR}/vdi-${VERSION}-initrd-${ARCH} | awk '{print $5}')"
 
 # ============================================================
-# 步骤 2: 从 BCLinux ISO 提取 rootfs 并注入 VDI 文件
+# 步骤 6: 用 elemental build-iso 构建 Live ISO
+# elemental 自动从 Docker 镜像提取 rootfs 并打包 squashfs + kernel + initrd + GRUB
 # ============================================================
-echo ">>> 从 BCLinux ISO 提取 rootfs"
-ROOTFS_DIR="${CACHE_DIR}/rootfs"
-INSTALL_IMG="${CACHE_DIR}/install.img"
-SQUASHFS_IMG="${CACHE_DIR}/squashfs-root"
-sudo umount "${ROOTFS_DIR}" 2>/dev/null || true
-sudo rm -rf "${ROOTFS_DIR}" "${INSTALL_IMG}" "${SQUASHFS_IMG}"
+echo ">>> 构建 Live ISO (elemental build-iso)"
+ISO_PREFIX="vdi-${VERSION}-${ARCH}"
 
-# 提取 install.img (squashfs)
-if [ ! -f "${CACHE_DIR}/images/install.img" ]; then
-    7z x -o"${CACHE_DIR}" "${BCLINUX_ISO}" images/install.img -y 2>/dev/null
-fi
-cp "${CACHE_DIR}/images/install.img" "${INSTALL_IMG}"
+# Elemental platform 期望 amd64 或 aarch64（uname -m 的输出）
+PLATFORM=$(uname -m)
 
-# 解压 squashfs (包含 LiveOS/rootfs.img)
-unsquashfs -f -d "${SQUASHFS_IMG}" "${INSTALL_IMG}" 2>/dev/null || true
+cd ${PACKAGE_VDI_OS_DIR}
+elemental build-iso \
+    --config-dir "${PACKAGE_VDI_OS_DIR}" \
+    --debug \
+    "docker:${VDI_OS_IMAGE}" \
+    --local \
+    -n "${ISO_PREFIX}" \
+    -o "${ARTIFACTS_DIR}" \
+    --overlay-iso "${PACKAGE_VDI_OS_DIR}/iso" \
+    -x "-comp xz" \
+    --platform "linux/${PLATFORM}"
 
-# 挂载 rootfs.img (ext4)
-ROOTFS_LOOP=$(sudo losetup -f --show "${SQUASHFS_IMG}/LiveOS/rootfs.img")
-mkdir -p "${ROOTFS_DIR}"
-sudo mount -o ro "${ROOTFS_LOOP}" "${ROOTFS_DIR}"
-
-# 复制 rootfs 到可写目录
-echo ">>> 复制 rootfs"
-WRITABLE_ROOTFS="${CACHE_DIR}/writable-rootfs"
-sudo rm -rf "${WRITABLE_ROOTFS}"
-sudo cp -a "${ROOTFS_DIR}" "${WRITABLE_ROOTFS}"
-sudo umount "${ROOTFS_DIR}"
-sudo losetup -d "${ROOTFS_LOOP}"
-sudo rm -rf "${ROOTFS_DIR}" "${INSTALL_IMG}" "${SQUASHFS_IMG}"
+cd ${TOP_DIR}
 
 # ============================================================
-# 步骤 3: 注入 VDI 文件到 rootfs
+# 步骤 7: 验证 ISO
 # ============================================================
-echo ">>> 注入 VDI 文件"
-
-# 注入安装器二进制
-sudo cp ${PACKAGE_VDI_OS_DIR}/files/usr/bin/elemental "${WRITABLE_ROOTFS}/usr/bin/elemental"
-sudo cp ${PACKAGE_VDI_OS_DIR}/files/usr/bin/wharfie "${WRITABLE_ROOTFS}/usr/bin/wharfie"
-sudo chmod +x "${WRITABLE_ROOTFS}/usr/bin/elemental" "${WRITABLE_ROOTFS}/usr/bin/wharfie"
-
-# 注入 Go 安装器
-sudo cp ${PACKAGE_VDI_OS_DIR}/files/usr/bin/vdi-installer "${WRITABLE_ROOTFS}/usr/bin/vdi-installer"
-sudo chmod +x "${WRITABLE_ROOTFS}/usr/bin/vdi-installer"
-
-# 注入脚本
-sudo cp ${PACKAGE_VDI_OS_DIR}/files/usr/bin/start-installer.sh "${WRITABLE_ROOTFS}/usr/bin/start-installer.sh"
-sudo cp ${PACKAGE_VDI_OS_DIR}/files/usr/bin/setup-installer.sh "${WRITABLE_ROOTFS}/usr/bin/setup-installer.sh"
-sudo cp ${PACKAGE_VDI_OS_DIR}/files/usr/sbin/vdi-install "${WRITABLE_ROOTFS}/usr/sbin/vdi-install"
-sudo cp ${PACKAGE_VDI_OS_DIR}/files/usr/sbin/cos-installer-shutdown "${WRITABLE_ROOTFS}/usr/sbin/cos-installer-shutdown"
-sudo cp ${PACKAGE_VDI_OS_DIR}/files/usr/sbin/harv-dummy-iface "${WRITABLE_ROOTFS}/usr/sbin/harv-dummy-iface"
-sudo cp ${PACKAGE_VDI_OS_DIR}/files/usr/sbin/harv-restart-services "${WRITABLE_ROOTFS}/usr/sbin/harv-restart-services"
-sudo cp ${PACKAGE_VDI_OS_DIR}/files/usr/sbin/stream-disk "${WRITABLE_ROOTFS}/usr/sbin/stream-disk"
-sudo find "${WRITABLE_ROOTFS}/usr/bin/" -name "*.sh" -exec chmod +x {} + 2>/dev/null || true
-sudo find "${WRITABLE_ROOTFS}/usr/sbin/" -type f -exec chmod +x {} + 2>/dev/null || true
-
-# 注入 systemd 服务
-sudo cp ${PACKAGE_VDI_OS_DIR}/files/etc/systemd/system/vdi-network-setup.service "${WRITABLE_ROOTFS}/etc/systemd/system/"
-sudo cp ${PACKAGE_VDI_OS_DIR}/files/etc/systemd/system/vdi-setup-installer.service "${WRITABLE_ROOTFS}/etc/systemd/system/"
-
-# 注入 yip 配置
-sudo mkdir -p "${WRITABLE_ROOTFS}/system/oem"
-sudo cp ${PACKAGE_VDI_OS_DIR}/files/system/oem/91_installer.yaml "${WRITABLE_ROOTFS}/system/oem/"
-
-# 注入版本信息
-sudo cp ${PACKAGE_VDI_OS_DIR}/vdi-release.yaml "${WRITABLE_ROOTFS}/etc/"
-
-# 配置 NetworkManager 管理所有接口
-sudo mkdir -p "${WRITABLE_ROOTFS}/etc/NetworkManager/conf.d"
-printf "[keyfile]\nunmanaged-devices=none\n" | sudo tee "${WRITABLE_ROOTFS}/etc/NetworkManager/conf.d/10-manage-all.conf" > /dev/null
-
-# 禁用 Anaconda 图形化安装器，改用 VDI TUI 安装器
-# 直接删除 Anaconda 的 systemd 配置（chroot 中 systemctl 不可靠）
-sudo rm -f "${WRITABLE_ROOTFS}/etc/systemd/system/anaconda.target.wants/"*.service 2>/dev/null || true
-sudo rm -f "${WRITABLE_ROOTFS}/etc/systemd/system/default.target" 2>/dev/null || true
-# 创建 default.target 软链接到 multi-user.target
-sudo ln -sf /lib/systemd/system/multi-user.target "${WRITABLE_ROOTFS}/etc/systemd/system/default.target"
-# 删除 Anaconda 的 wants 目录（阻止自动启动）
-sudo rm -rf "${WRITABLE_ROOTFS}/etc/systemd/system/anaconda.target.wants" 2>/dev/null || true
-# 禁用 Anaconda 服务（通过删除 wants 链接）
-for svc in anaconda anaconda-direct anaconda-noshell anaconda-pre anaconda-sshd instperf; do
-    sudo rm -f "${WRITABLE_ROOTFS}/etc/systemd/system/multi-user.target.wants/${svc}.service" 2>/dev/null || true
-    sudo rm -f "${WRITABLE_ROOTFS}/etc/systemd/system/anaconda.target.wants/${svc}.service" 2>/dev/null || true
-done
-
-# 启用 VDI 安装器服务（通过创建 wants 链接）
-sudo mkdir -p "${WRITABLE_ROOTFS}/etc/systemd/system/multi-user.target.wants"
-sudo ln -sf /etc/systemd/system/vdi-network-setup.service "${WRITABLE_ROOTFS}/etc/systemd/system/multi-user.target.wants/vdi-network-setup.service"
-sudo ln -sf /etc/systemd/system/vdi-setup-installer.service "${WRITABLE_ROOTFS}/etc/systemd/system/multi-user.target.wants/vdi-setup-installer.service"
-# 启用 NetworkManager 和 sshd
-sudo ln -sf /usr/lib/systemd/system/NetworkManager.service "${WRITABLE_ROOTFS}/etc/systemd/system/multi-user.target.wants/NetworkManager.service" 2>/dev/null || true
-sudo ln -sf /usr/lib/systemd/system/sshd.service "${WRITABLE_ROOTFS}/etc/systemd/system/multi-user.target.wants/sshd.service" 2>/dev/null || true
-sudo chroot "${WRITABLE_ROOTFS}" systemctl enable serial-getty@ttyS0.service 2>/dev/null || true
-
-# 配置 SSH 允许 root 密码登录
-sudo mkdir -p "${WRITABLE_ROOTFS}/etc/ssh/sshd_config.d"
-printf "PermitRootLogin yes\nPasswordAuthentication yes\n" | sudo tee "${WRITABLE_ROOTFS}/etc/ssh/sshd_config.d/allow-root.conf" > /dev/null
-
-# 设置默认密码
-echo 'root:vdi123' | sudo chroot "${WRITABLE_ROOTFS}" chpasswd 2>/dev/null || true
-
-# 创建 getty drop-in 覆盖
-sudo mkdir -p "${WRITABLE_ROOTFS}/etc/systemd/system/getty@tty1.service.d"
-sudo tee "${WRITABLE_ROOTFS}/etc/systemd/system/getty@tty1.service.d/override.conf" > /dev/null <<'EOF'
-[Service]
-ExecStartPre=/usr/bin/setterm --msg off
-ExecStartPre=/usr/bin/kill -s 55 1
-ExecStopPost=/usr/bin/kill -s 54 1
-ExecStart=
-ExecStart=-/sbin/agetty -n -l /usr/bin/start-installer.sh %I $TERM
-EOF
-sudo mkdir -p "${WRITABLE_ROOTFS}/etc/systemd/system/serial-getty@ttyS0.service.d"
-sudo tee "${WRITABLE_ROOTFS}/etc/systemd/system/serial-getty@ttyS0.service.d/override.conf" > /dev/null <<'EOF'
-[Service]
-ExecStartPre=/usr/bin/kill -s 55 1
-ExecStopPost=/usr/bin/kill -s 54 1
-ExecStart=
-ExecStart=-/sbin/agetty -n -l /usr/bin/start-installer.sh %I $TERM
-EOF
-
-# 更新 PRETTY_NAME
-sudo sed -i "s/^PRETTY_NAME.*/PRETTY_NAME=\"${PRETTY_NAME}\"/g" "${WRITABLE_ROOTFS}/etc/os-release"
-
-# ============================================================
-# 步骤 4: 创建 squashfs
-# ============================================================
-echo ">>> 创建 squashfs"
-ISO_ROOT="${CACHE_DIR}/iso-staging"
-rm -rf "${ISO_ROOT}"
-mkdir -p "${ISO_ROOT}"/{boot/grub,efi/boot,isolinux,LiveOS,images/pxeboot,bundle,scripts,configs,.disk}
-
-sudo mksquashfs "${WRITABLE_ROOTFS}" "${ISO_ROOT}/LiveOS/squashfs.img" \
-    -comp xz -no-progress -noappend \
-    -e boot/grub -e var/cache
-
-# 清理 rootfs
-sudo rm -rf "${WRITABLE_ROOTFS}"
-
-# 复制内核和 initrd
-cp ${ARTIFACTS_DIR}/vdi-vmlinuz-${ARCH} "${ISO_ROOT}/images/pxeboot/vmlinuz"
-cp ${ARTIFACTS_DIR}/vdi-initrd-${ARCH} "${ISO_ROOT}/images/pxeboot/initrd.img"
-
-# 复制离线资源
-if [ -d "${PACKAGE_VDI_OS_DIR}/iso/bundle" ]; then
-    rsync -a --exclude='.gitkeep' "${PACKAGE_VDI_OS_DIR}/iso/bundle/" "${ISO_ROOT}/bundle/"
-fi
-
-# ============================================================
-# 步骤 5: 配置 GRUB 和 isolinux
-# ============================================================
-echo ">>> 配置 GRUB"
-
-mkdir -p "${ISO_ROOT}/boot/grub2"
-cat > "${ISO_ROOT}/boot/grub2/grub.cfg" <<EOF
-search --no-floppy --set=root -l VDI_LIVE
-set default=0
-set timeout=10
-set timeout_style=menu
-
-menuentry "VDI Installer" --class os --unrestricted {
-    echo Loading kernel...
-    linux (\$root)/images/pxeboot/vmlinuz root=live:LABEL=VDI_LIVE rd.live.image console=tty0 console=ttyS0,115200n8 ---
-    echo Loading initrd...
-    initrd (\$root)/images/pxeboot/initrd.img
-}
-
-menuentry "VDI Installer (Debug)" --class os --unrestricted {
-    echo Loading kernel...
-    linux (\$root)/images/pxeboot/vmlinuz root=live:LABEL=VDI_LIVE rd.live.image debug console=tty0 console=ttyS0,115200n8 ---
-    echo Loading initrd...
-    initrd (\$root)/images/pxeboot/initrd.img
-}
-EOF
-
-mkdir -p "${ISO_ROOT}/EFI/BOOT"
-cat > "${ISO_ROOT}/EFI/BOOT/grub.cfg" <<EOF
-search --no-floppy --set=root -l VDI_LIVE
-set prefix=(\$root)/boot/grub2
-configfile \$prefix/grub.cfg
-EOF
-
-cat > "${ISO_ROOT}/isolinux/isolinux.cfg" <<EOF
-DEFAULT vdi
-LABEL vdi
-    SAY VDI Installer
-    LINUX /images/pxeboot/vmlinuz
-    APPEND initrd=/images/pxeboot/initrd.img root=live:LABEL=VDI_LIVE rd.live.image console=tty0 console=ttyS0,115200n8 ---
-EOF
-
-if [ -d /usr/lib/ISOLINUX ]; then
-    cp /usr/lib/ISOLINUX/isolinux.bin "${ISO_ROOT}/isolinux/"
-    cp /usr/lib/syslinux/modules/bios/ldlinux.c32 "${ISO_ROOT}/isolinux/" 2>/dev/null || true
-fi
-
-# ============================================================
-# 步骤 6: 创建 EFI 引导镜像并打包 ISO
-# ============================================================
-echo ">>> 创建 EFI 引导镜像"
-EFI_IMG="${ISO_ROOT}/efi/boot/efiboot.img"
-mkdir -p "${ISO_ROOT}/efi/boot"
-dd if=/dev/zero of="${EFI_IMG}" bs=1k count=4096 status=progress
-mkfs.vfat "${EFI_IMG}" -n VDI_GRUB
-mmd -i "${EFI_IMG}" ::EFI ::EFI/BOOT
-
-GRUB_EFI="/usr/lib/grub/x86_64-efi/monolithic/grubx64.efi"
-if [ ! -f "${GRUB_EFI}" ]; then
-    echo "ERROR: GRUB EFI binary not found at ${GRUB_EFI}"
+ISO_FILE="${ARTIFACTS_DIR}/${ISO_PREFIX}.iso"
+if [ ! -f "${ISO_FILE}" ]; then
+    echo "ERROR: ISO 文件未生成: ${ISO_FILE}"
     exit 1
 fi
 
-mcopy -i "${EFI_IMG}" "${GRUB_EFI}" "::EFI/BOOT/bootx64.efi"
-mcopy -i "${EFI_IMG}" "${ISO_ROOT}/EFI/BOOT/grub.cfg" "::EFI/BOOT/grub.cfg"
-
-echo ">>> 打包 ISO"
-ISO_PREFIX="vdi-${VERSION}-${ARCH}"
-ISO_FILE="${ARTIFACTS_DIR}/${ISO_PREFIX}.iso"
-rm -f "${ISO_FILE}"
-xorriso -volid "VDI_LIVE" \
-    -joliet on -padding 0 \
-    -outdev "${ISO_FILE}" \
-    -map "${ISO_ROOT}" / -chmod 0755 -- \
-    -append_partition 2 0xef "${EFI_IMG}" \
-    -boot_image any cat_path="/boot/boot.catalog" \
-    -boot_image any cat_hidden=on \
-    -boot_image any efi_path=--interval:appended_partition_2:all:: \
-    -boot_image any platform_id=0xef \
-    -boot_image any appended_part_as=gpt \
-    -boot_image any partition_offset=16
-
-# 清理
-rm -rf "${ISO_ROOT}"
+echo ">>> ISO 内容验证"
+echo "--- 卷标 ---"
+isoinfo -d -i "${ISO_FILE}" 2>/dev/null | grep "Volume id"
+echo "--- 关键文件 ---"
+7z l "${ISO_FILE}" 2>/dev/null | grep -iE "rootfs.squashfs|loader/linux|loader/initrd|grub.cfg|kernel.xz" | head -10
 
 # 生成校验和
 cd ${ARTIFACTS_DIR}
@@ -318,6 +163,7 @@ sha512sum ${ISO_PREFIX}.iso > ${ISO_PREFIX}.sha512
 
 echo "============================================"
 echo "  构建完成!"
-echo "  ISO: ${ISO_FILE}"
-echo "  大小: $(du -sh ${ISO_FILE} | cut -f1)"
+echo "  ISO:   ${ISO_FILE}"
+echo "  大小:  $(du -sh ${ISO_FILE} | cut -f1)"
+echo "  SHA512:${ISO_PREFIX}.sha512"
 echo "============================================"
