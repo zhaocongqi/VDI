@@ -187,9 +187,9 @@ sudo sed -i "s/^PRETTY_NAME.*/PRETTY_NAME=\"${PRETTY_NAME}\"/g" "${WRITABLE_ROOT
 echo ">>> 创建 squashfs"
 ISO_ROOT="${CACHE_DIR}/iso-staging"
 rm -rf "${ISO_ROOT}"
-mkdir -p "${ISO_ROOT}"/{boot/grub,efi/boot,isolinux,LiveOS,images/pxeboot,bundle,scripts,configs,.disk}
+mkdir -p "${ISO_ROOT}"/{boot/grub,efi/boot,isolinux,images,images/pxeboot,bundle,scripts,configs,.disk}
 
-sudo mksquashfs "${WRITABLE_ROOTFS}" "${ISO_ROOT}/LiveOS/squashfs.img" \
+sudo mksquashfs "${WRITABLE_ROOTFS}" "${ISO_ROOT}/images/install.img" \
     -comp xz -no-progress -noappend \
     -e boot/grub -e var/cache
 
@@ -219,14 +219,14 @@ set timeout_style=menu
 
 menuentry "VDI Installer" --class os --unrestricted {
     echo Loading kernel...
-    linux (\$root)/images/pxeboot/vmlinuz root=live:LABEL=VDI_LIVE rd.live.dir=LiveOS rd.live.squashimg=squashfs.img console=tty0 console=ttyS0,115200n8 ---
+    linux (\$root)/images/pxeboot/vmlinuz inst.stage2=hd:LABEL=VDI_LIVE console=tty0 console=ttyS0,115200n8 ---
     echo Loading initrd...
     initrd (\$root)/images/pxeboot/initrd.img
 }
 
 menuentry "VDI Installer (Debug)" --class os --unrestricted {
     echo Loading kernel...
-    linux (\$root)/images/pxeboot/vmlinuz root=live:LABEL=VDI_LIVE rd.live.dir=LiveOS rd.live.squashimg=squashfs.img debug console=tty0 console=ttyS0,115200n8 ---
+    linux (\$root)/images/pxeboot/vmlinuz inst.stage2=hd:LABEL=VDI_LIVE debug console=tty0 console=ttyS0,115200n8 ---
     echo Loading initrd...
     initrd (\$root)/images/pxeboot/initrd.img
 }
@@ -244,7 +244,7 @@ DEFAULT vdi
 LABEL vdi
     SAY VDI Installer
     LINUX /images/pxeboot/vmlinuz
-    APPEND initrd=/images/pxeboot/initrd.img root=live:LABEL=VDI_LIVE rd.live.dir=LiveOS rd.live.squashimg=squashfs.img console=tty0 console=ttyS0,115200n8 ---
+    APPEND initrd=/images/pxeboot/initrd.img inst.stage2=hd:LABEL=VDI_LIVE console=tty0 console=ttyS0,115200n8 ---
 EOF
 
 if [ -d /usr/lib/ISOLINUX ]; then
