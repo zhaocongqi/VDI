@@ -11,7 +11,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **TUI**：gocui (终端 UI 框架)
 - **K8s 运行时**：RKE2
 - **addon 管理**：HelmChart CRD (helm.cattle.io/v1)
-- **ISO 构建**：dracut dmsquash-live + xorriso
+- **ISO 构建**：dracut dmsquash-live + elemental build-iso
 - **基础 OS**：BCLinux 21.10 U5
 
 ## 目录结构
@@ -31,8 +31,9 @@ VDI/
 ├── scripts/             # 构建脚本
 │   ├── version-*        # 组件版本（RKE2/KubeVirt/Longhorn/Kube-OVN/kagent）
 │   ├── build            # 编译 Go 安装器
+│   ├── build-bclinux-base # 从 ISO RPM 仓库创建 BCLinux 基础 Docker 镜像
 │   ├── build-bundle     # 下载离线资源
-│   ├── package-vdi-os   # 构建 OS 镜像 + ISO
+│   ├── package-vdi-os   # 构建 VDI Docker 镜像 + elemental build-iso
 │   └── package-vdi-repo # 构建 Helm Chart 仓库镜像
 ├── package/             # Docker 镜像定义
 │   ├── vdi-os/          # BCLinux 21.10 U5 + VDI 安装器文件

@@ -13,7 +13,7 @@
 | 虚拟化 | KubeVirt |
 | AI Agent | kagent |
 | 安装器 | Go + gocui |
-| ISO 构建 | dracut dmsquash-live + xorriso |
+| ISO 构建 | dracut dmsquash-live + elemental build-iso |
 | 基础 OS | BCLinux 21.10 U5 |
 
 ## 快速开始
