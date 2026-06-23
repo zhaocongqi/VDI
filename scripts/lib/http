@@ -1,15 +1,49 @@
 #!/bin/bash
 
+# get_url downloads a file from the specified URL to a target path,
+# or copies it from a local package cache directory if matching files exist.
+#
+# Arguments:
+#   $1: from - The source URL to download.
+#   $2: save_to - The destination path to save the file.
+#
+# Returns:
+#   0 if successful, 1 if arguments are missing or errors occur.
 get_url()
 {
+  if [ -z "$1" ] || [ -z "$2" ]; then
+    echo "Error: Missing arguments to get_url. Usage: get_url <url> <save_to_path>" >&2
+    return 1
+  fi
+
   local from=$1
   local save_to=$2
+
 
   if [ -f "$save_to" ]; then
     echo "File already exists: ${save_to}"
     return 0
   fi
 
+  local local_dir="${LOCAL_PKG_DIR:-${TOP_DIR}/cache/downloads}"
+  local pkg_name=$(basename "$save_to")
+  local url_pkg_name=$(basename "$from")
+
+  if [ -d "$local_dir" ]; then
+    if [ -f "$local_dir/$pkg_name" ]; then
+      echo "Found local package matching target filename: $local_dir/$pkg_name"
+      mkdir -p "$(dirname "$save_to")"
+      cp "$local_dir/$pkg_name" "$save_to"
+      return 0
+    elif [ -f "$local_dir/$url_pkg_name" ]; then
+      echo "Found local package matching URL filename: $local_dir/$url_pkg_name"
+      mkdir -p "$(dirname "$save_to")"
+      cp "$local_dir/$url_pkg_name" "$save_to"
+      return 0
+    fi
+  fi
+
   echo "Download ${from} to ${save_to}..."
-  curl -sfL $from -o $save_to
+  mkdir -p "$(dirname "$save_to")"
+  curl -sfL "$from" -o "$save_to"
 }
