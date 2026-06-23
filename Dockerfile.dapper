@@ -21,7 +21,7 @@ ENV DAPPER_ENV REPO TAG DRONE_TAG DRONE_BRANCH ARCH \
     RKE2_VERSION KUBEVIRT_VERSION LONGHORN_VERSION KUBEOVN_VERSION KAGENT_VERSION \
     USE_LOCAL_IMAGES DISABLE_BUILD_NET_INSTALL_ISO
 ENV DAPPER_SOURCE /go/src/github.com/vdi-installer/
-ENV DAPPER_OUTPUT ./bin ./dist ./cache
+ENV DAPPER_OUTPUT ./bin ./dist ./cache ./package/vdi-os/files/usr/bin ./package/vdi-installer
 ENV DAPPER_DOCKER_SOCKET true
 ENV DAPPER_RUN_ARGS "-v /run/containerd/containerd.sock:/run/containerd/containerd.sock -v /usr/bin/docker:/usr/bin/docker:ro -v /usr/libexec/docker/cli-plugins/docker-buildx:/usr/libexec/docker/cli-plugins/docker-buildx:ro -v /usr/local/bin/helm:/usr/bin/helm:ro -v /tmp/yq:/usr/bin/yq:ro -v /home/zcq/go/pkg/mod:/go/pkg/mod -v /home/zcq/Github/VDI/cache:/go/src/github.com/vdi-installer/cache -v /home/zcq/Github/VDI/dist:/go/src/github.com/vdi-installer/dist -v /usr/lib/ISOLINUX:/usr/lib/ISOLINUX:ro -v /usr/lib/syslinux:/usr/lib/syslinux:ro --privileged"
 
