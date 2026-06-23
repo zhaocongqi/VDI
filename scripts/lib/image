@@ -17,6 +17,11 @@ save_image_list()
   local images
   local image
 
+  if [ -f "$out_file" ]; then
+    echo "File already exists: ${out_file}"
+    return 0
+  fi
+
   case $in_file in
     http*)
       images=$(curl -sfL $in_file)

@@ -53,8 +53,12 @@ save_image "rke2" $BUNDLE_DIR $image_list_file ${IMAGES_DIR}
 # Longhorn chart + images
 # ============================================================
 echo "==> Pulling Longhorn chart (v${LONGHORN_VERSION})"
-helm repo add longhorn https://charts.longhorn.io 2>/dev/null || true
-helm pull longhorn/longhorn --version ${LONGHORN_VERSION#v} -d ${CHARTS_DIR}
+if [ -f "${CHARTS_DIR}/longhorn-${LONGHORN_VERSION#v}.tgz" ]; then
+    echo "Chart already exists: longhorn-${LONGHORN_VERSION#v}.tgz"
+else
+    helm repo add longhorn https://charts.longhorn.io 2>/dev/null || true
+    helm pull longhorn/longhorn --version ${LONGHORN_VERSION#v} -d ${CHARTS_DIR}
+fi
 
 echo "==> Pulling Longhorn image list"
 longhorn_image_list="${IMAGES_LISTS_DIR}/longhorn-images-${LONGHORN_VERSION}.txt"
@@ -67,9 +71,13 @@ save_image "longhorn" $BUNDLE_DIR ${longhorn_image_list} ${IMAGES_DIR}
 # KubeVirt manifests + chart + images
 # ============================================================
 echo "==> Pulling KubeVirt operator chart (v${KUBEVIRT_VERSION})"
-helm repo add kubevirt https://kubevirt.io/latest/charts/ 2>/dev/null || true
-helm pull kubevirt/kubevirt-operator --version ${KUBEVIRT_VERSION#v} -d ${CHARTS_DIR} || \
-  get_url "https://github.com/kubevirt/kubevirt/releases/download/${KUBEVIRT_VERSION}/kubevirt-operator.yaml" "${CHARTS_DIR}/kubevirt-operator.yaml"
+if [ -f "${CHARTS_DIR}/kubevirt-operator.yaml" ] || [ -f "${CHARTS_DIR}/kubevirt-operator-${KUBEVIRT_VERSION#v}.tgz" ]; then
+    echo "Chart already exists: kubevirt-operator"
+else
+    helm repo add kubevirt https://kubevirt.io/latest/charts/ 2>/dev/null || true
+    helm pull kubevirt/kubevirt-operator --version ${KUBEVIRT_VERSION#v} -d ${CHARTS_DIR} || \
+      get_url "https://github.com/kubevirt/kubevirt/releases/download/${KUBEVIRT_VERSION}/kubevirt-operator.yaml" "${CHARTS_DIR}/kubevirt-operator.yaml"
+fi
 
 echo "==> Pulling KubeVirt image list"
 kubevirt_image_list="${IMAGES_LISTS_DIR}/kubevirt-images-${KUBEVIRT_VERSION}.txt"
@@ -97,8 +105,12 @@ save_image "kubevirt" $BUNDLE_DIR ${kubevirt_image_list} ${IMAGES_DIR}
 # Kube-OVN chart + images
 # ============================================================
 echo "==> Pulling Kube-OVN chart (v${KUBEOVN_VERSION})"
-get_url "https://github.com/kubeovn/kube-ovn/releases/download/${KUBEOVN_VERSION}/kube-ovn-${KUBEOVN_VERSION}.tgz" \
-  "${CHARTS_DIR}/kube-ovn-${KUBEOVN_VERSION}.tgz"
+if [ -f "${CHARTS_DIR}/kube-ovn-${KUBEOVN_VERSION}.tgz" ]; then
+    echo "Chart already exists: kube-ovn-${KUBEOVN_VERSION}.tgz"
+else
+    get_url "https://github.com/kubeovn/kube-ovn/releases/download/${KUBEOVN_VERSION}/kube-ovn-${KUBEOVN_VERSION}.tgz" \
+      "${CHARTS_DIR}/kube-ovn-${KUBEOVN_VERSION}.tgz"
+fi
 
 echo "==> Pulling Kube-OVN image list"
 kubeovn_image_list="${IMAGES_LISTS_DIR}/kubeovn-images-${KUBEOVN_VERSION}.txt"
@@ -115,8 +127,12 @@ save_image "kubeovn" $BUNDLE_DIR ${kubeovn_image_list} ${IMAGES_DIR}
 # kagent chart + images
 # ============================================================
 echo "==> Pulling kagent chart (v${KAGENT_VERSION})"
-get_url "https://github.com/kagent-dev/kagent/releases/download/v${KAGENT_VERSION}/kagent-${KAGENT_VERSION}.tgz" \
-  "${CHARTS_DIR}/kagent-${KAGENT_VERSION}.tgz" || true
+if [ -f "${CHARTS_DIR}/kagent-${KAGENT_VERSION}.tgz" ]; then
+    echo "Chart already exists: kagent-${KAGENT_VERSION}.tgz"
+else
+    get_url "https://github.com/kagent-dev/kagent/releases/download/v${KAGENT_VERSION}/kagent-${KAGENT_VERSION}.tgz" \
+      "${CHARTS_DIR}/kagent-${KAGENT_VERSION}.tgz" || true
+fi
 
 echo "==> Pulling kagent image list"
 kagent_image_list="${IMAGES_LISTS_DIR}/kagent-images-${KAGENT_VERSION}.txt"
