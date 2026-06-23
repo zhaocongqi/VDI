@@ -98,7 +98,8 @@ RUN KERNEL_VERSION=$(ls /lib/modules/ | head -1) && \
     ls -la /boot/initrd-${KERNEL_VERSION}
 
 # 设置默认密码（root/vdi123）方便调试
-RUN echo 'root:vdi123' | chpasswd
+# 使用 openssl 生成加密密码，避免 chpasswd 的 PAM 问题
+RUN echo "root:$(openssl passwd -6 vdi123)" | chpasswd -e
 
 ARG VDI_PRETTY_NAME="VDI Platform"
 RUN sed -i "s/^PRETTY_NAME.*/PRETTY_NAME=\"${VDI_PRETTY_NAME}\"/g" /etc/os-release
