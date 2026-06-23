@@ -198,7 +198,7 @@ func ConvertToCOS(config *VDIConfig) (*yipSchema.YipConfig, error) {
 			initramfs.Systemctl.Enable = append(initramfs.Systemctl.Enable, timeWaitSyncService)
 		}
 
-		err = UpdateManagementInterfaceConfig(cfg.ManagementInterface, cfg.OS.DNSNameservers, NMConnectionPath, false)
+		err = UpdateManagementInterfaceConfig(cfg.Install.ManagementInterface, cfg.OS.DNSNameservers, NMConnectionPath, false)
 		if err != nil {
 			return nil, err
 		}
@@ -252,6 +252,17 @@ func overwriteRootfsStage(config *VDIConfig, stage *yipSchema.Stage) error {
 func setConfigDefaultValues(config *VDIConfig) {
 	if config.RKE2Version == "" {
 		config.RKE2Version = RKE2Version
+	}
+	// 集群网络默认值：用户在 TUI 留空时使用。
+	// rke2-server.yaml 模板直接引用以下字段，必须在此保证非空。
+	if config.Install.ClusterPodCIDR == "" {
+		config.Install.ClusterPodCIDR = "10.52.0.0/16"
+	}
+	if config.Install.ClusterServiceCIDR == "" {
+		config.Install.ClusterServiceCIDR = "10.53.0.0/16"
+	}
+	if config.Install.ClusterDNS == "" {
+		config.Install.ClusterDNS = "10.53.0.10"
 	}
 }
 
@@ -650,7 +661,7 @@ func CreateRootPartitioningLayoutSharedDataDisk(elementalConfig *ElementalConfig
 	if persistentSize == "" {
 		persistentSize = fmt.Sprintf("%dGi", PersistentSizeMinGiB)
 	}
-	cosPersistentSizeMiB, err := calcCosPersistentPartSize(util.ByteToGi(diskSizeBytes), persistentSize, hvstConfig.SkipChecks)
+	cosPersistentSizeMiB, err := calcCosPersistentPartSize(util.ByteToGi(diskSizeBytes), persistentSize, hvstConfig.Install.SkipChecks)
 	if err != nil {
 		return nil, err
 	}

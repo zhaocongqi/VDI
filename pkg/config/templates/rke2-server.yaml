@@ -6,9 +6,9 @@ tls-san:
   - {{ . }}
 {{- end }}
 {{- end }}
-cluster-cidr: "10.52.0.0/16"
-service-cidr: "10.53.0.0/16"
-cluster-dns: "10.53.0.10"
+cluster-cidr: {{ printf "%q" .Install.ClusterPodCIDR }}
+service-cidr: {{ printf "%q" .Install.ClusterServiceCIDR }}
+cluster-dns: {{ printf "%q" .Install.ClusterDNS }}
 cni: none
 disable:
   - rke2-ingress-nginx

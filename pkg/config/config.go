@@ -71,9 +71,9 @@ type SSHDConfig struct {
 }
 
 type OSConfig struct {
-	Hostname                   string   `json:"hostname,omitempty"`
-	SSHAuthorizedKeys          []string `json:"sshAuthorizedKeys,omitempty"`
-	WriteFiles                 []File   `json:"writeFiles,omitempty"`
+	Hostname                   string            `json:"hostname,omitempty"`
+	SSHAuthorizedKeys          []string          `json:"sshAuthorizedKeys,omitempty"`
+	WriteFiles                 []File            `json:"writeFiles,omitempty"`
 	Modules                    []string          `json:"modules,omitempty"`
 	Sysctls                    map[string]string `json:"sysctls,omitempty"`
 	NTPServers                 []string          `json:"ntpServers,omitempty"`
@@ -140,30 +140,11 @@ type InstallConfig struct {
 type VDIConfig struct {
 	// SchemeVersion is used to determine current version and migrate config to new scheme version.
 	SchemeVersion uint32        `json:"schemeVersion,omitempty"`
-	Automatic     bool          `json:"automatic,omitempty"`
 	ServerURL     string        `json:"serverUrl,omitempty"`
 	Token         string        `json:"token,omitempty"`
 	SANS          []string      `json:"sans,omitempty"`
 	OS            OSConfig      `json:"os,omitempty"`
 	Install       InstallConfig `json:"install,omitempty"`
-
-	// Hostname is the node hostname.
-	Hostname string `json:"hostname,omitempty"`
-
-	// SSHAuthorizedKeys is a deprecated alias for OS.SSHAuthorizedKeys.
-	// Deprecated: Use OS.SSHAuthorizedKeys instead.
-	SSHAuthorizedKeys []string `json:"sshAuthorizedKeys,omitempty"`
-
-	// Cluster network configuration
-	ClusterPodCIDR     string `json:"clusterPodCidr,omitempty"`
-	ClusterServiceCIDR string `json:"clusterServiceCidr,omitempty"`
-	ClusterDNS         string `json:"clusterDns,omitempty"`
-
-	// ManagementInterface is the network interface configuration for the management network.
-	ManagementInterface Network `json:"managementInterface,omitempty"`
-
-	// SkipChecks disables preflight hardware checks.
-	SkipChecks bool `json:"skipchecks,omitempty"`
 
 	RKE2Version     string `json:"rke2Version,omitempty"`
 	KubevirtVersion string `json:"kubevirtVersion,omitempty"`
@@ -305,8 +286,8 @@ func (c *VDIConfig) GenerateBootstrapConfig() (map[string]interface{}, error) {
 	if c.OS.Password != "" {
 		bootstrap["users"] = []map[string]interface{}{
 			{
-				"name":            "root",
-				"passwordHash":    c.OS.Password,
+				"name":              "root",
+				"passwordHash":      c.OS.Password,
 				"sshAuthorizedKeys": c.OS.SSHAuthorizedKeys,
 			},
 		}
