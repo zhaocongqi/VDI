@@ -95,3 +95,7 @@ Dockerfile.dapper*
 # 构建时自动生成的版本文件
 package/vdi-os/vdi-release.yaml
 /.vscode-ai-images/
+
+# 构建工具二进制（需手动下载）
+yq
+helm
