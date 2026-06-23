@@ -24,10 +24,21 @@ source ${SCRIPTS_DIR}/version
 VDI_OS_IMAGE=rancher/vdi-os:${VERSION}
 PRETTY_NAME="VDI ${VERSION}"
 CACHE_DIR="${TOP_DIR}/cache"
+ARTIFACTS_DIR="${TOP_DIR}/dist/artifacts"
 BCLINUX_ISO="${TOP_DIR}/dist/iso/BCLinux-21.10U5-dvd-x86_64-260610.iso"
 
 echo "============================================"
 echo "  构建 VDI Live ISO (BCLinux + elemental)"
+
+# ============================================================
+# 清理旧的构建产物
+# ============================================================
+echo ">>> 清理旧的构建产物"
+rm -f ${ARTIFACTS_DIR}/*.iso ${ARTIFACTS_DIR}/*.sha512 ${ARTIFACTS_DIR}/*.sha256 \
+      ${ARTIFACTS_DIR}/*-initrd-* ${ARTIFACTS_DIR}/*-vmlinuz-*
+sudo rm -rf ${CACHE_DIR}/iso-staging ${CACHE_DIR}/writable-rootfs \
+            ${CACHE_DIR}/initrd-work ${CACHE_DIR}/efi-iso ${CACHE_DIR}/efi-boot.img 2>/dev/null || true
+echo "  清理完成"
 echo "  版本: ${VERSION}"
 echo "  RKE2: ${RKE2_VERSION}"
 echo "  KubeVirt: ${KUBEVIRT_VERSION}"
@@ -105,7 +116,6 @@ echo "  elemental 版本: ${elemental_version}"
 # ============================================================
 # 步骤 5: 复制 kernel / initrd 到 artifacts（供 PXE / 调试使用）
 # ============================================================
-ARTIFACTS_DIR="${TOP_DIR}/dist/artifacts"
 mkdir -p ${ARTIFACTS_DIR}
 
 echo ">>> 提取 kernel / initrd"
