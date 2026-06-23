@@ -37,6 +37,8 @@ make build-bundle       # 下载离线资源
 make package-vdi-os     # 构建 OS 镜像 + ISO
 ```
 
+在执行 `make build-bundle` 时，支持使用 `LOCAL_PKG_DIR` 环境变量配置本地离线包的检索路径（例如 `export LOCAL_PKG_DIR=/opt/vdi-pkgs`）。若本地目录存在与所下载的目标或 URL 文件名一致的文件，将优先进行本地拷贝；否则执行纯净的无代理 `curl` 正常下载。若未设置此环境变量，默认会尝试从项目根目录下的 `cache/downloads` 目录进行检索拷贝。
+
 ISO 产物位于 `dist/artifacts/vdi-$VERSION-$ARCH.iso`。
 
 ### 测试 ISO

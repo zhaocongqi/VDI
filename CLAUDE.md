@@ -67,6 +67,11 @@ Dockerfile.dapper 不从网络下载工具链，所有外部依赖通过 DAPPER_
 
 Go 编译使用 `GOPROXY=off GOTOOLCHAIN=local` 确保纯离线。
 
+#### 本地包缓存与无代理下载
+
+运行 `make build-bundle` 时支持通过环境变量 `LOCAL_PKG_DIR`（如 `export LOCAL_PKG_DIR=/opt/vdi-pkgs`）指定本地离线包检索路径。若该路径下存在与下载目标同名的文件，系统将优先进行本地拷贝；若不存在或未命中，则使用无代理配置的 `curl` 正常下载。若未设置此环境变量，则默认优先尝试检索项目下的 `cache/downloads` 目录。
+
+
 ## 关键配置
 
 ### VDIConfig 结构体
@@ -160,3 +165,9 @@ go test ./pkg/...
 2. 在 `scripts/build-bundle` 中添加下载逻辑
 3. 在 `package/vdi-os/files/var/lib/rancher/rke2/server/manifests/` 中添加 HelmChart YAML
 4. 在 `pkg/config/templates/` 中添加 Go template（如需动态配置）
+
+## 深入文档指针
+
+- [本地包缓存设计说明书](file:///home/zcq/Github/VDI/docs/superpowers/specs/2026-06-23-local-pkg-cache-design.md)：阐述了本地离线包查找拷贝逻辑以及无代理 curl 回退设计。
+- [本地包缓存实施计划](file:///home/zcq/Github/VDI/docs/superpowers/plans/2026-06-23-local-pkg-cache.md)：记录了具体的实施、校验和测试脚本细节。
+
