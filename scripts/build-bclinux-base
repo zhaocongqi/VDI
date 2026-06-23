@@ -9,12 +9,12 @@ REPO_DIR="${CACHE_DIR}/bclinux-repo"
 ROOTFS_DIR="${CACHE_DIR}/bclinux-rootfs"
 
 echo ">>> 提取 BCLinux RPM 仓库"
-rm -rf "${REPO_DIR}"
+sudo rm -rf "${REPO_DIR}"
 mkdir -p "${REPO_DIR}"
 7z x -o"${REPO_DIR}" "${BCLINUX_ISO}" Packages repodata -y
 
 echo ">>> 用 dnf --installroot 安装最小 BCLinux 系统"
-rm -rf "${ROOTFS_DIR}"
+sudo rm -rf "${ROOTFS_DIR}"
 mkdir -p "${ROOTFS_DIR}"
 
 # 用 almalinux:8 作为辅助容器（自带 dnf）
@@ -48,5 +48,5 @@ docker run --rm bclinux:21.10U5 cat /etc/os-release | head -5
 docker run --rm bclinux:21.10U5 ls /lib/modules/
 
 echo ">>> 清理"
-rm -rf "${ROOTFS_DIR}"
+sudo rm -rf "${ROOTFS_DIR}"
 echo "完成: bclinux:21.10U5"
