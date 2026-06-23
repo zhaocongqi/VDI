@@ -153,27 +153,54 @@ sudo DOCKER_API_VERSION=1.44 DOCKER_HOST=unix:///var/run/docker.sock elemental b
 cd ${TOP_DIR}
 
 # ============================================================
-# 步骤 7: 后处理 - 注入 grubx64.efi
+# 步骤 7: 后处理 - 重建 EFI 引导镜像（注入 grubx64.efi）
 # ============================================================
 # elemental 只复制 grub.efi，但 BCLinux shim 硬编码找 grubx64.efi
-# 用 xorriso 创建新 ISO 并追加 grubx64.efi
+# 从 ISO 提取 EFI 引导镜像，注入 grubx64.efi，重新打包 ISO
 ISO_FILE="${ARTIFACTS_DIR}/${ISO_PREFIX}.iso"
 if [ -f "${ISO_FILE}" ]; then
-    echo ">>> 注入 grubx64.efi 到 ISO"
+    echo ">>> 重建 EFI 引导镜像（注入 grubx64.efi）"
     # 从 Docker 镜像提取 grubx64.efi
     docker run --rm ${VDI_OS_IMAGE} cat /usr/share/efi/x86_64/grubx64.efi > /tmp/grubx64.efi
-    # 用 xorriso 创建新 ISO（不能原地修改）
+    chmod 700 /tmp/grubx64.efi
+
+    # 提取 ISO 内容到临时目录
+    ISO_EXTRACT="${CACHE_DIR}/iso-extract"
+    rm -rf "${ISO_EXTRACT}"
+    7z x -o"${ISO_EXTRACT}" "${ISO_FILE}" -y 2>/dev/null
+
+    # 提取 EFI 引导镜像
+    EFI_IMG="${CACHE_DIR}/efi-boot.img"
+    7z x -o"${CACHE_DIR}/efi-iso" "${ISO_FILE}" "[BOOT]/Boot-NoEmul.img" -y 2>/dev/null
+    cp "${CACHE_DIR}/efi-iso/[BOOT]/Boot-NoEmul.img" "${EFI_IMG}"
+
+    # 注入 grubx64.efi
+    mcopy -i "${EFI_IMG}" /tmp/grubx64.efi "::EFI/BOOT/grubx64.efi"
+
+    # 验证
+    echo "  EFI 引导镜像内容:"
+    mdir -i "${EFI_IMG}" ::EFI/BOOT/
+
+    # 用 xorriso 重建 ISO（使用修改后的 EFI 引导镜像）
     ISO_TEMP="${ISO_FILE}.tmp"
-    xorriso -indev "${ISO_FILE}" \
+    xorriso -volid "VDI_LIVE" \
+        -joliet on -padding 0 \
         -outdev "${ISO_TEMP}" \
-        -map /tmp/grubx64.efi /EFI/BOOT/grubx64.efi \
-        -boot_image any replay \
-        2>/dev/null || echo "警告: grubx64.efi 注入失败（不影响基本功能）"
+        -map "${ISO_EXTRACT}" / -chmod 0755 -- \
+        -append_partition 2 0xef "${EFI_IMG}" \
+        -boot_image any cat_path="/boot/boot.catalog" \
+        -boot_image any cat_hidden=on \
+        -boot_image any efi_path=--interval:appended_partition_2:all:: \
+        -boot_image any platform_id=0xef \
+        -boot_image any appended_part_as=gpt \
+        -boot_image any partition_offset=16 \
+        2>/dev/null || echo "警告: ISO 重建失败"
     if [ -f "${ISO_TEMP}" ]; then
         mv "${ISO_TEMP}" "${ISO_FILE}"
         echo "  grubx64.efi 注入成功"
     fi
-    rm -f /tmp/grubx64.efi
+    rm -f /tmp/grubx64.efi "${EFI_IMG}"
+    rm -rf "${ISO_EXTRACT}" "${CACHE_DIR}/efi-iso"
 fi
 
 # ============================================================

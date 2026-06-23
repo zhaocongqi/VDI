@@ -36,10 +36,10 @@ RUN --mount=type=bind,from=bclinux-repo,source=.,target=/iso,rw \
     rpm2cpio /iso/Packages/grub2-efi-x64-*.rpm 2>/dev/null | cpio -idm 2>/dev/null && \
     cp ./boot/efi/EFI/bclinux/shimx64.efi /usr/share/efi/x86_64/shim.efi && \
     cp ./boot/efi/EFI/bclinux/mmx64.efi /usr/share/efi/x86_64/MokManager.efi && \
-    cp ./boot/efi/EFI/bclinux/grubx64.efi /usr/share/efi/x86_64/grub.efi && \
     cp ./boot/efi/EFI/bclinux/grubx64.efi /usr/share/efi/x86_64/grubx64.efi && \
-    cp ./boot/efi/EFI/bclinux/grubx64.efi /usr/share/grub2/x86_64-efi/grub.efi && \
+    cp ./boot/efi/EFI/bclinux/grubx64.efi /usr/share/efi/x86_64/grub.efi && \
     cp ./boot/efi/EFI/bclinux/grubx64.efi /usr/share/grub2/x86_64-efi/grubx64.efi && \
+    cp ./boot/efi/EFI/bclinux/grubx64.efi /usr/share/grub2/x86_64-efi/grub.efi && \
     cp ./boot/efi/EFI/bclinux/fbx64.efi /usr/share/efi/x86_64/fbx64.efi 2>/dev/null || true && \
     rm -rf /tmp/efi-extract && \
     ls -la /usr/share/efi/x86_64/ && \
