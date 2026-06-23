@@ -36,7 +36,7 @@ echo "  构建 VDI Live ISO (BCLinux + elemental)"
 echo ">>> 清理旧的构建产物"
 rm -f ${ARTIFACTS_DIR}/*.iso ${ARTIFACTS_DIR}/*.sha512 ${ARTIFACTS_DIR}/*.sha256 \
       ${ARTIFACTS_DIR}/*-initrd-* ${ARTIFACTS_DIR}/*-vmlinuz-*
-sudo rm -rf ${CACHE_DIR}/iso-staging ${CACHE_DIR}/writable-rootfs \
+rm -rf ${CACHE_DIR}/iso-staging ${CACHE_DIR}/writable-rootfs \
             ${CACHE_DIR}/initrd-work ${CACHE_DIR}/efi-iso ${CACHE_DIR}/efi-boot.img 2>/dev/null || true
 echo "  清理完成"
 echo "  版本: ${VERSION}"
@@ -77,9 +77,9 @@ fi
 REPO_DIR="${CACHE_DIR}/bclinux-repo"
 if [ ! -d "${REPO_DIR}/Packages" ] || [ ! -d "${REPO_DIR}/repodata" ]; then
     echo ">>> 准备本地 BCLinux 仓库"
-    sudo rm -rf "${REPO_DIR}"
-    sudo mkdir -p "${REPO_DIR}"
-    sudo 7z x -o"${REPO_DIR}" "${BCLINUX_ISO}" Packages repodata -y 2>/dev/null
+    rm -rf "${REPO_DIR}"
+    mkdir -p "${REPO_DIR}"
+    7z x -o"${REPO_DIR}" "${BCLINUX_ISO}" Packages repodata -y 2>/dev/null
 fi
 
 # ============================================================
@@ -106,8 +106,8 @@ docker create --cidfile=/tmp/vdi-elemental-extract ${VDI_OS_IMAGE} -- tail -f /d
 CONTAINER_ID=$(</tmp/vdi-elemental-extract)
 # docker cp 到文件（不能用 stdout 管道，会变成 tar 流）
 docker cp ${CONTAINER_ID}:/usr/bin/elemental /tmp/elemental-bin
-sudo mv /tmp/elemental-bin /usr/bin/elemental
-sudo chmod +x /usr/bin/elemental
+mv /tmp/elemental-bin /usr/bin/elemental
+chmod +x /usr/bin/elemental
 docker rm ${CONTAINER_ID} && rm -f /tmp/vdi-elemental-extract
 
 elemental_version=$(elemental --version 2>/dev/null || echo "unknown")
@@ -149,7 +149,7 @@ PLATFORM=$(uname -m)
 
 cd ${PACKAGE_VDI_OS_DIR}
 # DOCKER_API_VERSION: elemental 内嵌的 Docker client 是 1.42，daemon 要求 1.44
-sudo DOCKER_API_VERSION=1.44 DOCKER_HOST=unix:///var/run/docker.sock elemental build-iso \
+DOCKER_API_VERSION=1.44 DOCKER_HOST=unix:///var/run/docker.sock elemental build-iso \
     --config-dir "${PACKAGE_VDI_OS_DIR}" \
     --debug \
     "docker:${VDI_OS_IMAGE}" \
