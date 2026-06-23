@@ -105,7 +105,27 @@ RUN KERNEL_VERSION=$(ls /lib/modules/ | head -1) && \
 # 使用 openssl 生成加密密码，避免 chpasswd 的 PAM 问题
 RUN echo "root:$(openssl passwd -6 vdi123)" | chpasswd -e
 
-# 生成 SSH 主机密钥（sshd 启动需要）
+# 配置 SSH 服务
+# 1. 确保 sshd_config 存在（BCLinux 可能不生成默认配置）
+RUN if [ ! -f /etc/ssh/sshd_config ]; then \
+        printf "# VDI sshd configuration\n\
+Port 22\n\
+ListenAddress 0.0.0.0\n\
+ListenAddress ::\n\
+HostKey /etc/ssh/ssh_host_rsa_key\n\
+HostKey /etc/ssh/ssh_host_ecdsa_key\n\
+HostKey /etc/ssh/ssh_host_ed25519_key\n\
+PermitRootLogin yes\n\
+PasswordAuthentication yes\n\
+ChallengeResponseAuthentication no\n\
+UsePAM yes\n\
+X11Forwarding no\n\
+PrintMotd no\n\
+AcceptEnv LANG LC_*\n\
+Subsystem sftp /usr/libexec/openssh/sftp-server\n" > /etc/ssh/sshd_config; \
+    fi
+
+# 2. 生成 SSH 主机密钥
 RUN rm -f /etc/ssh/ssh_host_*_key* 2>/dev/null && \
     ssh-keygen -A
 
