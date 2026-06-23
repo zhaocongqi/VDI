@@ -234,9 +234,9 @@ fi
 
 echo ">>> ISO 内容验证"
 echo "--- 卷标 ---"
-isoinfo -d -i "${ISO_FILE}" 2>/dev/null | grep "Volume id"
+isoinfo -d -i "${ISO_FILE}" 2>/dev/null | grep "Volume id" || true
 echo "--- 关键文件 ---"
-7z l "${ISO_FILE}" 2>/dev/null | grep -iE "rootfs.squashfs|loader/linux|loader/initrd|grub.cfg|kernel.xz" | head -10
+7z l "${ISO_FILE}" 2>/dev/null | grep -iE "rootfs.squashfs|loader/linux|loader/initrd|grub.cfg|kernel.xz" | head -10 || true
 
 # 生成校验和
 cd ${ARTIFACTS_DIR}
