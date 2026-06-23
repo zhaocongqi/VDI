@@ -1016,7 +1016,6 @@ func addPasswordPanels(c *Console) error {
 	pw.passwordV.KeyBindings = map[gocui.Key]func(*gocui.Gui, *gocui.View) error{
 		gocui.KeyEnter:     pw.passwordVConfirmKeyBinding,
 		gocui.KeyArrowDown: pw.passwordVConfirmKeyBinding,
-		gocui.KeyEsc:       pw.passwordVEscapeKeyBinding,
 	}
 
 	pw.passwordV.SetLocation(maxX/8, maxY/8, maxX/8*7, maxY/8+2)
@@ -1033,7 +1032,6 @@ func addPasswordPanels(c *Console) error {
 	pw.passwordConfirmV.KeyBindings = map[gocui.Key]func(*gocui.Gui, *gocui.View) error{
 		gocui.KeyArrowUp: pw.passwordConfirmVArrowUpKeyBinding,
 		gocui.KeyEnter:   pw.passwordConfirmVKeyEnter,
-		gocui.KeyEsc:     pw.passwordConfirmVKeyEscape,
 	}
 	pw.passwordConfirmV.SetLocation(maxX/8, maxY/8+3, maxX/8*7, maxY/8+5)
 	c.AddElement(passwordConfirmPanel, passwordConfirmV)
