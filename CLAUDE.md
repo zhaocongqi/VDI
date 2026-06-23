@@ -55,6 +55,18 @@ make test               # 运行测试
 make validate           # golangci-lint 检查
 ```
 
+### 离线构建
+
+Dockerfile.dapper 不从网络下载工具链，所有外部依赖通过 DAPPER_RUN_ARGS 挂载宿主机二进制：
+- `/usr/bin/docker` + `/usr/libexec/docker/cli-plugins/docker-buildx` — Docker CLI
+- `/usr/local/bin/helm` — Helm
+- `/tmp/yq` — yq（从 `~/go-sdk/yq` 或 GitHub release 获取）
+- `~/go/pkg/mod` — Go 模块缓存
+- `cache/` + `dist/` — 构建缓存和产物
+- `/usr/lib/ISOLINUX` + `/usr/lib/syslinux` — ISO 后处理所需引导文件
+
+Go 编译使用 `GOPROXY=off GOTOOLCHAIN=local` 确保纯离线。
+
 ## 关键配置
 
 ### VDIConfig 结构体
