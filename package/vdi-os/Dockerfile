@@ -105,5 +105,12 @@ RUN KERNEL_VERSION=$(ls /lib/modules/ | head -1) && \
 # 使用 openssl 生成加密密码，避免 chpasswd 的 PAM 问题
 RUN echo "root:$(openssl passwd -6 vdi123)" | chpasswd -e
 
+# 生成 SSH 主机密钥（sshd 启动需要）
+RUN rm -f /etc/ssh/ssh_host_*_key* 2>/dev/null && \
+    ssh-keygen -A
+
+# 禁用 kdump（Live 环境不需要）
+RUN systemctl disable kdump 2>/dev/null || true
+
 ARG VDI_PRETTY_NAME="VDI Platform"
 RUN sed -i "s/^PRETTY_NAME.*/PRETTY_NAME=\"${VDI_PRETTY_NAME}\"/g" /etc/os-release
