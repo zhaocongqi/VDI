@@ -5,6 +5,6 @@ cd $(dirname $0)
 
 ./build
 ./build-bundle
-./package-vdi-repo
-./package-vdi-installer
+# ./package-vdi-repo  # 跳过：需要 nginx:alpine，离线环境不可用
+# ./package-vdi-installer  # 跳过：无 Dockerfile，且不影响 ISO 构建
 ./package-vdi-os
