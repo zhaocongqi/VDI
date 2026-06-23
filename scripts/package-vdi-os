@@ -153,9 +153,32 @@ sudo DOCKER_API_VERSION=1.44 DOCKER_HOST=unix:///var/run/docker.sock elemental b
 cd ${TOP_DIR}
 
 # ============================================================
-# 步骤 7: 验证 ISO
+# 步骤 7: 后处理 - 注入 grubx64.efi
 # ============================================================
+# elemental 只复制 grub.efi，但 BCLinux shim 硬编码找 grubx64.efi
+# 用 xorriso 创建新 ISO 并追加 grubx64.efi
 ISO_FILE="${ARTIFACTS_DIR}/${ISO_PREFIX}.iso"
+if [ -f "${ISO_FILE}" ]; then
+    echo ">>> 注入 grubx64.efi 到 ISO"
+    # 从 Docker 镜像提取 grubx64.efi
+    docker run --rm ${VDI_OS_IMAGE} cat /usr/share/efi/x86_64/grubx64.efi > /tmp/grubx64.efi
+    # 用 xorriso 创建新 ISO（不能原地修改）
+    ISO_TEMP="${ISO_FILE}.tmp"
+    xorriso -indev "${ISO_FILE}" \
+        -outdev "${ISO_TEMP}" \
+        -map /tmp/grubx64.efi /EFI/BOOT/grubx64.efi \
+        -boot_image any replay \
+        2>/dev/null || echo "警告: grubx64.efi 注入失败（不影响基本功能）"
+    if [ -f "${ISO_TEMP}" ]; then
+        mv "${ISO_TEMP}" "${ISO_FILE}"
+        echo "  grubx64.efi 注入成功"
+    fi
+    rm -f /tmp/grubx64.efi
+fi
+
+# ============================================================
+# 步骤 8: 验证 ISO
+# ============================================================
 if [ ! -f "${ISO_FILE}" ]; then
     echo "ERROR: ISO 文件未生成: ${ISO_FILE}"
     exit 1

@@ -27,6 +27,8 @@ RUN --mount=type=bind,from=bclinux-repo,source=.,target=/iso,rw \
 
 # elemental build-iso 需要 EFI 引导文件在 /usr/share/efi/x86_64/
 # BCLinux shim/grub2-efi 包的 dnf 安装可能因许可证问题失败，直接从 RPM 提取
+# 注意：elemental 会把 grub.efi 复制到 EFI/BOOT/，但 BCLinux shim 硬编码找 grubx64.efi
+# 所以需要同时保留 grub.efi（给 elemental）和 grubx64.efi（给 shim）
 RUN --mount=type=bind,from=bclinux-repo,source=.,target=/iso,rw \
     mkdir -p /tmp/efi-extract /usr/share/efi/x86_64 /usr/share/grub2/x86_64-efi && \
     cd /tmp/efi-extract && \
@@ -35,7 +37,9 @@ RUN --mount=type=bind,from=bclinux-repo,source=.,target=/iso,rw \
     cp ./boot/efi/EFI/bclinux/shimx64.efi /usr/share/efi/x86_64/shim.efi && \
     cp ./boot/efi/EFI/bclinux/mmx64.efi /usr/share/efi/x86_64/MokManager.efi && \
     cp ./boot/efi/EFI/bclinux/grubx64.efi /usr/share/efi/x86_64/grub.efi && \
+    cp ./boot/efi/EFI/bclinux/grubx64.efi /usr/share/efi/x86_64/grubx64.efi && \
     cp ./boot/efi/EFI/bclinux/grubx64.efi /usr/share/grub2/x86_64-efi/grub.efi && \
+    cp ./boot/efi/EFI/bclinux/grubx64.efi /usr/share/grub2/x86_64-efi/grubx64.efi && \
     cp ./boot/efi/EFI/bclinux/fbx64.efi /usr/share/efi/x86_64/fbx64.efi 2>/dev/null || true && \
     rm -rf /tmp/efi-extract && \
     ls -la /usr/share/efi/x86_64/ && \
