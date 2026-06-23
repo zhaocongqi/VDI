@@ -3,29 +3,36 @@ FROM golang:1.26-bookworm
 ARG DAPPER_HOST_ARCH
 ENV ARCH $DAPPER_HOST_ARCH
 
-# 系统工具 (替代 SUSE zypper, 使用 Debian apt-get)
+# 系统工具
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git curl gzip tar wget ca-certificates zstd squashfs-tools xorriso \
     gawk jq mtools dosfstools unzip rsync patch \
-    ca-certificates gnupg grub-efi-amd64-bin grub-pc-bin \
+    gnupg grub-efi-amd64-bin grub-pc-bin \
     p7zip-full rpm2cpio \
     && rm -rf /var/lib/apt/lists/*
 
+# yq (从 GitHub 下载，uname -m = x86_64)
+ARG YQ_VERSION=v4.52.5
+RUN curl -sSL "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_$(uname -m)" \
+    -o /usr/bin/yq && chmod +x /usr/bin/yq
+
+# helm (从官方下载，URL 使用 amd64 而非 x86_64)
+ARG HELM_VERSION=v3.20.0
+RUN ARCH=$(uname -m | sed 's/x86_64/amd64/') && \
+    curl -sSL "https://get.helm.sh/helm-${HELM_VERSION}-linux-${ARCH}.tar.gz" \
+    -o /tmp/helm.tar.gz && \
+    tar -xzf /tmp/helm.tar.gz -C /tmp && \
+    mv /tmp/linux-${ARCH}/helm /usr/bin/helm && \
+    chmod +x /usr/bin/helm && \
+    rm -rf /tmp/helm.tar.gz /tmp/linux-*
+
 # Docker CLI (直接下载二进制，保持与宿主机 API 兼容)
-ARG DOCKER_VERSION=27.5.1
+ARG DOCKER_VERSION=29.6.0
 RUN curl -fsSL "https://download.docker.com/linux/static/stable/$(uname -m)/docker-${DOCKER_VERSION}.tgz" | \
     tar xz -C /tmp && mv /tmp/docker/docker /usr/bin/docker && rm -rf /tmp/docker
 
-# yq (从本地二进制复制，避免 Docker 构建时的网络问题)
-COPY yq /usr/bin/yq
-RUN chmod +x /usr/bin/yq
-
 # golangci-lint
 RUN go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
-
-# helm (从本地二进制复制)
-COPY helm /usr/bin/helm
-RUN chmod +x /usr/bin/helm
 
 ENV DAPPER_ENV REPO TAG DRONE_TAG DRONE_BRANCH ARCH \
     RKE2_VERSION KUBEVIRT_VERSION LONGHORN_VERSION KUBEOVN_VERSION KAGENT_VERSION \
