@@ -59,6 +59,13 @@ func RunConsole() error {
 	if err := initLogs(); err != nil {
 		return err
 	}
+
+	// 终端尺寸前置校验：gocui 面板坐标依赖 g.Size()，尺寸不足会导致 TUI 全黑屏。
+	// 在此明确报错便于诊断（start-installer.sh 通过 stty 设置足够大的 winsize）。
+	if w, h := c.Gui.Size(); w < 80 || h < 24 {
+		return fmt.Errorf("terminal size %dx%d too small for TUI (need >= 80x24); ensure start-installer.sh sets winsize via stty", w, h)
+	}
+
 	err = c.doRun()
 	if err != nil {
 		// This ensures difficult to debug failures

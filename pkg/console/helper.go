@@ -10,7 +10,6 @@ import (
 	"github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v3"
 
-	"vdi-installer/pkg/config"
 	"vdi-installer/pkg/util"
 	"vdi-installer/pkg/widgets"
 )
@@ -49,9 +48,7 @@ func (p *passwordWrapper) passwordVEscapeKeyBinding(_ *gocui.Gui, _ *gocui.View)
 	if err := p.c.setContentByName(notePanel, ""); err != nil {
 		return err
 	}
-	if p.c.config.Install.Role == config.RoleMaster || p.c.config.Install.Role == config.RoleWorker {
-		return showNext(p.c, askRolePanel)
-	}
+	// VDI 角色已在 askCreatePanel 选定，ESC 统一回退到安装模式选择
 	return showNext(p.c, askCreatePanel)
 }
 
@@ -103,9 +100,7 @@ func (p *passwordWrapper) passwordConfirmVKeyEscape(_ *gocui.Gui, _ *gocui.View)
 	if err := p.c.setContentByName(notePanel, ""); err != nil {
 		return err
 	}
-	if p.c.config.Install.Role == config.RoleMaster || p.c.config.Install.Role == config.RoleWorker {
-		return showNext(p.c, askRolePanel)
-	}
+	// VDI 角色已在 askCreatePanel 选定，ESC 统一回退到安装模式选择
 	return showNext(p.c, askCreatePanel)
 }
 

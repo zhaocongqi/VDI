@@ -790,6 +790,7 @@ func addAskCreatePanel(c *Console) error {
 		// of the initial preflight checks failed, or if the later network
 		// speed check fails.
 		preflightAck = true
+		// Use Role for display value since options are Role-based
 		askCreateV.Value = c.config.Install.Role
 		if alreadyInstalled {
 			return c.setContentByName(titlePanel, "VDI already installed. Choose configuration mode")
@@ -810,7 +811,6 @@ func addAskCreatePanel(c *Console) error {
 				c.config.Install.Mode = ""
 			}
 
-			c.config.Install.Mode = config.ModeCreate
 			// explicitly set this false to ensure if user changes from
 			// install mode only to create /join then the variable is
 			// reset to ensure correct panel sequence is displayed
@@ -818,6 +818,12 @@ func addAskCreatePanel(c *Console) error {
 			if selected == config.ModeInstall {
 				installModeOnly = true
 				c.config.Install.Mode = config.ModeInstall
+			} else if selected == config.RoleMaster || selected == config.RoleWorker {
+				// For join roles, set Mode to Join
+				c.config.Install.Mode = config.ModeJoin
+			} else {
+				// For first node, set Mode to Create
+				c.config.Install.Mode = config.ModeCreate
 			}
 
 			c.config.Install.Role = selected
@@ -1016,6 +1022,7 @@ func addPasswordPanels(c *Console) error {
 	pw.passwordV.KeyBindings = map[gocui.Key]func(*gocui.Gui, *gocui.View) error{
 		gocui.KeyEnter:     pw.passwordVConfirmKeyBinding,
 		gocui.KeyArrowDown: pw.passwordVConfirmKeyBinding,
+		gocui.KeyEsc:       pw.passwordVEscapeKeyBinding,
 	}
 
 	pw.passwordV.SetLocation(maxX/8, maxY/8, maxX/8*7, maxY/8+2)
@@ -1032,6 +1039,7 @@ func addPasswordPanels(c *Console) error {
 	pw.passwordConfirmV.KeyBindings = map[gocui.Key]func(*gocui.Gui, *gocui.View) error{
 		gocui.KeyArrowUp: pw.passwordConfirmVArrowUpKeyBinding,
 		gocui.KeyEnter:   pw.passwordConfirmVKeyEnter,
+		gocui.KeyEsc:     pw.passwordConfirmVKeyEscape,
 	}
 	pw.passwordConfirmV.SetLocation(maxX/8, maxY/8+3, maxX/8*7, maxY/8+5)
 	c.AddElement(passwordConfirmPanel, passwordConfirmV)
@@ -1071,7 +1079,7 @@ func addSSHPanel(c *Console) error {
 		if err = c.setContentByName(notePanel, sshKeyNote); err != nil {
 			return err
 		}
-		if len(c.config.SSHAuthorizedKeys) > 0 {
+		if len(c.config.OS.SSHAuthorizedKeys) > 0 {
 			if err = sshPasswordAuthV.Show(); err != nil {
 				return err
 			}
@@ -1080,7 +1088,7 @@ func addSSHPanel(c *Console) error {
 		return nil
 	}
 	gotoNextPage := func() error {
-		if len(c.config.SSHAuthorizedKeys) > 0 {
+		if len(c.config.OS.SSHAuthorizedKeys) > 0 {
 			return showNext(c, sshPasswordAuthPanel)
 		}
 		c.config.OS.SSHD.DisablePasswordAuth = false
@@ -1095,12 +1103,12 @@ func addSSHPanel(c *Console) error {
 			if err != nil {
 				return err
 			}
-			if url != "" && url == userInputData.SSHKeyURL && len(c.config.SSHAuthorizedKeys) > 0 {
+			if url != "" && url == userInputData.SSHKeyURL && len(c.config.OS.SSHAuthorizedKeys) > 0 {
 				return gotoNextPage()
 			}
-			hadKeys := len(c.config.SSHAuthorizedKeys) > 0
+			hadKeys := len(c.config.OS.SSHAuthorizedKeys) > 0
 			userInputData.SSHKeyURL = url
-			c.config.SSHAuthorizedKeys = []string{}
+			c.config.OS.SSHAuthorizedKeys = []string{}
 			if url != "" {
 				// focus on task panel to prevent ssh input
 				asyncTaskV, err := c.GetElement(spinnerPanel)
@@ -1128,7 +1136,7 @@ func addSSHPanel(c *Console) error {
 					}
 					spinner.Stop(false, "")
 					logrus.Debug("SSH public keys: ", pubKeys)
-					c.config.SSHAuthorizedKeys = pubKeys
+					c.config.OS.SSHAuthorizedKeys = pubKeys
 					g.Update(func(_ *gocui.Gui) error {
 						return gotoNextPage()
 					})
@@ -1527,7 +1535,7 @@ func addNetworkPanel(c *Console) error {
 	setupNetwork := func() error {
 		return applyNetworks(
 			mgmtNetwork,
-			c.config.Hostname,
+			c.config.OS.Hostname,
 		)
 	}
 
@@ -1564,8 +1572,15 @@ func addNetworkPanel(c *Console) error {
 		return "", nil
 	}
 
+	// 防止重复调用 gotoNextPage 的标志
+	networkNavigating := false
 	gotoNextPage := func(fromPanel string) error {
+		if networkNavigating {
+			return nil
+		}
+		networkNavigating = true
 		if err := networkValidatorV.Show(); err != nil {
+			networkNavigating = false
 			return err
 		}
 		spinner := NewFocusSpinner(c.Gui, networkValidatorPanel, "Applying network configuration...")
@@ -1584,11 +1599,13 @@ func addNetworkPanel(c *Console) error {
 				spinner.Stop(isErr, errMsg)
 				// Go back to the panel that triggered gotoNextPage
 				g.Update(func(_ *gocui.Gui) error {
+					networkNavigating = false
 					return showNext(c, fromPanel)
 				})
 			} else {
 				spinner.Stop(false, "")
 				g.Update(func(_ *gocui.Gui) error {
+					networkNavigating = false
 					closeThisPage()
 					if c.config.Install.Role == config.RoleFirst {
 						return showClusterNetworkPage(c)
@@ -1603,9 +1620,7 @@ func addNetworkPanel(c *Console) error {
 	gotoPrevPage := func(_ *gocui.Gui, _ *gocui.View) error {
 		closeThisPage()
 		if alreadyInstalled {
-			if c.config.Install.Mode == config.ModeJoin {
-				return showNext(c, askRolePanel)
-			}
+			// VDI 角色已在 askCreatePanel 选定，ESC 统一回退到安装模式选择
 			return showNext(c, askCreatePanel)
 		}
 		return showDiskPage(c)
@@ -1641,16 +1656,7 @@ func addNetworkPanel(c *Console) error {
 		mgmtNetwork.Interfaces = interfaces
 		return "", nil
 	}
-	interfaceVConfirm := func(_ *gocui.Gui, _ *gocui.View) error {
-		msg, err := validateInterface()
-		if err != nil {
-			return err
-		}
-		if msg != "" {
-			return updateValidatorMessage(msg)
-		}
-		return gotoNextPage(askInterfacePanel)
-	}
+	interfaceVConfirm := gotoNextPanel(c, []string{askVlanIDPanel}, validateInterface)
 	askInterfaceV.SetMulti(true)
 	askInterfaceV.KeyBindings = map[gocui.Key]func(*gocui.Gui, *gocui.View) error{
 		gocui.KeyArrowUp:   gotoPrevPage,
@@ -1747,11 +1753,11 @@ func addNetworkPanel(c *Console) error {
 		}
 		mgmtNetwork.Method = selected
 		if selected == config.NetworkMethodStatic {
-			return showNext(c, mtuPanel, gatewayPanel, addrMaskPanel, addressPanel, askInterfacePanel)
+			return showNext(c, mtuPanel, gatewayPanel, addrMaskPanel, addressPanel)
 		}
 
 		c.CloseElements(mtuPanel, gatewayPanel, addrMaskPanel, addressPanel)
-		return showNext(c, askInterfacePanel)
+		return gotoNextPage(askNetworkMethodPanel)
 	}
 	askNetworkMethodV.KeyBindings = map[gocui.Key]func(*gocui.Gui, *gocui.View) error{
 		gocui.KeyArrowUp:   gotoNextPanel(c, []string{askBondModePanel}),
@@ -1916,7 +1922,7 @@ func addNetworkPanel(c *Console) error {
 			return updateValidatorMessage(msg)
 		}
 
-		return showNext(c, askInterfacePanel)
+		return gotoNextPage(mtuPanel)
 	}
 	mtuV.KeyBindings = map[gocui.Key]func(*gocui.Gui, *gocui.View) error{
 		gocui.KeyArrowUp:   gotoNextPanel(c, []string{gatewayPanel}, validateMTU),
@@ -1985,7 +1991,7 @@ func addClusterNetworkPanel(c *Console) error {
 	}
 	podCIDRInput.PreShow = func() error {
 		c.Cursor = true
-		podCIDRInput.Value = c.config.ClusterPodCIDR
+		podCIDRInput.Value = c.config.Install.ClusterPodCIDR
 
 		if err := c.setContentByName(
 			titlePanel,
@@ -2016,7 +2022,7 @@ func addClusterNetworkPanel(c *Console) error {
 
 	serviceCIDRInput.PreShow = func() error {
 		c.Cursor = true
-		serviceCIDRInput.Value = c.config.ClusterServiceCIDR
+		serviceCIDRInput.Value = c.config.Install.ClusterServiceCIDR
 		return nil
 	}
 
@@ -2032,7 +2038,7 @@ func addClusterNetworkPanel(c *Console) error {
 
 	dnsInput.PreShow = func() error {
 		c.Cursor = true
-		dnsInput.Value = c.config.ClusterDNS
+		dnsInput.Value = c.config.Install.ClusterDNS
 		return nil
 	}
 
@@ -2088,7 +2094,7 @@ func addClusterNetworkPanel(c *Console) error {
 				clusterNetworkValidatorPanel,
 				fmt.Sprintf("Invalid pod CIDR: %s", err))
 		}
-		c.config.ClusterPodCIDR = podCIDR
+		c.config.Install.ClusterPodCIDR = podCIDR
 
 		// reset any previous error in the validator panel before
 		// moving to the next panel
@@ -2109,7 +2115,7 @@ func addClusterNetworkPanel(c *Console) error {
 				clusterNetworkValidatorPanel,
 				fmt.Sprintf("Invalid service CIDR: %s", err))
 		}
-		c.config.ClusterServiceCIDR = serviceCIDR
+		c.config.Install.ClusterServiceCIDR = serviceCIDR
 
 		// reset any previous error in the validator panel before
 		// moving to the next panel
@@ -2127,7 +2133,7 @@ func addClusterNetworkPanel(c *Console) error {
 		if err = validateDNSIP(dns); err != nil {
 			return c.setContentByName(clusterNetworkValidatorPanel, err.Error())
 		}
-		c.config.ClusterDNS = dns
+		c.config.Install.ClusterDNS = dns
 
 		// reset the validator panel before moving to the next page
 		if err = c.setContentByName(clusterNetworkValidatorPanel, ""); err != nil {
@@ -2274,7 +2280,7 @@ func addProxyPanel(c *Console) error {
 				if err = os.Setenv("HTTP_PROXY", proxy); err != nil {
 					return err
 				}
-				if err = os.Setenv("HTTPS_PROXY ", proxy); err != nil {
+				if err = os.Setenv("HTTPS_PROXY", proxy); err != nil {
 					return err
 				}
 			} else {
@@ -2533,7 +2539,7 @@ func addInstallPanel(c *Console) error {
 			}
 
 			// in alreadyInstalled mode and auto configuration, the network is not available
-			if alreadyInstalled && c.config.Automatic && c.config.Install.ManagementInterface.Method == "dhcp" {
+			if alreadyInstalled && c.config.Install.Automatic && c.config.Install.ManagementInterface.Method == "dhcp" {
 				configureInstallModeDHCP(c)
 			}
 

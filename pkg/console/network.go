@@ -160,7 +160,9 @@ func getNICs() ([]netlink.Link, error) {
 	iscsi := goiscsi.NewLinuxISCSI(nil)
 	sessions, err := iscsi.GetSessions()
 	if err != nil {
-		return nil, fmt.Errorf("error querying iscsi sessions: %v", err)
+		// iSCSI 查询失败时跳过过滤，直接返回网卡列表
+		logrus.Warnf("Failed to query iSCSI sessions, skipping iSCSI filtering: %v", err)
+		return nics, nil
 	}
 
 	// no iscsi sessions detected so no additional filtering based on usage for iscsi device

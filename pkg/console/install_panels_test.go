@@ -11,7 +11,11 @@ import (
 	"vdi-installer/pkg/widgets"
 )
 
-func TestPasswordPanel_NoKeyEsc(t *testing.T) {
+// TestPasswordPanel_KeyEsc 验证密码框与确认框绑定 KeyEsc。
+// 设计：保留 ESC 让用户从密码页统一回退到安装模式选择（askCreatePanel）。
+// 权衡：部分终端的特殊字符可能被误识别为 Escape 序列而触发回退（见 commit 5ad2dd4c），
+// 当前以"ESC 回退"功能优先。
+func TestPasswordPanel_KeyEsc(t *testing.T) {
 	g := &gocui.Gui{}
 	c := &Console{
 		Gui:      g,
@@ -27,7 +31,7 @@ func TestPasswordPanel_NoKeyEsc(t *testing.T) {
 	require.True(t, ok)
 
 	_, hasEsc := inputV.KeyBindings[gocui.KeyEsc]
-	assert.False(t, hasEsc, "passwordV should not bind to KeyEsc to prevent escape sequences issues")
+	assert.True(t, hasEsc, "passwordV should bind to KeyEsc to allow ESC back to create mode")
 
 	passwordConfirmV, err := c.GetElement(passwordConfirmPanel)
 	require.NoError(t, err)
@@ -35,5 +39,5 @@ func TestPasswordPanel_NoKeyEsc(t *testing.T) {
 	require.True(t, ok)
 
 	_, hasConfirmEsc := inputConfirmV.KeyBindings[gocui.KeyEsc]
-	assert.False(t, hasConfirmEsc, "passwordConfirmV should not bind to KeyEsc to prevent escape sequences issues")
+	assert.True(t, hasConfirmEsc, "passwordConfirmV should bind to KeyEsc to allow ESC back to create mode")
 }
