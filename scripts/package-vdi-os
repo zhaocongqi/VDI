@@ -181,7 +181,17 @@ if [ -f "${ISO_FILE}" ]; then
     echo "  EFI 引导镜像内容:"
     mdir -i "${EFI_IMG}" ::EFI/BOOT/
 
-    # 用 xorriso 重建 ISO（使用修改后的 EFI 引导镜像）
+    # 复制 isolinux 引导文件到 ISO 目录
+    if [ -d "${PACKAGE_VDI_OS_DIR}/iso/isolinux" ]; then
+        cp -r "${PACKAGE_VDI_OS_DIR}/iso/isolinux" "${ISO_EXTRACT}/"
+    fi
+    # 复制 isolinux.bin 和 ldlinux.c32（BIOS 引导需要）
+    if [ -f /usr/lib/ISOLINUX/isolinux.bin ]; then
+        cp /usr/lib/ISOLINUX/isolinux.bin "${ISO_EXTRACT}/isolinux/"
+        cp /usr/lib/syslinux/modules/bios/ldlinux.c32 "${ISO_EXTRACT}/isolinux/" 2>/dev/null || true
+    fi
+
+    # 用 xorriso 重建 ISO（支持 UEFI + BIOS 双重引导）
     ISO_TEMP="${ISO_FILE}.tmp"
     xorriso -volid "VDI_LIVE" \
         -joliet on -padding 0 \
@@ -194,6 +204,7 @@ if [ -f "${ISO_FILE}" ]; then
         -boot_image any platform_id=0xef \
         -boot_image any appended_part_as=gpt \
         -boot_image any partition_offset=16 \
+        -boot_image any system_area=/usr/lib/ISOLINUX/isohdpfx.bin \
         2>/dev/null || echo "警告: ISO 重建失败"
     if [ -f "${ISO_TEMP}" ]; then
         mv "${ISO_TEMP}" "${ISO_FILE}"
