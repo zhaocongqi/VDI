@@ -1266,9 +1266,9 @@ func addTokenPanel(c *Console) error {
 
 func showNetworkPage(c *Console) error {
 	if mgmtNetwork.Method != config.NetworkMethodStatic {
-		return showNext(c, askVlanIDPanel, askBondModePanel, askNetworkMethodPanel)
+		return showNext(c, askVlanIDPanel, askBondModePanel, askNetworkMethodPanel, askInterfacePanel)
 	}
-	return showNext(c, askVlanIDPanel, askBondModePanel, askNetworkMethodPanel, addressPanel, addrMaskPanel, gatewayPanel, mtuPanel)
+	return showNext(c, askVlanIDPanel, askBondModePanel, askNetworkMethodPanel, addressPanel, addrMaskPanel, gatewayPanel, mtuPanel, askInterfacePanel)
 }
 
 func showHostnamePage(c *Console) error {
@@ -1749,7 +1749,7 @@ func addNetworkPanel(c *Console) error {
 		}
 		mgmtNetwork.Method = selected
 		if selected == config.NetworkMethodStatic {
-			return showNext(c, mtuPanel, gatewayPanel, addrMaskPanel, addressPanel)
+			return showNext(c, mtuPanel, gatewayPanel, addrMaskPanel, addressPanel, askInterfacePanel)
 		}
 
 		c.CloseElements(mtuPanel, gatewayPanel, addrMaskPanel, addressPanel)
