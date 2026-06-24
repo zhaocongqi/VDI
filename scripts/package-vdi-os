@@ -163,66 +163,62 @@ DOCKER_API_VERSION=1.44 DOCKER_HOST=unix:///var/run/docker.sock elemental build-
 cd ${TOP_DIR}
 
 # ============================================================
-# 步骤 7: 后处理 - 重建 EFI 引导镜像（注入 grubx64.efi）
+# 步骤 7: 字节级注入 grubx64.efi 到 EFI 引导镜像
 # ============================================================
-# elemental 只复制 grub.efi，但 BCLinux shim 硬编码找 grubx64.efi
-# 从 ISO 提取 EFI 引导镜像，注入 grubx64.efi，重新打包 ISO
+# elemental build-iso 默认只把 grub.efi 放进 EFI 引导镜像，但 BCLinux shim
+# 硬编码找 grubx64.efi，缺失会导致 UEFI 引导失败。
+#
+# 此前用 xorriso 全量重建 ISO 注入，但 3.3GB ISO 重建后体积超 xorriso stdio
+# 媒体容量上限（~3174MB）导致重建失败。改为字节级注入：直接定位 ISO 中 EFI
+# 引导镜像（8MB FAT，卷标 COS_GRUB）的偏移，用 mtools 注入 grubx64.efi 后
+# 用 dd 原位写回，不重建 ISO，绕过容量限制。
 ISO_FILE="${ARTIFACTS_DIR}/${ISO_PREFIX}.iso"
 if [ -f "${ISO_FILE}" ]; then
-    echo ">>> 重建 EFI 引导镜像（注入 grubx64.efi）"
+    echo ">>> 注入 grubx64.efi 到 EFI 引导镜像（字节级）"
     # 从 Docker 镜像提取 grubx64.efi
     docker run --rm ${VDI_OS_IMAGE} cat /usr/share/efi/x86_64/grubx64.efi > /tmp/grubx64.efi
     chmod 700 /tmp/grubx64.efi
 
-    # 提取 ISO 内容到临时目录
-    ISO_EXTRACT="${CACHE_DIR}/iso-extract"
-    rm -rf "${ISO_EXTRACT}"
-    7z x -o"${ISO_EXTRACT}" "${ISO_FILE}" -y 2>/dev/null
-
-    # 提取 EFI 引导镜像
-    EFI_IMG="${CACHE_DIR}/efi-boot.img"
-    7z x -o"${CACHE_DIR}/efi-iso" "${ISO_FILE}" "[BOOT]/Boot-NoEmul.img" -y 2>/dev/null
-    cp "${CACHE_DIR}/efi-iso/[BOOT]/Boot-NoEmul.img" "${EFI_IMG}"
-
-    # 注入 grubx64.efi
-    mcopy -i "${EFI_IMG}" /tmp/grubx64.efi "::EFI/BOOT/grubx64.efi"
-
-    # 验证
-    echo "  EFI 引导镜像内容:"
-    mdir -i "${EFI_IMG}" ::EFI/BOOT/
-
-    # 复制 isolinux 引导文件到 ISO 目录
-    if [ -d "${PACKAGE_VDI_OS_DIR}/iso/isolinux" ]; then
-        cp -r "${PACKAGE_VDI_OS_DIR}/iso/isolinux" "${ISO_EXTRACT}/"
+    # 定位 EFI 引导镜像偏移：扫描 ISO 找 FAT 引导扇区（0x55AA）+ 卷标 COS_GRUB
+    EFI_OFF=$(python3 -c "
+import sys
+with open('${ISO_FILE}', 'rb') as f:
+    data = f.read()
+off = 0
+while off < len(data) - 512:
+    if data[off+0x1FE:off+0x200] == b'\x55\xAA':
+        for voff in (0x2B, 0x47):
+            label = data[off+voff:off+voff+11].rstrip(b'\x00 ')
+            if b'COS_GRUB' in label:
+                print(off); sys.exit(0)
+    off += 2048
+print(''); sys.exit(1)
+")
+    if [ -z "${EFI_OFF}" ]; then
+        echo "  警告: 未在 ISO 中定位到 EFI 引导镜像，跳过 grubx64.efi 注入"
+    else
+        EFI_SIZE=8388608  # 8MB
+        EFI_IMG="${CACHE_DIR}/efi-inject.img"
+        echo "  EFI 镜像偏移: ${EFI_OFF}"
+        # 提取 EFI 镜像
+        dd if="${ISO_FILE}" of="${EFI_IMG}" bs=1 skip="${EFI_OFF}" count="${EFI_SIZE}" 2>/dev/null
+        # 注入 grubx64.efi
+        mcopy -i "${EFI_IMG}" /tmp/grubx64.efi "::EFI/BOOT/grubx64.efi"
+        # 验证
+        echo "  EFI 引导镜像内容:"
+        mdir -i "${EFI_IMG}" ::EFI/BOOT/ 2>/dev/null
+        if mdir -i "${EFI_IMG}" ::EFI/BOOT/ 2>/dev/null | grep -qi "grubx64.efi"; then
+            # 原位写回（conv=notrunc 不截断 ISO）
+            dd if="${EFI_IMG}" of="${ISO_FILE}" bs=1024 seek=$((EFI_OFF/1024)) count=$((EFI_SIZE/1024)) conv=notrunc 2>/dev/null
+            echo "  grubx64.efi 注入成功 ✓ (UEFI 引导就绪)"
+        else
+            echo "  警告: grubx64.efi 注入失败"
+        fi
+        rm -f "${EFI_IMG}"
     fi
-    # 复制 isolinux.bin 和 ldlinux.c32（BIOS 引导需要）
-    if [ -f /usr/lib/ISOLINUX/isolinux.bin ]; then
-        cp /usr/lib/ISOLINUX/isolinux.bin "${ISO_EXTRACT}/isolinux/"
-        cp /usr/lib/syslinux/modules/bios/ldlinux.c32 "${ISO_EXTRACT}/isolinux/" 2>/dev/null || true
-    fi
-
-    # 用 xorriso 重建 ISO（支持 UEFI + BIOS 双重引导）
-    ISO_TEMP="${ISO_FILE}.tmp"
-    xorriso -volid "VDI_LIVE" \
-        -joliet on -padding 0 \
-        -outdev "${ISO_TEMP}" \
-        -map "${ISO_EXTRACT}" / -chmod 0755 -- \
-        -append_partition 2 0xef "${EFI_IMG}" \
-        -boot_image any cat_path="/boot/boot.catalog" \
-        -boot_image any cat_hidden=on \
-        -boot_image any efi_path=--interval:appended_partition_2:all:: \
-        -boot_image any platform_id=0xef \
-        -boot_image any appended_part_as=gpt \
-        -boot_image any partition_offset=16 \
-        -boot_image any system_area=/usr/lib/ISOLINUX/isohdpfx.bin \
-        2>/dev/null || echo "警告: ISO 重建失败"
-    if [ -f "${ISO_TEMP}" ]; then
-        mv "${ISO_TEMP}" "${ISO_FILE}"
-        echo "  grubx64.efi 注入成功"
-    fi
-    rm -f /tmp/grubx64.efi "${EFI_IMG}"
-    rm -rf "${ISO_EXTRACT}" "${CACHE_DIR}/efi-iso"
+    rm -f /tmp/grubx64.efi
 fi
+
 
 # ============================================================
 # 步骤 8: 验证 ISO
