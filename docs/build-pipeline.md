@@ -32,8 +32,7 @@ $(TARGETS): .dapper
   - docker CLI + buildx 插件（`which docker` + `find ... -name docker-buildx`）
   - helm、yq（`~/go-sdk/yq` 或 `/tmp/yq`）
   - Go 模块缓存（`go env GOPATH`/pkg/mod，配合 `GOPROXY=off GOTOOLCHAIN=local`）
-  - `cache/`、`dist/`（项目根下）
-  - `/usr/lib/ISOLINUX` + `/usr/lib/syslinux`（ISO 后处理引导文件）
+  - `cache/`、`dist/`（项目根下，dist/ 含 BCLinux ISO 输入）
   - containerd socket + `--privileged`
 - 任一依赖探测失败时 `make` 明确报错，而非静默挂载空路径
 - `DAPPER_OUTPUT` 声明容器→宿主机回传：`./bin ./dist ./cache ./package/vdi-os/files/usr/bin ./package/vdi-installer`
@@ -134,9 +133,8 @@ BCLinux ISO ──build-bclinux-base──→ bclinux:21.10U5 ──┐
 1. **BCLinux ISO**：`dist/iso/BCLinux-21.10U5-dvd-x86_64-260610.iso`
 2. **挂载的二进制**：docker、buildx、helm、yq（见 `DAPPER_RUN_ARGS`）
 3. **Go 模块缓存**：`~/go/pkg/mod`（`GOPROXY=off` 纯离线）
-4. **ISOLINUX/syslinux**：`/usr/lib/ISOLINUX` + `/usr/lib/syslinux`
-5. **内存 ≥16G**：elemental + mksquashfs xz 压缩峰值 ~9.7GB，不足会 OOM（exit 137）
-6. **磁盘 ≥20G**：Docker 层 + squashfs + ISO 临时空间
+4. **内存 ≥16G**：elemental + mksquashfs xz 压缩峰值 ~9.7GB，不足会 OOM（exit 137）
+5. **磁盘 ≥20G**：Docker 层 + squashfs + ISO 临时空间
 
 ## 六、构建命令速查
 

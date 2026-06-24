@@ -8,8 +8,6 @@ ARG BUILDX_BIN
 ARG HELM_BIN
 ARG YQ_BIN
 ARG PROJECT_DIR
-ARG ISOLINUX_DIR=/usr/lib/ISOLINUX
-ARG SYSLINUX_DIR=/usr/lib/syslinux
 ENV ARCH $DAPPER_HOST_ARCH
 
 # 系统工具
@@ -31,12 +29,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 ENV DAPPER_ENV TAG DRONE_TAG DRONE_BRANCH \
     RKE2_VERSION KUBEVIRT_VERSION LONGHORN_VERSION KUBEOVN_VERSION KAGENT_VERSION \
     USE_LOCAL_IMAGES \
-    GOPATH_HOST DOCKER_BIN BUILDX_BIN HELM_BIN YQ_BIN PROJECT_DIR ISOLINUX_DIR SYSLINUX_DIR
+    GOPATH_HOST DOCKER_BIN BUILDX_BIN HELM_BIN YQ_BIN PROJECT_DIR
 ENV DAPPER_SOURCE /go/src/github.com/vdi-installer/
 ENV DAPPER_OUTPUT ./bin ./dist ./cache ./package/vdi-os/files/usr/bin ./package/vdi-installer
 ENV DAPPER_DOCKER_SOCKET true
 # cache/ dist/ 显式挂载：DAPPER_OUTPUT 回传时用 docker cp 从容器取，需保证容器内存在
-ENV DAPPER_RUN_ARGS "-v /run/containerd/containerd.sock:/run/containerd/containerd.sock -v ${DOCKER_BIN}:/usr/bin/docker:ro -v ${BUILDX_BIN}:/usr/libexec/docker/cli-plugins/docker-buildx:ro -v ${HELM_BIN}:/usr/bin/helm:ro -v ${YQ_BIN}:/usr/bin/yq:ro -v ${GOPATH_HOST}/pkg/mod:/go/pkg/mod -v ${PROJECT_DIR}/cache:/go/src/github.com/vdi-installer/cache -v ${PROJECT_DIR}/dist:/go/src/github.com/vdi-installer/dist -v ${ISOLINUX_DIR}:/usr/lib/ISOLINUX:ro -v ${SYSLINUX_DIR}:/usr/lib/syslinux:ro --privileged"
+ENV DAPPER_RUN_ARGS "-v /run/containerd/containerd.sock:/run/containerd/containerd.sock -v ${DOCKER_BIN}:/usr/bin/docker:ro -v ${BUILDX_BIN}:/usr/libexec/docker/cli-plugins/docker-buildx:ro -v ${HELM_BIN}:/usr/bin/helm:ro -v ${YQ_BIN}:/usr/bin/yq:ro -v ${GOPATH_HOST}/pkg/mod:/go/pkg/mod -v ${PROJECT_DIR}/cache:/go/src/github.com/vdi-installer/cache -v ${PROJECT_DIR}/dist:/go/src/github.com/vdi-installer/dist --privileged"
 
 ENV HOME ${DAPPER_SOURCE}
 WORKDIR ${DAPPER_SOURCE}

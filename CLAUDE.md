@@ -62,8 +62,7 @@ Dockerfile.dapper 不从网络下载工具链，所有外部依赖通过 DAPPER_
 - helm（`which helm`）
 - yq（`~/go-sdk/yq` 或 `/tmp/yq`，缺失时 Makefile 明确报错）
 - Go 模块缓存（`go env GOPATH`/pkg/mod）
-- `cache/` + `dist/` — 构建缓存和产物（项目根下）
-- `/usr/lib/ISOLINUX` + `/usr/lib/syslinux` — ISO 后处理所需引导文件
+- `cache/` + `dist/` — 构建缓存和产物（项目根下，dist/ 含 BCLinux ISO 输入）
 
 探测任一依赖失败时 `make` 会明确报错并指引，而非静默挂载空路径。
 
