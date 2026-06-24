@@ -158,5 +158,5 @@ qemu-system-x86_64 -m 4096 -smp 2 \
 ## 七、已知缺口
 
 1. `package-vdi-installer` / `package-vdi-repo` 在 `default` 中被跳过（离线环境限制）
-2. kagent 镜像未拉取（ghcr.io 需认证，`build-bundle` 注释跳过）
+2. kagent 组件无法部署：镜像未打包（ghcr.io 需认证，`build-bundle` 跳过）；chart 拉取失败会中断构建并报错（不再静默）；manifest `40-kagent.yaml` 引用的 chart/镜像在 ISO 里缺失。启用需配 GHCR 认证。
 3. 当前 ISO 是 UEFI-only（无 BIOS/isolinux 引导记录）

@@ -131,22 +131,27 @@ if [ -f "${CHARTS_DIR}/kagent-${KAGENT_VERSION}.tgz" ]; then
     echo "Chart already exists: kagent-${KAGENT_VERSION}.tgz"
 else
     get_url "https://github.com/kagent-dev/kagent/releases/download/v${KAGENT_VERSION}/kagent-${KAGENT_VERSION}.tgz" \
-      "${CHARTS_DIR}/kagent-${KAGENT_VERSION}.tgz" || true
+      "${CHARTS_DIR}/kagent-${KAGENT_VERSION}.tgz" || {
+        echo "ERROR: kagent chart 拉取失败，kagent 将无法部署（manifest 引用此 chart）" >&2
+        echo "  如暂不需要 kagent，请从构建链与 manifest 中移除" >&2
+        exit 1
+    }
 fi
 
-echo "==> Pulling kagent image list"
-kagent_image_list="${IMAGES_LISTS_DIR}/kagent-images-${KAGENT_VERSION}.txt"
-cat > ${kagent_image_list} <<EOF
-ghcr.io/kagent-dev/kagent-controller:${KAGENT_VERSION}
-ghcr.io/kagent-dev/kagent-ui:${KAGENT_VERSION}
-ghcr.io/kagent-dev/kagent-proxy:${KAGENT_VERSION}
-ghcr.io/kagent-dev/kagent-tools:${KAGENT_VERSION}
-ghcr.io/kagent-dev/model-runner:${KAGENT_VERSION}
-docker.io/library/postgres:17.4-alpine
-EOF
-# Skip kagent image pull for now (ghcr.io requires authentication)
-echo "Skipping kagent image pull (ghcr.io requires authentication)"
+# TODO(kagent): ghcr.io 需认证，kagent 镜像暂未打包，kagent 部署会因镜像缺失失败。
+# 启用步骤：配置 GHCR 认证 → 取消下方注释 → 确认镜像可拉
+# kagent_image_list="${IMAGES_LISTS_DIR}/kagent-images-${KAGENT_VERSION}.txt"
+# cat > ${kagent_image_list} <<EOF
+# ghcr.io/kagent-dev/kagent-controller:${KAGENT_VERSION}
+# ghcr.io/kagent-dev/kagent-ui:${KAGENT_VERSION}
+# ghcr.io/kagent-dev/kagent-proxy:${KAGENT_VERSION}
+# ghcr.io/kagent-dev/kagent-tools:${KAGENT_VERSION}
+# ghcr.io/kagent-dev/model-runner:${KAGENT_VERSION}
+# docker.io/library/postgres:17.4-alpine
+# EOF
 # save_image "kagent" $BUNDLE_DIR ${kagent_image_list} ${IMAGES_DIR}
+echo "Skipping kagent image pull (ghcr.io requires authentication, TODO)"
+
 
 # ============================================================
 # Create Helm repo index
