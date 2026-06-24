@@ -3,9 +3,8 @@ package version
 import "fmt"
 
 var (
-	Version          = "dev"
-	GitCommit        = "HEAD"
-	HarvesterVersion = "dev" // Will be replaced by ldflags
+	Version   = "dev"
+	GitCommit = "HEAD"
 )
 
 func FriendlyVersion() string {
