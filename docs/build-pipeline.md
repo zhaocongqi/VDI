@@ -159,5 +159,4 @@ qemu-system-x86_64 -m 4096 -smp 2 \
 
 1. `package-vdi-installer` / `package-vdi-repo` 在 `default` 中被跳过（离线环境限制）
 2. kagent 镜像未拉取（ghcr.io 需认证，`build-bundle` 注释跳过）
-3. `pkg/version.HarvesterVersion` 历史残留未使用
-4. 当前 ISO 是 UEFI-only（无 BIOS/isolinux 引导记录）
+3. 当前 ISO 是 UEFI-only（无 BIOS/isolinux 引导记录）
