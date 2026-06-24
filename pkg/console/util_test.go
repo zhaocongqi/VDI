@@ -1203,7 +1203,7 @@ func Test_getDataDisksOptions(t *testing.T) {
 	err := doc.refresh()
 	assert.NoError(err, "expected no error while fetching")
 
-	hvstConfig := config.NewHarvesterConfig()
+	hvstConfig := config.NewVDIConfig()
 
 	// Set the first disk option as installation disk
 	hvstConfig.Install.Device = doc.getAllValidDiskOptions()[0].Value
@@ -1238,7 +1238,7 @@ func Test_getWipeDisksOptions(t *testing.T) {
 	err := doc.refresh()
 	assert.NoError(err, "expected no error while fetching")
 
-	hvstConfig := config.NewHarvesterConfig()
+	hvstConfig := config.NewVDIConfig()
 	assert.Equal(
 		[]widgets.Option{
 			widgets.Option{Value: "/dev/sdc", Text: "sdc 250G"},

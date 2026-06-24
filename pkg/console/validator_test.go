@@ -13,7 +13,7 @@ type FakeValidator struct {
 	hasDevices []string
 }
 
-func (v FakeValidator) Validate(cfg *config.HarvesterConfig) error {
+func (v FakeValidator) Validate(cfg *config.VDIConfig) error {
 	if err := v.checkMgmtInterface(cfg.Install.ManagementInterface); err != nil {
 		return err
 	}
@@ -46,14 +46,14 @@ func createDefaultFakeValidator() FakeValidator {
 }
 
 func TestValidateConfig(t *testing.T) {
-	createCreateConfig := func() *config.HarvesterConfig {
-		return &config.HarvesterConfig{
+	createCreateConfig := func() *config.VDIConfig {
+		return &config.VDIConfig{
 			Token: "token",
-			OS: config.OS{
+			OS: config.OSConfig{
 				SSHAuthorizedKeys: []string{"github: someuser"},
 				Password:          "password",
 			},
-			Install: config.Install{
+			Install: config.InstallConfig{
 				Mode: config.ModeCreate,
 				ManagementInterface: config.Network{
 					Interfaces: []config.NetworkInterface{
@@ -65,17 +65,17 @@ func TestValidateConfig(t *testing.T) {
 		}
 	}
 
-	createJoinConfig := func() *config.HarvesterConfig {
+	createJoinConfig := func() *config.VDIConfig {
 		c := createCreateConfig()
 		c.ServerURL = "https://somewhere"
-		c.Mode = config.ModeJoin
+		c.Install.Mode = config.ModeJoin
 		return c
 	}
 
 	testCases := []struct {
 		name     string
-		cfg      *config.HarvesterConfig
-		preApply func(c *config.HarvesterConfig)
+		cfg      *config.VDIConfig
+		preApply func(c *config.VDIConfig)
 		errMsg   string
 	}{
 		{
@@ -85,7 +85,7 @@ func TestValidateConfig(t *testing.T) {
 		{
 			name: "invalid create config: contains server URL",
 			cfg:  createCreateConfig(),
-			preApply: func(c *config.HarvesterConfig) {
+			preApply: func(c *config.VDIConfig) {
 				c.ServerURL = "https://somewhere"
 			},
 			errMsg: ErrMsgModeCreateContainsServerURL,
@@ -93,8 +93,8 @@ func TestValidateConfig(t *testing.T) {
 		{
 			name: "invalid config: unknown mode",
 			cfg:  createCreateConfig(),
-			preApply: func(c *config.HarvesterConfig) {
-				c.Mode = "asdf"
+			preApply: func(c *config.VDIConfig) {
+				c.Install.Mode = "asdf"
 			},
 			errMsg: ErrMsgModeUnknown,
 		},
@@ -105,7 +105,7 @@ func TestValidateConfig(t *testing.T) {
 		{
 			name: "invalid join config: no server URL",
 			cfg:  createJoinConfig(),
-			preApply: func(c *config.HarvesterConfig) {
+			preApply: func(c *config.VDIConfig) {
 				c.ServerURL = ""
 			},
 			errMsg: ErrMsgModeJoinServerURLNotSpecified,
@@ -113,24 +113,24 @@ func TestValidateConfig(t *testing.T) {
 		{
 			name: "invalid create config: contains no credential",
 			cfg:  createCreateConfig(),
-			preApply: func(c *config.HarvesterConfig) {
-				c.SSHAuthorizedKeys = nil
-				c.Password = ""
+			preApply: func(c *config.VDIConfig) {
+				c.OS.SSHAuthorizedKeys = nil
+				c.OS.Password = ""
 			},
 			errMsg: ErrMsgNoCredentials,
 		},
 		{
 			name: "invalid create config: device not found",
 			cfg:  createCreateConfig(),
-			preApply: func(c *config.HarvesterConfig) {
-				c.Device = "/dev/vdb"
+			preApply: func(c *config.VDIConfig) {
+				c.Install.Device = "/dev/vdb"
 			},
 			errMsg: ErrMsgDeviceNotFound,
 		},
 		{
 			name: "invalid create config: interface not found",
 			cfg:  createCreateConfig(),
-			preApply: func(c *config.HarvesterConfig) {
+			preApply: func(c *config.VDIConfig) {
 				c.Install.ManagementInterface.Interfaces = nil
 			},
 			errMsg: ErrMsgMgmtInterfaceNotSpecified,

@@ -8,19 +8,19 @@ import (
 	"vdi-installer/pkg/util"
 )
 
-func TestToHarvesterConfig(t *testing.T) {
+func TestLoadVDIConfig(t *testing.T) {
 	testCases := []struct {
 		input    []byte
-		expected *HarvesterConfig
+		expected *VDIConfig
 		err      error
 	}{
 		{
 			input: util.LoadFixture(t, "harvester-config.yaml"),
-			expected: &HarvesterConfig{
+			expected: &VDIConfig{
 				SchemeVersion: SchemeVersion,
 				ServerURL:     "https://someserver:6443",
 				Token:         "TOKEN_VALUE",
-				OS: OS{
+				OS: OSConfig{
 					SSHAuthorizedKeys: []string{
 						"ssh-rsa AAAAB3NzaC1yc2EAAAADAQAB...",
 						"github:username",
@@ -48,7 +48,7 @@ func TestToHarvesterConfig(t *testing.T) {
 						"https_proxy": "http://myserver",
 					},
 				},
-				Install: Install{
+				Install: InstallConfig{
 					Mode: "create",
 					ManagementInterface: Network{
 						Interfaces: []NetworkInterface{{Name: "ens0"}, {Name: "ens3"}},
@@ -69,7 +69,7 @@ func TestToHarvesterConfig(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
-		output, err := LoadHarvesterConfig(testCase.input)
+		output, err := LoadVDIConfig(testCase.input)
 		assert.Equal(t, testCase.expected, output)
 		assert.Equal(t, testCase.err, err)
 	}

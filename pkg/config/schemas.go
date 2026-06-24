@@ -47,9 +47,3 @@ func LoadVDIConfig(yamlBytes []byte) (*VDIConfig, error) {
 
 	return result, nil
 }
-
-// LoadHarvesterConfig is a deprecated alias for LoadVDIConfig, kept for transitional compatibility.
-// Deprecated: Use LoadVDIConfig instead.
-func LoadHarvesterConfig(yamlBytes []byte) (*VDIConfig, error) {
-	return LoadVDIConfig(yamlBytes)
-}
