@@ -1,0 +1,16 @@
+#!/bin/bash
+# 进入 Dapper 构建容器交互式 shell（复用 vdi:main 镜像）
+# 用法: make shell
+# 容器内已挂载项目目录、Go 模块缓存、docker/helm/yq 等（见 DAPPER_RUN_ARGS）
+set -e
+
+# 确保产物目录存在（与 entry 一致）
+mkdir -p bin dist
+
+echo "VDI 构建容器 (vdi:main)"
+echo "  GOPATH=/go, 项目根=\$DAPPER_SOURCE"
+echo "  可用: go / docker / helm / yq / xorriso / mtools / 7z"
+echo "  退出后 Dapper 会 chown 产物回宿主机用户"
+echo
+
+exec bash
