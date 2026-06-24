@@ -5,6 +5,7 @@ import (
 	"net"
 	"os/exec"
 	"strings"
+	"sync"
 	"syscall"
 
 	"github.com/sirupsen/logrus"
@@ -14,7 +15,45 @@ import (
 	"github.com/dell/goiscsi"
 
 	"vdi-installer/pkg/config"
+	"vdi-installer/pkg/widgets"
 )
+
+// NICOptionsCache 缓存网卡选项，避免 dropdown 每次 Show() 都同步调用
+// netlink.LinkList + iSCSI GetSessions 阻塞 gocui 主循环导致按键积压串行。
+// 网卡硬件在安装过程中不会频繁变化，进入网络配置页时刷新一次即可。
+type NICOptionsCache struct {
+	mu      sync.Mutex
+	options []widgets.Option
+}
+
+func NewNICOptionsCache() *NICOptionsCache {
+	return &NICOptionsCache{}
+}
+
+func (n *NICOptionsCache) refresh() error {
+	nics, err := getNICs()
+	if err != nil {
+		return err
+	}
+	options := make([]widgets.Option, 0, len(nics))
+	for _, nic := range nics {
+		name := nic.Attrs().Name
+		options = append(options, widgets.Option{
+			Value: name,
+			Text:  fmt.Sprintf("%s(%s, %s)", name, nic.Attrs().HardwareAddr.String(), nic.Attrs().OperState.String()),
+		})
+	}
+	n.mu.Lock()
+	n.options = options
+	n.mu.Unlock()
+	return nil
+}
+
+func (n *NICOptionsCache) getOptions() []widgets.Option {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return n.options
+}
 
 func checkDefaultRoute() (bool, error) {
 	routes, err := netlink.RouteList(nil, syscall.AF_INET)

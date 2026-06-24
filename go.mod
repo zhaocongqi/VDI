@@ -68,7 +68,7 @@ require (
 )
 
 replace (
-	github.com/nsf/termbox-go => github.com/Harvester/termbox-go v1.1.1-0.20210318083914-8ab92204a400
+	github.com/nsf/termbox-go => ./third_party/termbox-go
 	github.com/rancher/wrangler => github.com/rancher/wrangler v1.1.1
 	k8s.io/api => k8s.io/api v0.32.6
 	k8s.io/apimachinery => k8s.io/apimachinery v0.32.6

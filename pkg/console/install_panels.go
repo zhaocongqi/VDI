@@ -64,6 +64,7 @@ var (
 	preflightWarnings []string
 	preflightAck      bool
 	diskOptionsCache  *DiskOptionsCache = NewDiskOptionsCache()
+	nicOptionsCache   *NICOptionsCache  = NewNICOptionsCache()
 )
 
 func (c *Console) doNetworkSpeedCheck(interfaces []config.NetworkInterface) (warnings []string) {
@@ -1271,6 +1272,11 @@ func addTokenPanel(c *Console) error {
 }
 
 func showNetworkPage(c *Console) error {
+	// 进入网络配置页时刷新一次网卡列表缓存，避免 dropdown 每次 Show() 都
+	// 同步调用 netlink/iSCSI 阻塞 gocui 主循环（导致按键积压、输入框串行）。
+	if err := nicOptionsCache.refresh(); err != nil {
+		return err
+	}
 	if mgmtNetwork.Method != config.NetworkMethodStatic {
 		return showNext(c, askVlanIDPanel, askBondModePanel, askNetworkMethodPanel, askInterfacePanel)
 	}
@@ -2227,21 +2233,7 @@ func getBondModeOptions() ([]widgets.Option, error) {
 }
 
 func getNetworkInterfaceOptions() ([]widgets.Option, error) {
-	var options = []widgets.Option{}
-	nics, err := getNICs()
-	if err != nil {
-		return nil, err
-	}
-
-	for _, nic := range nics {
-		name := nic.Attrs().Name
-		option := widgets.Option{
-			Value: name,
-			Text:  fmt.Sprintf("%s(%s, %s)", name, nic.Attrs().HardwareAddr.String(), nic.Attrs().OperState.String()),
-		}
-		options = append(options, option)
-	}
-	return options, nil
+	return nicOptionsCache.getOptions(), nil
 }
 
 func getNetworkMethodOptions() ([]widgets.Option, error) {
