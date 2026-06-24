@@ -3,12 +3,14 @@
 # 参考 Harvester 的 scripts/package-harvester-os
 #
 # 流程：
-#   1. 生成 vdi-release.yaml
-#   2. 确保 BCLinux 基础镜像存在
-#   3. 准备本地 BCLinux 仓库（供 Dockerfile 中 dnf 使用）
-#   4. docker buildx build 构建 VDI OS 镜像（含 dracut 重建的 initrd）
-#   5. 提取 elemental 二进制到宿主机
-#   6. elemental build-iso 打包 Live ISO（kernel + initrd + squashfs + GRUB）
+#   0. 生成 vdi-release.yaml
+#   1. 确保 BCLinux 基础镜像存在
+#   2. 准备本地 BCLinux 仓库（供 Dockerfile 中 dnf 使用）
+#   3. docker buildx build 构建 VDI OS 镜像（含 dracut 重建的 initrd）
+#   4. 提取 elemental / kernel / initrd（一次 docker create）
+#   5. elemental build-iso 打包 Live ISO（squashfs + kernel + initrd + GRUB）
+#   6. 字节级注入 grubx64.efi 到 EFI 引导镜像
+#   7. 验证 ISO + 生成 SHA512
 
 TOP_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )/.." &> /dev/null && pwd )"
 SCRIPTS_DIR="${TOP_DIR}/scripts"
@@ -97,43 +99,33 @@ docker buildx build \
     -t ${VDI_OS_IMAGE} --load .
 
 # ============================================================
-# 步骤 4: 提取 elemental 二进制到宿主机
-# elemental build-iso 需要在宿主机执行
+# 步骤 4: 提取 elemental / kernel / initrd（一次 docker create）
 # ============================================================
-echo ">>> 提取 elemental 二进制到宿主机"
-rm -f /tmp/vdi-elemental-extract
-docker create --cidfile=/tmp/vdi-elemental-extract ${VDI_OS_IMAGE} -- tail -f /dev/null
-CONTAINER_ID=$(</tmp/vdi-elemental-extract)
-# docker cp 到文件（不能用 stdout 管道，会变成 tar 流）
-docker cp ${CONTAINER_ID}:/usr/bin/elemental /tmp/elemental-bin
-mv /tmp/elemental-bin /usr/bin/elemental
+# elemental build-iso 需在宿主机执行；kernel/initrd 供 PXE/调试
+echo ">>> 提取 elemental / kernel / initrd"
+rm -f /tmp/vdi-os-extract
+docker create --cidfile=/tmp/vdi-os-extract ${VDI_OS_IMAGE} -- tail -f /dev/null
+CONTAINER_ID=$(</tmp/vdi-os-extract)
+
+# elemental 二进制（docker cp 到文件，不能用 stdout 管道会变 tar 流）
+docker cp ${CONTAINER_ID}:/usr/bin/elemental /usr/bin/elemental
 chmod +x /usr/bin/elemental
-docker rm ${CONTAINER_ID} && rm -f /tmp/vdi-elemental-extract
 
-elemental_version=$(elemental --version 2>/dev/null || echo "unknown")
-echo "  elemental 版本: ${elemental_version}"
-
-# ============================================================
-# 步骤 5: 复制 kernel / initrd 到 artifacts（供 PXE / 调试使用）
-# ============================================================
-mkdir -p ${ARTIFACTS_DIR}
-
-echo ">>> 提取 kernel / initrd"
-rm -f /tmp/vdi-os-img
-docker create --cidfile=/tmp/vdi-os-img ${VDI_OS_IMAGE} -- tail -f /dev/null
-CONTAINER_ID=$(</tmp/vdi-os-img)
 # BCLinux 没有 /boot/vmlinuz 软链接，用实际版本路径
 KERNEL_PATH=$(docker run --rm ${VDI_OS_IMAGE} bash -c "ls /boot/vmlinuz-* 2>/dev/null | head -1")
 INITRD_PATH=$(docker run --rm ${VDI_OS_IMAGE} bash -c "ls /boot/initrd-* 2>/dev/null | head -1")
 if [ -z "${KERNEL_PATH}" ] || [ -z "${INITRD_PATH}" ]; then
     echo "ERROR: 找不到 kernel 或 initrd (KERNEL=${KERNEL_PATH} INITRD=${INITRD_PATH})"
-    docker rm ${CONTAINER_ID} && rm -f /tmp/vdi-os-img
+    docker rm ${CONTAINER_ID} && rm -f /tmp/vdi-os-extract
     exit 1
 fi
+mkdir -p ${ARTIFACTS_DIR}
 docker cp ${CONTAINER_ID}:${KERNEL_PATH} ${ARTIFACTS_DIR}/vdi-${VERSION}-vmlinuz-${ARCH}
 docker cp ${CONTAINER_ID}:${INITRD_PATH} ${ARTIFACTS_DIR}/vdi-${VERSION}-initrd-${ARCH}
 chmod +r ${ARTIFACTS_DIR}/vdi-${VERSION}-initrd-${ARCH}
-docker rm ${CONTAINER_ID} && rm -f /tmp/vdi-os-img
+
+docker rm ${CONTAINER_ID} && rm -f /tmp/vdi-os-extract
+echo "  elemental: $(elemental --version 2>/dev/null || echo unknown)"
 echo "  kernel: $(ls -lh ${ARTIFACTS_DIR}/vdi-${VERSION}-vmlinuz-${ARCH} | awk '{print $5}')"
 echo "  initrd: $(ls -lh ${ARTIFACTS_DIR}/vdi-${VERSION}-initrd-${ARCH} | awk '{print $5}')"
 
@@ -144,11 +136,9 @@ echo "  initrd: $(ls -lh ${ARTIFACTS_DIR}/vdi-${VERSION}-initrd-${ARCH} | awk '{
 echo ">>> 构建 Live ISO (elemental build-iso)"
 ISO_PREFIX="vdi-${VERSION}-${ARCH}"
 
-# Elemental platform 期望 amd64 或 aarch64（uname -m 的输出）
-PLATFORM=$(uname -m)
-
 cd ${PACKAGE_VDI_OS_DIR}
 # DOCKER_API_VERSION: elemental 内嵌的 Docker client 是 1.42，daemon 要求 1.44
+# --platform 用 linux/${ARCH}（GOARCH 格式，elemental 默认即 linux/amd64）
 DOCKER_API_VERSION=1.44 DOCKER_HOST=unix:///var/run/docker.sock elemental build-iso \
     --config-dir "${PACKAGE_VDI_OS_DIR}" \
     --debug \
@@ -158,7 +148,7 @@ DOCKER_API_VERSION=1.44 DOCKER_HOST=unix:///var/run/docker.sock elemental build-
     -o "${ARTIFACTS_DIR}" \
     --overlay-iso "${PACKAGE_VDI_OS_DIR}/iso" \
     -x "-comp xz" \
-    --platform "linux/${PLATFORM}"
+    --platform "linux/${ARCH}"
 
 cd ${TOP_DIR}
 
