@@ -18,26 +18,17 @@ SHA512SUM_Windows_x86_64 := 807aee2f68b6da35cb0885558f5cbc9a6c8747a56c7a200f0e1f
 	@mv .dapper.tmp .dapper
 
 # 探测宿主机路径，通过 build-arg 注入 Dockerfile.dapper 的 ARG（消除硬编码 /home/zcq）
-# 探测失败时明确报错，而非静默让 dapper 挂载空路径
+# 仅 docker/buildx/项目路径需挂载（DinD）；helm/yq/go mod 已改为容器内安装，无需宿主机预装
 PROJECT_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
-GOPATH_HOST := $(shell go env GOPATH 2>/dev/null)
 DOCKER_BIN := $(shell which docker 2>/dev/null)
 BUILDX_BIN := $(shell find /usr/libexec/docker /usr/lib/docker -name docker-buildx 2>/dev/null | head -1)
-HELM_BIN := $(shell which helm 2>/dev/null)
-YQ_BIN := $(or $(wildcard $(HOME)/go-sdk/yq),$(wildcard /tmp/yq))
 
 $(TARGETS): .dapper
 	@if [ -z "$(DOCKER_BIN)" ]; then echo "ERROR: docker not found in PATH"; exit 1; fi
 	@if [ -z "$(BUILDX_BIN)" ]; then echo "ERROR: docker-buildx not found under /usr/libexec/docker or /usr/lib/docker"; exit 1; fi
-	@if [ -z "$(HELM_BIN)" ]; then echo "ERROR: helm not found in PATH"; exit 1; fi
-	@if [ -z "$(YQ_BIN)" ]; then echo "ERROR: yq not found at ~/go-sdk/yq or /tmp/yq; download from https://github.com/mikefarah/yq/releases"; exit 1; fi
-	@if [ -z "$(GOPATH_HOST)" ]; then echo "ERROR: could not resolve GOPATH via 'go env GOPATH'"; exit 1; fi
 	PROJECT_DIR="$(PROJECT_DIR)" \
-	GOPATH_HOST="$(GOPATH_HOST)" \
 	DOCKER_BIN="$(DOCKER_BIN)" \
 	BUILDX_BIN="$(BUILDX_BIN)" \
-	HELM_BIN="$(HELM_BIN)" \
-	YQ_BIN="$(YQ_BIN)" \
 	./.dapper $@
 
 .DEFAULT_GOAL := default

@@ -1,12 +1,9 @@
 FROM golang:1.26-bookworm
 
 ARG DAPPER_HOST_ARCH
-# 宿主机路径由 Makefile 探测后通过 build-arg 注入，避免硬编码 /home/zcq
-ARG GOPATH_HOST
+# docker CLI / buildx / 项目路径由 Makefile 探测后通过 build-arg 注入（DinD 必需，容器内调宿主机 daemon）
 ARG DOCKER_BIN
 ARG BUILDX_BIN
-ARG HELM_BIN
-ARG YQ_BIN
 ARG PROJECT_DIR
 ENV ARCH $DAPPER_HOST_ARCH
 
@@ -18,23 +15,25 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     p7zip-full rpm2cpio \
     && rm -rf /var/lib/apt/lists/*
 
-# yq、helm、docker CLI 均由宿主机挂载（见 DAPPER_RUN_ARGS），离线构建无需网络下载
-
-# golangci-lint（仅 validate 需要，离线环境跳过）
-# ENV GOPROXY=https://goproxy.cn,direct
-# RUN go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
+# helm + yq（容器内安装，构建者无需宿主机预装；Go 模块也容器内下载，不再离线挂载）
+ARG HELM_VERSION=v3.20.0
+ARG YQ_VERSION=v4.52.5
+RUN curl -sSL "https://get.helm.sh/helm-${HELM_VERSION}-linux-${ARCH}.tar.gz" | tar -xz -C /tmp linux-${ARCH}/helm && \
+    mv /tmp/linux-${ARCH}/helm /usr/bin/helm && chmod +x /usr/bin/helm && \
+    curl -sSL "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_${ARCH}" -o /usr/bin/yq && \
+    chmod +x /usr/bin/yq
 
 # ARCH 由 ENV ARCH $DAPPER_HOST_ARCH 在 build 阶段固化进镜像（amd64），
 # 不放入 DAPPER_ENV 白名单——否则 dapper 会用宿主机空 ARCH 覆盖镜像值。
 ENV DAPPER_ENV TAG DRONE_TAG DRONE_BRANCH \
     RKE2_VERSION KUBEVIRT_VERSION LONGHORN_VERSION KUBEOVN_VERSION KAGENT_VERSION \
     USE_LOCAL_IMAGES \
-    GOPATH_HOST DOCKER_BIN BUILDX_BIN HELM_BIN YQ_BIN PROJECT_DIR
+    DOCKER_BIN BUILDX_BIN PROJECT_DIR
 ENV DAPPER_SOURCE /go/src/github.com/vdi-installer/
 ENV DAPPER_OUTPUT ./bin ./dist ./cache ./package/vdi-os/files/usr/bin ./package/vdi-installer
 ENV DAPPER_DOCKER_SOCKET true
-# cache/ dist/ 显式挂载：DAPPER_OUTPUT 回传时用 docker cp 从容器取，需保证容器内存在
-ENV DAPPER_RUN_ARGS "-v /run/containerd/containerd.sock:/run/containerd/containerd.sock -v ${DOCKER_BIN}:/usr/bin/docker:ro -v ${BUILDX_BIN}:/usr/libexec/docker/cli-plugins/docker-buildx:ro -v ${HELM_BIN}:/usr/bin/helm:ro -v ${YQ_BIN}:/usr/bin/yq:ro -v ${GOPATH_HOST}/pkg/mod:/go/pkg/mod -v ${PROJECT_DIR}/cache:/go/src/github.com/vdi-installer/cache -v ${PROJECT_DIR}/dist:/go/src/github.com/vdi-installer/dist --privileged"
+# docker CLI/buildx/socket 挂载（DinD）；cache/dist bind 挂载。helm/yq/go mod 容器内自行安装/下载
+ENV DAPPER_RUN_ARGS "-v /run/containerd/containerd.sock:/run/containerd/containerd.sock -v ${DOCKER_BIN}:/usr/bin/docker:ro -v ${BUILDX_BIN}:/usr/libexec/docker/cli-plugins/docker-buildx:ro -v ${PROJECT_DIR}/cache:/go/src/github.com/vdi-installer/cache -v ${PROJECT_DIR}/dist:/go/src/github.com/vdi-installer/dist --privileged"
 
 ENV HOME ${DAPPER_SOURCE}
 WORKDIR ${DAPPER_SOURCE}
