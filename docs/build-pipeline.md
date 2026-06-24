@@ -130,11 +130,14 @@ BCLinux ISO ──build-bclinux-base──→ bclinux:21.10U5 ──┐
 
 构建前宿主机必须具备：
 
-1. **BCLinux ISO**：`dist/iso/BCLinux-21.10U5-dvd-x86_64-260610.iso`
-2. **挂载的二进制**：docker、buildx、helm、yq（见 `DAPPER_RUN_ARGS`）
-3. **Go 模块缓存**：`~/go/pkg/mod`（`GOPROXY=off` 纯离线）
-4. **内存 ≥16G**：elemental + mksquashfs xz 压缩峰值 ~9.7GB，不足会 OOM（exit 137）
-5. **磁盘 ≥20G**：Docker 层 + squashfs + ISO 临时空间
+1. **BCLinux ISO**（客户提供）：`dist/iso/BCLinux-21.10U5-dvd-x86_64-260610.iso`
+2. **elemental / wharfie 二进制**：`make fetch-deps` 自动下载到 `package/vdi-os/files/usr/bin/`
+3. **挂载的二进制**：docker、buildx、helm、yq（见 `DAPPER_RUN_ARGS`）
+4. **Go 模块缓存**：`~/go/pkg/mod`（`GOPROXY=off` 纯离线）
+5. **内存 ≥16G**：elemental + mksquashfs xz 压缩峰值 ~9.7GB，不足会 OOM（exit 137）
+6. **磁盘 ≥20G**：Docker 层 + squashfs + ISO 临时空间
+
+外部输入前置检查：`make check-deps`（已接入 `make default`/`make package-vdi-os`，依赖缺失会在构建前明确报错而非中途晦涩失败）。
 
 ## 六、构建命令速查
 

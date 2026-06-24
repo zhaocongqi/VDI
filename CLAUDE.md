@@ -68,6 +68,19 @@ Dockerfile.dapper 不从网络下载工具链，所有外部依赖通过 DAPPER_
 
 Go 编译使用 `GOPROXY=off GOTOOLCHAIN=local` 确保纯离线。
 
+#### 外部输入准备
+
+构建依赖 3 个外部输入（`.gitignore` 忽略，不入 git）：
+- **BCLinux ISO**（客户提供）：放至 `dist/iso/BCLinux-21.10U5-dvd-x86_64-260610.iso`
+- **elemental 二进制**（~18MB，v0.3.1）：`make fetch-deps` 自动下载
+- **wharfie 二进制**（~47MB，v0.6.8）：`make fetch-deps` 自动下载
+
+```bash
+make fetch-deps    # 下载 elemental + wharfie 到 package/vdi-os/files/usr/bin/
+make check-deps    # 前置检查（BCLinux ISO + elemental + wharfie），缺失明确报错
+make default       # check-deps 已自动接入，依赖不全会在构建前中断
+```
+
 #### 本地包缓存与无代理下载
 
 运行 `make build-bundle` 时支持通过环境变量 `LOCAL_PKG_DIR`（如 `export LOCAL_PKG_DIR=/opt/vdi-pkgs`）指定本地离线包检索路径。若该路径下存在与下载目标同名的文件，系统将优先进行本地拷贝；若不存在或未命中，则使用无代理配置的 `curl` 正常下载。若未设置此环境变量，则默认优先尝试检索项目下的 `cache/downloads` 目录。

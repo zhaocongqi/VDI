@@ -1,0 +1,40 @@
+#!/bin/bash -e
+# 下载构建外部二进制依赖（elemental / wharfie）到 package/vdi-os/files/usr/bin/
+# 用法: make fetch-deps
+# BCLinux ISO 需客户提供（放 dist/iso/），本脚本不下载
+
+TOP_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )/.." &> /dev/null && pwd )"
+BIN_DIR="${TOP_DIR}/package/vdi-os/files/usr/bin"
+ARCH="${ARCH:-amd64}"
+
+# 版本：elemental v0.3.1（commit bab71d15，与之前构建一致）；
+# wharfie v0.6.8（与 go.mod github.com/rancher/wharfie 一致）
+ELEMENTAL_VERSION="v0.3.1"
+WHARFIE_VERSION="v0.6.8"
+
+mkdir -p "${BIN_DIR}"
+
+# elemental（tar.gz 包，含 elemental 二进制）
+if [ ! -s "${BIN_DIR}/elemental" ]; then
+    echo ">>> 下载 elemental ${ELEMENTAL_VERSION}"
+    curl -sSL "https://github.com/rancher/elemental-cli/releases/download/${ELEMENTAL_VERSION}/elemental-${ELEMENTAL_VERSION}-Linux-x86_64.tar.gz" \
+        | tar -xz -C /tmp elemental
+    mv /tmp/elemental "${BIN_DIR}/elemental"
+    chmod +x "${BIN_DIR}/elemental"
+    echo "    $(ls -lh ${BIN_DIR}/elemental | awk '{print $5}')"
+else
+    echo "    elemental 已存在，跳过"
+fi
+
+# wharfie（直接二进制，资产名 wharfie-amd64）
+if [ ! -s "${BIN_DIR}/wharfie" ]; then
+    echo ">>> 下载 wharfie ${WHARFIE_VERSION}"
+    curl -sSL "https://github.com/rancher/wharfie/releases/download/${WHARFIE_VERSION}/wharfie-${ARCH}" \
+        -o "${BIN_DIR}/wharfie"
+    chmod +x "${BIN_DIR}/wharfie"
+    echo "    $(ls -lh ${BIN_DIR}/wharfie | awk '{print $5}')"
+else
+    echo "    wharfie 已存在，跳过"
+fi
+
+echo ">>> 完成。BCLinux ISO 需客户提供（放 dist/iso/）"

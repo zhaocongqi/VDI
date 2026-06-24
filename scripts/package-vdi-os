@@ -23,6 +23,9 @@ source ${SCRIPTS_DIR}/version-kubeovn
 source ${SCRIPTS_DIR}/version-kagent
 source ${SCRIPTS_DIR}/version
 
+# 前置检查：BCLinux ISO + elemental + wharfie
+${SCRIPTS_DIR}/check-deps
+
 VDI_OS_IMAGE=rancher/vdi-os:${VERSION}
 PRETTY_NAME="VDI ${VERSION}"
 CACHE_DIR="${TOP_DIR}/cache"

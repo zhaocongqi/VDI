@@ -3,6 +3,7 @@ set -e
 
 cd $(dirname $0)
 
+./check-deps
 ./build
 ./build-bundle
 # ./package-vdi-repo  # 跳过：需要 nginx:alpine，离线环境不可用
