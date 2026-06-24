@@ -76,6 +76,7 @@ fi
 # Dockerfile 用 RUN --mount=type=bind,from=bclinux-repo 挂载，
 # 因此必须用 docker buildx build --build-context bclinux-repo=<dir>
 # ============================================================
+# buildx --build-context 由容器内 buildx CLI 解析，用容器内路径（REPO_DIR）
 REPO_DIR="${CACHE_DIR}/bclinux-repo"
 if [ ! -d "${REPO_DIR}/Packages" ] || [ ! -d "${REPO_DIR}/repodata" ]; then
     echo ">>> 准备本地 BCLinux 仓库"

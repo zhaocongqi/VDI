@@ -8,6 +8,12 @@ CACHE_DIR="${TOP_DIR}/cache"
 REPO_DIR="${CACHE_DIR}/bclinux-repo"
 ROOTFS_DIR="${CACHE_DIR}/bclinux-rootfs"
 
+# DinD: 容器内调 docker 时挂载源需用宿主机路径（PROJECT_DIR 由 Dapper DAPPER_ENV 注入），
+# 容器外直接跑则 fallback 到 TOP_DIR。脚本自身文件操作（7z/rm）仍用容器内路径。
+HOST_CACHE_DIR="${PROJECT_DIR:-${TOP_DIR}}/cache"
+HOST_REPO_DIR="${HOST_CACHE_DIR}/bclinux-repo"
+HOST_ROOTFS_DIR="${HOST_CACHE_DIR}/bclinux-rootfs"
+
 echo ">>> 提取 BCLinux RPM 仓库"
 rm -rf "${REPO_DIR}"
 mkdir -p "${REPO_DIR}"
@@ -20,9 +26,10 @@ mkdir -p "${ROOTFS_DIR}"
 # 用 almalinux:8 作为辅助容器（自带 dnf）
 # --disablerepo="*" 禁掉 almalinux 默认仓库（避免其用 releasever 联网拼 mirrorlist）
 # --enablerepo=bclinux 只用 ISO 本地仓库；releasever=8 仅占位，本地仓库不依赖它
+# -v 用宿主机路径（HOST_*），DinD 下宿主机 docker daemon 才能找到挂载源
 docker run --rm \
-    -v "${REPO_DIR}:/iso:ro" \
-    -v "${ROOTFS_DIR}:/rootfs" \
+    -v "${HOST_REPO_DIR}:/iso:ro" \
+    -v "${HOST_ROOTFS_DIR}:/rootfs" \
     almalinux:8 \
     dnf --installroot=/rootfs \
         --releasever=8 \
