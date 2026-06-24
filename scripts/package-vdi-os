@@ -198,7 +198,7 @@ print(''); sys.exit(1)
         # 验证
         echo "  EFI 引导镜像内容:"
         mdir -i "${EFI_IMG}" ::EFI/BOOT/ 2>/dev/null
-        if mdir -i "${EFI_IMG}" ::EFI/BOOT/ 2>/dev/null | grep -qi "grubx64.efi"; then
+        if mdir -i "${EFI_IMG}" ::EFI/BOOT/ 2>/dev/null | grep -qi "grubx64"; then
             # 原位写回（conv=notrunc 不截断 ISO）
             dd if="${EFI_IMG}" of="${ISO_FILE}" bs=1024 seek=$((EFI_OFF/1024)) count=$((EFI_SIZE/1024)) conv=notrunc 2>/dev/null
             echo "  grubx64.efi 注入成功 ✓ (UEFI 引导就绪)"
