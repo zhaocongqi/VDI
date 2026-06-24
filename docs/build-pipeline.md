@@ -28,13 +28,14 @@ $(TARGETS): .dapper
 
 - `./.dapper` 首次运行时从 `releases.rancher.com` 下载（带 SHA512 校验）
 - 容器镜像由 `Dockerfile.dapper` 构建（基于 `golang:1.26-bookworm`，预装 xorriso/mtools/squashfs-tools/grub-efi-amd64-bin/rpm2cpio 等）
-- **外部依赖通过 `DAPPER_RUN_ARGS` 挂载**（不从网络下载）：
-  - `/usr/bin/docker` + buildx 插件
-  - `/usr/local/bin/helm`、`/tmp/yq`
-  - `~/go/pkg/mod`（Go 模块缓存，配合 `GOPROXY=off GOTOOLCHAIN=local`）
-  - `cache/`、`dist/`（构建缓存与产物）
+- **外部依赖路径由 Makefile 探测后通过 build-arg 注入**（不硬编码用户目录，换机器/用户/CI 无需改文件）：
+  - docker CLI + buildx 插件（`which docker` + `find ... -name docker-buildx`）
+  - helm、yq（`~/go-sdk/yq` 或 `/tmp/yq`）
+  - Go 模块缓存（`go env GOPATH`/pkg/mod，配合 `GOPROXY=off GOTOOLCHAIN=local`）
+  - `cache/`、`dist/`（项目根下）
   - `/usr/lib/ISOLINUX` + `/usr/lib/syslinux`（ISO 后处理引导文件）
   - containerd socket + `--privileged`
+- 任一依赖探测失败时 `make` 明确报错，而非静默挂载空路径
 - `DAPPER_OUTPUT` 声明容器→宿主机回传：`./bin ./dist ./cache ./package/vdi-os/files/usr/bin ./package/vdi-installer`
 
 ## 二、scripts 脚本职责

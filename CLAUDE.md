@@ -57,13 +57,15 @@ make validate           # golangci-lint 检查
 
 ### 离线构建
 
-Dockerfile.dapper 不从网络下载工具链，所有外部依赖通过 DAPPER_RUN_ARGS 挂载宿主机二进制：
-- `/usr/bin/docker` + `/usr/libexec/docker/cli-plugins/docker-buildx` — Docker CLI
-- `/usr/local/bin/helm` — Helm
-- `/tmp/yq` — yq（从 `~/go-sdk/yq` 或 GitHub release 获取）
-- `~/go/pkg/mod` — Go 模块缓存
-- `cache/` + `dist/` — 构建缓存和产物
+Dockerfile.dapper 不从网络下载工具链，所有外部依赖通过 DAPPER_RUN_ARGS 挂载宿主机二进制。**路径由 Makefile 探测后通过 build-arg 注入 Dockerfile.dapper 的 ARG**（不硬编码用户目录），换机器/用户/CI 无需改文件：
+- docker + buildx 插件（`which docker` + `find ... -name docker-buildx`）
+- helm（`which helm`）
+- yq（`~/go-sdk/yq` 或 `/tmp/yq`，缺失时 Makefile 明确报错）
+- Go 模块缓存（`go env GOPATH`/pkg/mod）
+- `cache/` + `dist/` — 构建缓存和产物（项目根下）
 - `/usr/lib/ISOLINUX` + `/usr/lib/syslinux` — ISO 后处理所需引导文件
+
+探测任一依赖失败时 `make` 会明确报错并指引，而非静默挂载空路径。
 
 Go 编译使用 `GOPROXY=off GOTOOLCHAIN=local` 确保纯离线。
 
