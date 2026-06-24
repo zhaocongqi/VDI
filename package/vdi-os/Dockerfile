@@ -95,11 +95,17 @@ RUN systemctl enable serial-getty@ttyS0.service
 # 关键：用 dracut 重建 initrd（包含 dmsquash-live 模块）
 # --no-hostonly: 避免 dracut 读宿主机内核（容器内 /proc/sys/kernel/osrelease 是宿主内核）
 # --kver: 明确指定容器内的 BCLinux 内核版本
+# 重建后覆盖所有 initramfs（含 rescue），否则 elemental build-iso 会用 BCLinux 默认的
+# initramfs-0-rescue-*.img（无 dmsquash-live），导致 root=live:CDLABEL 引导失败
 RUN KERNEL_VERSION=$(ls /lib/modules/ | head -1) && \
     echo "重建 initrd for kernel ${KERNEL_VERSION}" && \
     dracut -f --no-hostonly --kver "${KERNEL_VERSION}" --add dmsquash-live \
         "/boot/initrd-${KERNEL_VERSION}" && \
-    ls -la /boot/initrd-${KERNEL_VERSION}
+    cp -f "/boot/initrd-${KERNEL_VERSION}" "/boot/initramfs-${KERNEL_VERSION}.img" && \
+    for r in /boot/initramfs-0-rescue-*.img; do \
+        [ -e "$r" ] && cp -f "/boot/initrd-${KERNEL_VERSION}" "$r" && echo "覆盖 $r"; \
+    done; \
+    ls -la /boot/initrd-* /boot/initramfs-*
 
 # 设置默认密码（root/vdi123）方便调试
 # 使用 openssl 生成加密密码，避免 chpasswd 的 PAM 问题
