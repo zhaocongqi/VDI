@@ -71,33 +71,36 @@ Go 编译使用 `GOPROXY=off GOTOOLCHAIN=local` 确保纯离线。
 
 运行 `make build-bundle` 时支持通过环境变量 `LOCAL_PKG_DIR`（如 `export LOCAL_PKG_DIR=/opt/vdi-pkgs`）指定本地离线包检索路径。若该路径下存在与下载目标同名的文件，系统将优先进行本地拷贝；若不存在或未命中，则使用无代理配置的 `curl` 正常下载。若未设置此环境变量，则默认优先尝试检索项目下的 `cache/downloads` 目录。
 
+### TUI 终端尺寸（踩坑红线）
+
+`package/vdi-os/files/usr/bin/start-installer.sh` 中的 `stty rows/cols` + `COLUMNS/LINES` 导出**不可删除**。gocui 所有面板坐标依赖 `g.Size()`（termbox 经 `ioctl(TIOCGWINSZ)` 读 tty winsize），winsize 缺失会导致 TUI 全黑屏。`pkg/console/console.go` 有 `g.Size() >= 80x24` 前置校验，尺寸不足会明确报错而非黑屏。
+
+构建环境内存需 ≥16G（elemental + mksquashfs xz 压缩峰值 ~9.7GB，7.7G 内存会 OOM），不足时加 swap。
+
 
 ## 关键配置
 
 ### VDIConfig 结构体
 
-安装器的核心配置结构体，定义在 `pkg/config/config.go`：
+安装器的核心配置结构体，定义在 `pkg/config/config.go`。安装模式、集群网络、管理网卡等运行时配置统一收归到 `Install`/`OS` 子结构体，顶层只保留版本与集群标识：
 
 ```go
 type VDIConfig struct {
-    SchemeVersion       uint32
-    Automatic           bool
-    ServerURL           string
-    Token               string
-    OS                  OSConfig
-    Install             InstallConfig
-    Hostname            string
-    ClusterPodCIDR      string
-    ClusterServiceCIDR  string
-    ClusterDNS          string
-    ManagementInterface Network
-    RKE2Version         string
-    KubevirtVersion     string
-    LonghornVersion     string
-    KubeovnVersion      string
-    KagentVersion       string
+    SchemeVersion   uint32
+    ServerURL       string
+    Token           string
+    SANS            []string
+    OS              OSConfig      // Hostname、SSHAuthorizedKeys、Password、DNS 等
+    Install         InstallConfig // Mode、Role、ManagementInterface、ClusterPodCIDR 等
+    RKE2Version     string
+    KubevirtVersion string
+    LonghornVersion string
+    KubeovnVersion  string
+    KagentVersion   string
 }
 ```
+
+⚠️ 不要在顶层新增 `Automatic/Hostname/ClusterPodCIDR/ManagementInterface` 等字段——它们已迁入 `Install`/`OS`，顶层同名旧字段已删除。读写集群网络配置用 `config.Install.ClusterPodCIDR/ClusterServiceCIDR/ClusterDNS`，hostname 用 `config.OS.Hostname`。
 
 ### RKE2 配置模板
 
