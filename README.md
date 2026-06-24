@@ -43,11 +43,10 @@ ISO 产物位于 `dist/artifacts/vdi-$VERSION-$ARCH.iso`。
 
 ### 测试 ISO
 
-```bash
-# BIOS 模式
-make test-iso
+当前 ISO 仅支持 UEFI 引导（通过字节级注入 grubx64.efi 到 EFI 引导镜像）。
 
-# UEFI 模式
+```bash
+# UEFI 模式（需 OVMF 固件）
 qemu-system-x86_64 -m 4096 -smp 2 \
     -cdrom dist/artifacts/vdi-*.iso \
     -boot d -bios /usr/share/ovmf/OVMF.fd -nographic
