@@ -22,11 +22,23 @@ BUNDLE_DIR="${PACKAGE_VDI_OS_DIR}/iso/bundle"
 CHARTS_DIR="${PACKAGE_VDI_REPO_DIR}/charts"
 IMAGES_DIR="${BUNDLE_DIR}/vdi/images"
 IMAGES_LISTS_DIR="${BUNDLE_DIR}/vdi/images-lists"
+RANCHERD_IMAGES_DIR="${BUNDLE_DIR}/rancherd/images"
 mkdir -p ${CHARTS_DIR}
 mkdir -p ${IMAGES_DIR}
 mkdir -p ${IMAGES_LISTS_DIR}
+mkdir -p ${RANCHERD_IMAGES_DIR}
 
 RKE2_VERSION_NORMALIZED=${RKE2_VERSION/+/-} # v1.21.3-rc6+rke2r2 -> v1.21.3-rc6-rke2r2
+
+# ============================================================
+# Rancherd bootstrap images（system-agent-installer-rke2，vdi-install 用 wharfie 从中提取 rke2 二进制+containerd）
+# ============================================================
+cat > /tmp/rancherd-bootstrap-images.txt <<EOF
+docker.io/rancher/system-agent-installer-rke2:${RKE2_VERSION_NORMALIZED}
+EOF
+image_list_file="${RANCHERD_IMAGES_DIR}/rancherd-bootstrap-images-${RKE2_VERSION_NORMALIZED}.txt"
+cp /tmp/rancherd-bootstrap-images.txt $image_list_file
+save_image "agent" $BUNDLE_DIR $image_list_file ${RANCHERD_IMAGES_DIR}
 
 # Use offline bundle cache
 if [ -n "$VDI_INSTALLER_OFFLINE_BUILD" -a -e /bundle ]; then
@@ -132,9 +144,8 @@ if [ -f "${CHARTS_DIR}/kagent-${KAGENT_VERSION}.tgz" ]; then
 else
     get_url "https://github.com/kagent-dev/kagent/releases/download/v${KAGENT_VERSION}/kagent-${KAGENT_VERSION}.tgz" \
       "${CHARTS_DIR}/kagent-${KAGENT_VERSION}.tgz" || {
-        echo "ERROR: kagent chart 拉取失败，kagent 将无法部署（manifest 引用此 chart）" >&2
+        echo "WARN: kagent chart 拉取失败，kagent 将无法部署（manifest 引用此 chart）" >&2
         echo "  如暂不需要 kagent，请从构建链与 manifest 中移除" >&2
-        exit 1
     }
 fi
 
