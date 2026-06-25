@@ -70,27 +70,11 @@ RUN mkdir -p /etc/NetworkManager/conf.d && \
 RUN mkdir -p /etc/ssh/sshd_config.d && \
     printf "PermitRootLogin yes\nPasswordAuthentication yes\n" > /etc/ssh/sshd_config.d/allow-root.conf
 
-# 创建安装器 drop-in 覆盖（在构建时完成，而非运行时）
-# 覆盖 VGA console (tty1) 和 serial console (ttyS0)
-RUN mkdir -p /etc/systemd/system/getty@tty1.service.d && \
-    cat > /etc/systemd/system/getty@tty1.service.d/override.conf <<"EOF"
-[Service]
-ExecStartPre=/usr/bin/setterm --msg off
-ExecStartPre=/usr/bin/kill -s 55 1
-ExecStopPost=/usr/bin/kill -s 54 1
-ExecStart=
-ExecStart=-/sbin/agetty -n -l /usr/bin/start-installer.sh %I $TERM
-EOF
-RUN mkdir -p /etc/systemd/system/serial-getty@ttyS0.service.d && \
-    cat > /etc/systemd/system/serial-getty@ttyS0.service.d/override.conf <<"EOF"
-[Service]
-ExecStartPre=/usr/bin/kill -s 55 1
-ExecStopPost=/usr/bin/kill -s 54 1
-ExecStart=
-ExecStart=-/sbin/agetty -n -l /usr/bin/start-installer.sh %I $TERM
-EOF
-# 启用串口 getty（用于 serial console 安装）
-RUN systemctl enable serial-getty@ttyS0.service
+# 安装器 drop-in 由运行时 setup-installer.sh 创建（对齐 harvester）：
+# 根据 /sys/class/tty/console/active 只为第一个 VGA tty 创建 getty override，
+# 避免多个 vdi-installer 实例争用键盘导致 TUI 串行/叠加。
+# 此前在构建时静态创建 tty1 + ttyS0 override，叠加 console=tty0 会导致
+# tty0/tty1/ttyS0 三个 getty 同时跑 vdi-installer。
 
 # 关键：用 dracut 重建 initrd（包含 dmsquash-live 模块）
 # --no-hostonly: 避免 dracut 读宿主机内核（容器内 /proc/sys/kernel/osrelease 是宿主内核）

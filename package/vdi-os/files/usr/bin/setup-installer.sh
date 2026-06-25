@@ -29,10 +29,10 @@ EOF
 }
 
 echo "Remove the getty service..."
-rm -rf "/etc/systemd/system/getty*"
+rm -rf /etc/systemd/system/getty*
 
 echo "Remove the serial-getty service..."
-rm -rf "/etc/systemd/system/serial-getty*"
+rm -rf /etc/systemd/system/serial-getty*
 
 # 获取活跃的 TTY 列表
 read -r -a tty_list < /sys/class/tty/console/active
