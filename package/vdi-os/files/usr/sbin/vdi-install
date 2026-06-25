@@ -121,13 +121,13 @@ preload_rke2_images()
         echo "Copying remaining images to temporary location..."
         rsync -ahv --progress ${ISOMNT}/bundle/vdi/images/ $TARGET/$TMP_IMAGES_DIR
         rsync -ahv --progress ${ISOMNT}/bundle/vdi/images-lists/ $TARGET/$IMAGES_LISTS_DIR
-        # chroot 脚本从 /var/lib/rancher/agent/images/ 找 rke2-images-*.txt（镜像列表）
-        cp ${ISOMNT}/bundle/vdi/images-lists/rke2-images.*.txt $TARGET/$AGENT_IMAGES_DIR/
+        # rancherd bootstrap images（system-agent-installer-rke2 镜像 tar + 列表，chroot 用 wharfie 提取 rke2 二进制+containerd）
+        cp ${ISOMNT}/bundle/rancherd/images/* $TARGET/$AGENT_IMAGES_DIR/
     else
         echo "Bind-mount images directory to the target location..."
         mount --bind ${ISOMNT}/bundle/vdi/images $TARGET/$RKE2_IMAGES_DIR
         mount --bind ${ISOMNT}/bundle/vdi/images-lists $TARGET/$IMAGES_LISTS_DIR
-        cp ${ISOMNT}/bundle/vdi/images-lists/rke2-images.*.txt $TARGET/$AGENT_IMAGES_DIR/
+        cp ${ISOMNT}/bundle/rancherd/images/* $TARGET/$AGENT_IMAGES_DIR/
     fi
 
     cd $TARGET
@@ -150,10 +150,10 @@ preload_rke2_images()
       inst_tmp=$(mktemp -d -p /usr/local)
       trap "rm -rf $inst_tmp" exit
 
-      # extract RKE2 tarball from image
-      image_list=$(ls /var/lib/rancher/agent/images/rke2-images-*.txt | head -n 1)
+      # 从 rancherd-bootstrap-images 列表找 system-agent-installer-rke2 镜像（wharfie 提取 rke2 二进制+containerd）
+      image_list=$(ls /var/lib/rancher/agent/images/rancherd-bootstrap-images-*.txt 2>/dev/null | head -n 1)
       if [ -z "$image_list" ]; then
-        echo "[ERROR] Fail to get RKE2 images list."
+        echo "[ERROR] Fail to get rancherd bootstrap images list."
         exit 1
       fi
 
