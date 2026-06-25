@@ -648,6 +648,11 @@ func CreateRootPartitioningLayoutSeparateDataDisk(elementalConfig *ElementalConf
 			FS:              "ext4",
 		},
 	}
+
+	elementalConfig.Install.System = &ElementalSystem{
+		Size: DefaultSystemImageSizeMiB,
+	}
+
 	return elementalConfig
 }
 
@@ -696,6 +701,12 @@ func CreateRootPartitioningLayoutSharedDataDisk(elementalConfig *ElementalConfig
 			Size:            0,
 			FS:              "ext4",
 		},
+	}
+
+	// active.img 的 ext2 文件系统大小：需容纳 rootfs + RKE2 离线镜像预加载。
+	// 不设则 elemental 自动按 rootfs 大小算，镜像预加载会 No space。
+	elementalConfig.Install.System = &ElementalSystem{
+		Size: DefaultSystemImageSizeMiB,
 	}
 
 	return elementalConfig, nil

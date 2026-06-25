@@ -55,8 +55,9 @@ var (
 // Partition size constants (in MiB)
 const (
 	DefaultCosOemSizeMiB        = 512
-	DefaultCosStateSizeMiB      = 1536
+	DefaultCosStateSizeMiB      = 15360
 	DefaultCosRecoverySizeMiB   = 8192
+	DefaultSystemImageSizeMiB   = 6144 // active.img 的 ext2 文件系统大小，需容纳 rootfs(~2.7G) + RKE2 离线镜像(~2.3G)；recovery.img 复制 active.img，COS_RECOVERY 分区(8G)需大于此值
 	PersistentSizeMinGiB        = 150
 )
 
