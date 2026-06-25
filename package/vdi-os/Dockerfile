@@ -10,19 +10,24 @@ ARG ARCH=amd64
 #   docker buildx build \
 #     --build-context bclinux-repo=/path/to/bclinux-repo \
 #     -t rancher/vdi-os:test --load .
+# 打破 buildx 缓存：改动依赖列表时强制重新执行 dnf install（否则缓存命中旧层）
+ARG DEP_BUST=2026-06-25-disableplugin
 RUN --mount=type=bind,from=bclinux-repo,source=.,target=/iso,rw \
     printf "[bclinux]\nname=BCLinux\nbaseurl=file:///iso\nenabled=1\ngpgcheck=0\n" \
         > /etc/yum.repos.d/bclinux.repo && \
-    dnf install -y \
+    echo "dep-bust=${DEP_BUST}" && \
+    dnf --disableplugin=* install -y \
     dracut \
     squashfs-tools \
+    dosfstools \
+    lvm2 \
     NetworkManager \
     openssh-server \
     iproute iputils net-tools \
     conntrack-tools \
-    iscsi-initiator-utils nfs-utils \
+    open-iscsi nfs-utils \
     ebtables ipvsadm \
-    && dnf clean all && \
+    && dnf --disableplugin=* clean all && \
     rm -f /etc/yum.repos.d/bclinux.repo
 
 # elemental build-iso 需要 EFI 引导文件在 /usr/share/efi/x86_64/
@@ -49,8 +54,11 @@ RUN --mount=type=bind,from=bclinux-repo,source=.,target=/iso,rw \
 COPY files/ /
 COPY vdi-release.yaml /etc/
 
-# elemental / wharfie 二进制（COPY files/ 已包含，此处显式 chmod）
-RUN chmod +x /usr/bin/elemental /usr/bin/wharfie
+# elemental / wharfie / yip 二进制（COPY files/ 已包含，此处显式 chmod）
+RUN chmod +x /usr/bin/elemental /usr/bin/wharfie /usr/bin/yip
+
+# 创建 rancher 用户（applyPassword 通过 yip 配置 rancher 用户密码；BCLinux 基础镜像无此用户）
+RUN useradd -m -s /bin/bash rancher || true
 
 # 配置 systemd：禁用 Anaconda 残留，启用 VDI 服务
 RUN systemctl set-default multi-user.target && \
