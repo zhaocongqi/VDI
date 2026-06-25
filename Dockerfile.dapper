@@ -30,7 +30,7 @@ ENV DAPPER_ENV TAG DRONE_TAG DRONE_BRANCH \
     USE_LOCAL_IMAGES \
     DOCKER_BIN BUILDX_BIN PROJECT_DIR
 ENV DAPPER_SOURCE /go/src/github.com/vdi-installer/
-ENV DAPPER_OUTPUT ./bin ./dist ./cache ./package/vdi-os/files/usr/bin ./package/vdi-installer
+ENV DAPPER_OUTPUT ./bin ./dist ./cache ./package/vdi-os/files/usr/bin ./package/vdi-os/iso ./package/vdi-installer
 ENV DAPPER_DOCKER_SOCKET true
 # docker CLI/buildx/socket 挂载（DinD）；cache/dist bind 挂载。helm/yq/go mod 容器内自行安装/下载
 ENV DAPPER_RUN_ARGS "-v /run/containerd/containerd.sock:/run/containerd/containerd.sock -v ${DOCKER_BIN}:/usr/bin/docker:ro -v ${BUILDX_BIN}:/usr/libexec/docker/cli-plugins/docker-buildx:ro -v ${PROJECT_DIR}/cache:/go/src/github.com/vdi-installer/cache -v ${PROJECT_DIR}/dist:/go/src/github.com/vdi-installer/dist --privileged"
