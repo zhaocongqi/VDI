@@ -1,4 +1,12 @@
 ARG BASE_OS_IMAGE=bclinux:21.10U5
+
+# 提取 grub2 x86_64-efi 模块（BCLinux 仓库无 EFI 模块包，只有 i386-pc BIOS 模块；
+# elemental install 找 /usr/lib/grub/x86_64-efi/*.mod 生成 UEFI core.img，缺失会报
+# "did not find grub modules under /run/cos/workingtree"。从 Debian grub-efi-amd64-bin 提取）
+FROM debian:bookworm-slim AS grub-efi-modules
+RUN apt-get update && apt-get install -y --no-install-recommends grub-efi-amd64-bin && \
+    rm -rf /var/lib/apt/lists/*
+
 FROM ${BASE_OS_IMAGE}
 
 ARG ARCH=amd64
@@ -11,7 +19,7 @@ ARG ARCH=amd64
 #     --build-context bclinux-repo=/path/to/bclinux-repo \
 #     -t rancher/vdi-os:test --load .
 # 打破 buildx 缓存：改动依赖列表时强制重新执行 dnf install（否则缓存命中旧层）
-ARG DEP_BUST=2026-06-25-disableplugin
+ARG DEP_BUST=2026-06-25-grubcfg
 RUN --mount=type=bind,from=bclinux-repo,source=.,target=/iso,rw \
     printf "[bclinux]\nname=BCLinux\nbaseurl=file:///iso\nenabled=1\ngpgcheck=0\n" \
         > /etc/yum.repos.d/bclinux.repo && \
@@ -53,6 +61,9 @@ RUN --mount=type=bind,from=bclinux-repo,source=.,target=/iso,rw \
 # 注入 VDI 文件（含 systemd service、脚本、manifests 等）
 COPY files/ /
 COPY vdi-release.yaml /etc/
+
+# grub2 x86_64-efi 模块（BCLinux 无 EFI 模块包，从 Debian 提取；elemental install 生成 UEFI core.img 需要）
+COPY --from=grub-efi-modules /usr/lib/grub/x86_64-efi/ /usr/lib/grub/x86_64-efi/
 
 # elemental / wharfie / yip 二进制（COPY files/ 已包含，此处显式 chmod）
 RUN chmod +x /usr/bin/elemental /usr/bin/wharfie /usr/bin/yip
