@@ -109,9 +109,11 @@ preload_rke2_images()
     readonly RKE2_IMAGES_DIR="/var/lib/rancher/rke2/agent/images"
     readonly TMP_IMAGES_DIR="/var/lib/rancher/tmp/images"
     readonly IMAGES_LISTS_DIR="/tmp/images-lists"
+    readonly AGENT_IMAGES_DIR="/var/lib/rancher/agent/images"
     mkdir -p $TARGET/$RKE2_IMAGES_DIR
     mkdir -p $TARGET/$TMP_IMAGES_DIR
     mkdir -p $TARGET/$IMAGES_LISTS_DIR
+    mkdir -p $TARGET/$AGENT_IMAGES_DIR
 
     if [ "$INSTALL_MODE" = "ISO" ]; then
         echo "Copying RKE2 images to the target location..."
@@ -119,10 +121,13 @@ preload_rke2_images()
         echo "Copying remaining images to temporary location..."
         rsync -ahv --progress ${ISOMNT}/bundle/vdi/images/ $TARGET/$TMP_IMAGES_DIR
         rsync -ahv --progress ${ISOMNT}/bundle/vdi/images-lists/ $TARGET/$IMAGES_LISTS_DIR
+        # chroot 脚本从 /var/lib/rancher/agent/images/ 找 rke2-images-*.txt（镜像列表）
+        cp ${ISOMNT}/bundle/vdi/images-lists/rke2-images.*.txt $TARGET/$AGENT_IMAGES_DIR/
     else
         echo "Bind-mount images directory to the target location..."
         mount --bind ${ISOMNT}/bundle/vdi/images $TARGET/$RKE2_IMAGES_DIR
         mount --bind ${ISOMNT}/bundle/vdi/images-lists $TARGET/$IMAGES_LISTS_DIR
+        cp ${ISOMNT}/bundle/vdi/images-lists/rke2-images.*.txt $TARGET/$AGENT_IMAGES_DIR/
     fi
 
     cd $TARGET
