@@ -2,18 +2,17 @@
 
 package termbox
 
-// 开启 ESC 等待：收到 ESC 字节后短暂等待（esc_wait_delay，默认 100ms）后续字节，
-// 用于区分"方向键等转义序列的 ESC 前缀"与"用户单按 ESC 键"。
+// 保持与上游 termbox 一致：Linux 关闭 ESC 等待（与 harvester-installer 相同配置）。
 //
-// 背景：Linux 控制台/串口/VMware 控制台下，方向键转义序列（如 ESC [ A）的字节
-// 可能分批到达（SIGIO 逐批通知）。若不等待，单独到达的 ESC 前缀会被立即判为
-// KeyEsc，触发 TUI 面板的 ESC 回退逻辑——表现为密码面板误回退（密码看似没输入
-// 进去）、网卡面板误回退（输入框串行）。
+// 曾尝试开启 esc_wait（return true）以解决方向键转义序列分批到达时 ESC 前缀
+// 被误判为 KeyEsc 的问题，但 esc_wait 的 100ms 阻塞在用户快速连按方向键时导致
+// 按键积压、面板切换显示错乱，弊大于利。harvester 生产环境长期使用 escwait=false
+// + InputEsc=true，主流终端方向键一次性到达不会误判。
 //
-// 开启等待后：分批到达的方向键在 esc_wait_delay 内凑齐 → 正确解析为方向键；
-// 单按 ESC → 超时后产生 KeyEsc，回退功能保留（代价是 100ms 延迟，与 macOS 一致）。
+// TUI 串行/叠加的真正根因不在 termbox（与 harvester 零 diff），而在 getty 多实例
+// （console=tty0 导致多个 vdi-installer 争用键盘），已在安装器启动层修复。
 //
 // See https://github.com/nsf/termbox-go/issues/132
 func enable_wait_for_escape_sequence() bool {
-	return true
+	return false
 }
