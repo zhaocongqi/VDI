@@ -13,8 +13,8 @@ if [ ! -s "${ISO}" ]; then
     ERR=1
 fi
 
-# elemental / wharfie（可 make fetch-deps 下载）
-for bin in elemental wharfie; do
+# elemental / wharfie / yip（可 make fetch-deps 下载）
+for bin in elemental wharfie yip; do
     if [ ! -s "${TOP_DIR}/package/vdi-os/files/usr/bin/${bin}" ]; then
         echo "ERROR: 缺少 ${bin} 二进制: package/vdi-os/files/usr/bin/${bin}" >&2
         echo "       运行 make fetch-deps 下载" >&2
