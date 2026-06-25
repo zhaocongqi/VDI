@@ -82,9 +82,11 @@ make default       # check-deps 已自动接入，依赖不全会在构建前中
 
 运行 `make build-bundle` 时支持通过环境变量 `LOCAL_PKG_DIR`（如 `export LOCAL_PKG_DIR=/opt/vdi-pkgs`）指定本地离线包检索路径。若该路径下存在与下载目标同名的文件，系统将优先进行本地拷贝；若不存在或未命中，则使用无代理配置的 `curl` 正常下载。若未设置此环境变量，则默认优先尝试检索项目下的 `cache/downloads` 目录。
 
-### TUI 终端尺寸（踩坑红线）
+### TUI 单 console 红线（踩坑）
 
-`package/vdi-os/files/usr/bin/start-installer.sh` 中的 `stty rows/cols` + `COLUMNS/LINES` 导出**不可删除**。gocui 所有面板坐标依赖 `g.Size()`（termbox 经 `ioctl(TIOCGWINSZ)` 读 tty winsize），winsize 缺失会导致 TUI 全黑屏。`pkg/console/console.go` 有 `g.Size() >= 80x24` 前置校验，尺寸不足会明确报错而非黑屏。
+内核启动参数必须用 `console=tty1`（单 VGA console），**禁止 `console=tty0 console=ttyS0`**。原因：`console=tty0` 让 `setup-installer.sh` 给 tty0 创建 getty override，叠加 Dockerfile 静态 override 会导致 **tty0/tty1/ttyS0 三个 getty 同时跑 vdi-installer**，争用键盘 → 快速按键时面板串行/叠加（TUI 画面错乱）。harvester 用 `console=tty1` 单实例无此问题。
+
+getty drop-in 由 `setup-installer.sh` 运行时根据 `/sys/class/tty/console/active` 只为第一个 VGA tty 创建（对齐 harvester），**Dockerfile 不静态创建 getty override**。`start-installer.sh` 不设 stty/COLUMNS/LINES——用 agetty 提供的实际 winsize，gocui 经 `ioctl(TIOCGWINSZ)` 读取。`pkg/console/console.go` 有 `g.Size() >= 80x24` 前置校验，尺寸不足明确报错而非黑屏。
 
 构建环境内存需 ≥16G（elemental + mksquashfs xz 压缩峰值 ~9.7GB，7.7G 内存会 OOM），不足时加 swap。
 

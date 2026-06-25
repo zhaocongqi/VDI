@@ -96,12 +96,12 @@ FROM `bclinux:21.10U5`，依次：
 2. `rpm2cpio` 从 RPM 提取 EFI 文件（shim/grubx64/MokManager/fbx64）到 `/usr/share/efi/x86_64/`
 3. `COPY files/` 注入安装器二进制 + systemd service + manifests + dracut 模块
 4. 配置 systemd（禁 Anaconda，启 vdi-setup-installer/NetworkManager/sshd）
-5. 配置 getty drop-in 覆盖（tty1/ttyS0 → `start-installer.sh`）
+5. getty drop-in 不在构建时创建——由 `setup-installer.sh` 运行时根据 `/sys/class/tty/console/active` 只为第一个 VGA tty 创建（对齐 harvester，避免多 vdi-installer 实例）
 6. `dracut` 重建 initrd（加 dmsquash-live 模块，`--no-hostonly` 避免读宿主内核）
 7. 设默认密码 root/vdi123、生成 SSH host key
 
 ### ISO 启动后的安装落地（`pkg/console/util.go:doInstall`）
-ISO 引导 → `start-installer.sh`（设置终端尺寸）→ `vdi-installer` TUI 收集配置 → `doInstall()`：
+ISO 引导（`console=tty1` 单 VGA console）→ `start-installer.sh` → `vdi-installer` TUI 收集配置 → `doInstall()`：
 1. `roleSetup` 设置节点角色 label
 2. `generateEnvAndConfig` 生成 elemental 配置
 3. `CreateRootPartitioningLayout*` 创建分区布局（含 Longhorn 数据分区）
