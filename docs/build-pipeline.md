@@ -97,10 +97,10 @@ FROM `bclinux:21.10U5`，依次：
 1. dnf 安装 dracut/squashfs-tools/NetworkManager/openssh/iscsi/ebtables/ipvsadm/dosfstools/lvm2 等
 2. `rpm2cpio` 从 RPM 提取 EFI 文件（shim/grubx64/MokManager/fbx64）到 `/usr/share/efi/x86_64/`
 3. 多阶段从 `debian:bookworm-slim` 的 `grub-efi-amd64-bin` 提取 x86_64-efi 模块到 `/usr/lib/grub/x86_64-efi/`（BCLinux 仓库无 `grub2-efi-x64-modules`，elemental install 生成 UEFI core.img 需要）
-4. `COPY files/` 注入安装器二进制 + systemd service + manifests + dracut 模块 + `/etc/cos/grub.cfg`+`bootargs.cfg`（elemental install 复制 grub.cfg 到目标盘）
+4. `COPY files/` 注入安装器二进制 + systemd service + manifests + dracut 模块（含自写的 `90cos-img`，BCLinux 无 cos dracut 模块）+ `/etc/cos/grub.cfg`+`bootargs.cfg`（elemental install 复制 grub.cfg 到目标盘）
 5. 配置 systemd（禁 Anaconda，启 vdi-setup-installer/NetworkManager/sshd）
 6. getty drop-in 不在构建时创建——由 `setup-installer.sh` 运行时根据 `/sys/class/tty/console/active` 只为第一个 VGA tty 创建（对齐 harvester，避免多 vdi-installer 实例）
-7. `dracut` 重建 initrd（加 dmsquash-live 模块，`--no-hostonly` 避免读宿主内核）
+7. `dracut` 重建 initrd（`--add dmsquash-live --add cos-img`，`--no-hostonly` 避免读宿主内核；cos-img 模块需 `installkernel instmods loop` 否则 initrd 无 loop 设备）
 8. 设默认密码 root/vdi123、生成 SSH host key
 
 ### ISO 启动后的安装落地（`pkg/console/util.go:doInstall`）
@@ -110,7 +110,10 @@ ISO 引导（`console=tty1` 单 VGA console，`selinux=0` 禁 selinux）→ `sta
 3. `CreateRootPartitioningLayout*` 创建分区布局（含 Longhorn 数据分区，显式设 `Install.System.Size`）
 4. `saveElementalConfig` + 调用 `elemental install` 把 OS 写入目标盘（需 `/etc/cos/grub.cfg` 模板 + x86_64-efi 模块）
 5. `vdi-install` 预加载镜像：复制 `bundle/rancherd/images/`（system-agent-installer-rke2）到 target → wharfie 提取 rke2+containerd → 启动临时 RKE2/containerd → `ctr import --no-unpack` 导入镜像 tar（导入后删原 tar.zst 释放 active.img 空间）
-6. 重启后 RKE2 启动 → 自动 apply `manifests/10-kube-ovn.yaml` 等 HelmChart → 部署 Kube-OVN/Longhorn/KubeVirt/kagent
+6. `vdi-install` 引导链修复：`fix_efi_grubx64`（grub.efi→grubx64.efi 到目标盘 EFI 分区，BCLinux shim 硬编码找 grubx64.efi）+ `copy_kernel_to_state`（kernel/initrd 从 active.img 复制到 COS_STATE/boot，避开 grub loopback 加载大 active.img OOM）
+7. 重启后引导：dracut `cos-img` 模块（pre-pivot hook）loop 挂 active.img + bind 覆盖 /sysroot（COS_STATE 分区无 os-release，不覆盖则 switch-root 失败）→ switch-root → RKE2 启动 → 自动 apply `manifests/10-kube-ovn.yaml` 等 HelmChart → 部署 Kube-OVN/Longhorn/KubeVirt/kagent
+
+> 引导链四环节（grubx64.efi / kernel 复制 / cos-img 模块 / grub.cfg 变量）缺一不可，均因 BCLinux 缺 harvester SUSE MicroOS 自带的环节。详见 CLAUDE.md「安装后引导链红线」。**RKE2 安装尚未实现**：harvester 用 rancherd 首启装 RKE2，VDI 无 rancherd，需后续 vdi-install 持久化 RKE2 二进制 + systemd 服务。
 
 ## 四、构建产物依赖关系
 

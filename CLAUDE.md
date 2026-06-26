@@ -102,6 +102,15 @@ elemental install 落地阶段分区大小与镜像加载有一组强约束（`p
 - **RKE2 镜像加载需 `system-agent-installer-rke2`**：vdi-install 用 wharfie 从中提取 rke2 二进制+containerd。`build-bundle` 下载到 `bundle/rancherd/images/`，vdi-install 复制到 `target/var/lib/rancher/agent/images/` + chroot 找 `rancherd-bootstrap-images-*.txt`（对齐 harvester harv-install）。containerd 二进制不来自系统包，没这个镜像会 `containerd: command not found`。
 - **vdi-install 导入镜像后删原 tar.zst**（`rm -f $i`）：active.img 内部空间紧张，不删会 containerd 导入时 No space。
 
+### 安装后引导链红线（踩坑）
+
+安装到目标盘后引导链四个环节缺一不可（BCLinux 缺 harvester SUSE MicroOS 自带的环节），任一缺失装机完起不来：
+
+- **cos-img dracut 模块**（`package/vdi-os/files/usr/lib/dracut/modules.d/90cos-img/`，Dockerfile `dracut --add cos-img`）：dracut 把 `root=LABEL=COS_STATE` 分区挂到 /sysroot，但 COS_STATE 不是 OS tree（无 os-release）→ switch-root 失败。模块用 `pre-pivot` hook（非 pre-mount，pre-mount 时 /sysroot 尚空）loop 挂 active.img + `mount --bind` 覆盖 /sysroot。`installkernel() { instmods loop; }` 必须有，否则 losetup 报 no unused loop device。
+- **grubx64.efi 安装后注入**（`vdi-install: fix_efi_grubx64`）：elemental install 只放 grub.efi，BCLinux shim 硬编码找 grubx64.efi。ISO 阶段的字节级注入只管 ISO，目标盘需 vdi-install 把 grub.efi 复制为 grubx64.efi 到 EFI/boot/ + EFI/elemental/。
+- **kernel 复制到 COS_STATE/boot**（`vdi-install: copy_kernel_to_state`）：grub loopback 加载 8G active.img 会 OOM（cannot allocate verified buffer），改把 kernel/initrd 从 active.img 复制到 COS_STATE 分区 /boot/，grub 直接 `linux ($root)/boot/vmlinuz`。
+- **grub.cfg 变量在 menuentry 内**（`package/vdi-os/files/etc/cos/grub.cfg`）：`set img` + `kernelcmd` 必须在 menuentry 内定义，否则 `cos-img/filename=` 空值，dracut 找不到 active.img。变量内联不 source bootargs.cfg。
+
 ## 关键配置
 
 ### VDIConfig 结构体
