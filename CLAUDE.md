@@ -67,10 +67,13 @@ docker/buildx 路径由 Makefile 探测后通过 build-arg 注入 Dockerfile.dap
 
 #### 外部输入准备
 
-构建依赖 3 个外部输入（`.gitignore` 忽略，不入 git）：
+构建依赖 4 个外部输入（`.gitignore` 忽略，不入 git）：
 - **BCLinux ISO**（客户提供）：放至 `dist/iso/BCLinux-21.10U5-dvd-x86_64-260610.iso`
 - **elemental 二进制**（~18MB，v0.3.1）：`make fetch-deps` 自动下载
 - **wharfie 二进制**（~47MB，v0.6.8）：`make fetch-deps` 自动下载
+- **yip 二进制**（~10MB，v1.9.2）：`make fetch-deps` 自动下载
+
+`make default` / `make package-vdi-os` 会自动先跑 `fetch-deps`（幂等），无需手动预下载。
 
 ```bash
 make fetch-deps    # 下载 elemental + wharfie 到 package/vdi-os/files/usr/bin/
@@ -205,6 +208,7 @@ go test ./pkg/...
 ## 深入文档指针
 
 - [构建流程](file:///home/zcq/Github/VDI/docs/build-pipeline.md)：Makefile+Dapper 编排、scripts 脚本链、Go 版本注入、package-vdi-os 8 步、产物依赖图、外部输入契约。
+- [构建环境前置条件](file:///home/zcq/Github/VDI/docs/build-env.md)：新环境从零构建的前置清单（BCLinux ISO、宿主机工具、网络访问、内存/磁盘、常见问题）。
 - [本地包缓存设计说明书](file:///home/zcq/Github/VDI/docs/superpowers/specs/2026-06-23-local-pkg-cache-design.md)：阐述了本地离线包查找拷贝逻辑以及无代理 curl 回退设计。
 - [本地包缓存实施计划](file:///home/zcq/Github/VDI/docs/superpowers/plans/2026-06-23-local-pkg-cache.md)：记录了具体的实施、校验和测试脚本细节。
 
