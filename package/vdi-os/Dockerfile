@@ -19,7 +19,7 @@ ARG ARCH=amd64
 #     --build-context bclinux-repo=/path/to/bclinux-repo \
 #     -t rancher/vdi-os:test --load .
 # 打破 buildx 缓存：改动依赖列表时强制重新执行 dnf install（否则缓存命中旧层）
-ARG DEP_BUST=2026-06-25-grubcfg
+ARG DEP_BUST=2026-06-26-rmfi
 RUN --mount=type=bind,from=bclinux-repo,source=.,target=/iso,rw \
     printf "[bclinux]\nname=BCLinux\nbaseurl=file:///iso\nenabled=1\ngpgcheck=0\n" \
         > /etc/yum.repos.d/bclinux.repo && \

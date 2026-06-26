@@ -191,6 +191,7 @@ preload_rke2_images()
             zstd -d $i -o /usr/local/images.tar
             ctr -n k8s.io images import --no-unpack /usr/local/images.tar
             rm /usr/local/images.tar
+            rm -f $i
         done
       fi
 
