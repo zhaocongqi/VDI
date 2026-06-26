@@ -577,6 +577,24 @@ func doInstall(g *gocui.Gui, hvstConfig *config.VDIConfig, webhooks RendererWebh
 	env = append(env, fmt.Sprintf("ELEMENTAL_CONFIG=%s", elementalConfigFile))
 	env = append(env, fmt.Sprintf("ELEMENTAL_CONFIG_DIR=%s", elementalConfigDir))
 
+	// 渲染 RKE2 config（server/agent）到临时文件，传给 vdi-install 写盘
+	// VDI 无 elemental cloud-init 触发层，initRKE2Stage 的 initramfs stage 首启不执行，
+	// 需 vdi-install 安装时直接写 /etc/rancher/rke2/config.yaml
+	rke2ConfigContent, err := config.RenderRKE2Config(hvstConfig)
+	if err != nil {
+		return fmt.Errorf("render RKE2 config: %w", err)
+	}
+	rke2ConfigFile, err := os.CreateTemp("/tmp", "rke2-config.")
+	if err != nil {
+		return fmt.Errorf("create RKE2 config temp file: %w", err)
+	}
+	if _, err := rke2ConfigFile.WriteString(rke2ConfigContent); err != nil {
+		rke2ConfigFile.Close()
+		return fmt.Errorf("write RKE2 config: %w", err)
+	}
+	rke2ConfigFile.Close()
+	env = append(env, fmt.Sprintf("VDI_RKE2_CONFIG=%s", rke2ConfigFile.Name()))
+
 	// Apply a dummy route to ensure rke2 can extract the images
 	if installModeOnly {
 		if err := applyDummyRoute(); err != nil {
