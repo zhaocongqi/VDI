@@ -17,9 +17,10 @@ losetup --show -f "$img_path" > /run/cos-img/loopdev 2>/dev/null || { echo "cos-
 loopdev=$(cat /run/cos-img/loopdev)
 
 mkdir -p /run/cos-img/root
-mount "$loopdev" /run/cos-img/root 2>/dev/null || mount -t ext2 "$loopdev" /run/cos-img/root || { echo "cos-img: mount loop failed"; return 1; }
+# rw 挂载：RKE2 运行时需写 /var/lib/rancher、/etc/rancher 等（active.img 内）
+mount -o rw "$loopdev" /run/cos-img/root 2>/dev/null || mount -o rw -t ext2 "$loopdev" /run/cos-img/root || { echo "cos-img: mount loop failed"; return 1; }
 
-# bind 覆盖 /sysroot（COS_STATE → active.img 内容）
+# bind 覆盖 /sysroot（COS_STATE → active.img 内容），保持 rw
 mount --bind /run/cos-img/root /sysroot || { echo "cos-img: bind /sysroot failed"; return 1; }
 
 echo "cos-img: /sysroot bound to $cos_img via $loopdev"
