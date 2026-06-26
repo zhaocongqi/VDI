@@ -208,19 +208,24 @@ preload_rke2_images()
       # rke2_tmp（/usr/local/tmp.*/rke2/）在 PERSISTENT，trap 退出时会删，需先复制到目标系统
       if [ -n "$rke2_image" ] && [ -d "$rke2_tmp" ]; then
         echo "Installing RKE2 binaries + systemd service to target..."
-        mkdir -p /var/lib/rancher/rke2/bin /usr/local/lib/systemd/system /var/lib/rancher/rke2/share
-        # 二进制（rke2, containerd, containerd-shim 等）
+        mkdir -p /var/lib/rancher/rke2/bin /usr/lib/systemd/system /var/lib/rancher/rke2/share
+        # 临时 RKE2 启动会把 bin 改成符号链接（指向 data/），删掉以便复制真实二进制
+        rm -f /var/lib/rancher/rke2/bin
+        mkdir -p /var/lib/rancher/rke2/bin
+        # 二进制（rke2, containerd, containerd-shim 等）→ active.img（不经过 /usr/local）
         cp -a $rke2_tmp/bin/. /var/lib/rancher/rke2/bin/
-        # systemd 服务
-        cp $rke2_tmp/lib/systemd/system/rke2-*.service /usr/local/lib/systemd/system/ 2>/dev/null || echo "WARN: rke2 service 文件未找到"
-        # chart-templates（RKE2 内置 charts）
+        # systemd 服务 → /usr/lib/systemd/system（active.img，/usr/local 是 PERSISTENT 重启后不挂会丢）
+        cp $rke2_tmp/lib/systemd/system/rke2-*.service /usr/lib/systemd/system/ 2>/dev/null || echo "WARN: rke2 service 文件未找到"
+        # service ExecStart 默认 /usr/local/bin/rke2（PERSISTENT，重启丢失），改指 active.img 的实际路径
+        sed -i 's|/usr/local/bin/rke2|/var/lib/rancher/rke2/bin/rke2|g' /usr/lib/systemd/system/rke2-*.service 2>/dev/null
+        # chart-templates（RKE2 内置 charts）→ active.img
         [ -d "$rke2_tmp/share/rke2" ] && cp -r $rke2_tmp/share/rke2/. /var/lib/rancher/rke2/share/
         # enable rke2-server（首节点）或 rke2-agent（加入节点）
         if [ -n "$vdi_server_url" ]; then
-          systemctl enable rke2-agent 2>/dev/null || ln -sf /usr/local/lib/systemd/system/rke2-agent.service /etc/systemd/system/multi-user.target.wants/
+          systemctl enable rke2-agent 2>/dev/null || ln -sf /usr/lib/systemd/system/rke2-agent.service /etc/systemd/system/multi-user.target.wants/
           echo "RKE2 agent enabled"
         else
-          systemctl enable rke2-server 2>/dev/null || ln -sf /usr/local/lib/systemd/system/rke2-server.service /etc/systemd/system/multi-user.target.wants/
+          systemctl enable rke2-server 2>/dev/null || ln -sf /usr/lib/systemd/system/rke2-server.service /etc/systemd/system/multi-user.target.wants/
           echo "RKE2 server enabled"
         fi
       fi
@@ -329,20 +334,17 @@ do_mount
 save_configs
 save_nm_state
 
-# Bind mount var/lib/rancher 到 PERSISTENT（usr/local），containerd 镜像数据写 PERSISTENT 不占 active.img（对齐 harvester do_preload）
-RANCHER_BIND_MOUNTS=("var/lib/rancher")
-for i in ${RANCHER_BIND_MOUNTS[@]}; do
-    state_dir="/usr/local/.state/${i//\//-}.bind"
-    mkdir -p $TARGET/$i
-    mkdir -p $TARGET/$state_dir
-    mount -o bind $TARGET/$state_dir $TARGET/$i
-done
-
+# RKE2 二进制 + containerd 数据都在 active.img（不 bind PERSISTENT），重启后 RKE2 可直接启动
+# active.img 10G 容纳 rootfs(2.9G)+RKE2二进制(0.5G)+containerd镜像导入(4.6G)+余量
 preload_rke2_images
 
-for i in ${RANCHER_BIND_MOUNTS[@]}; do
-    umount $TARGET/$i
-done
+# 写 RKE2 config.yaml（VDI 无 elemental cloud-init 触发层，vdi-installer 渲染后由 vdi-install 直接写盘）
+if [ -n "$VDI_RKE2_CONFIG" ] && [ -f "$VDI_RKE2_CONFIG" ]; then
+    mkdir -p $TARGET/etc/rancher/rke2
+    cp $VDI_RKE2_CONFIG $TARGET/etc/rancher/rke2/config.yaml
+    chmod 600 $TARGET/etc/rancher/rke2/config.yaml
+    echo "RKE2 config.yaml written"
+fi
 
 update_grub_settings
 
