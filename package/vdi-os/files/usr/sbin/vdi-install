@@ -107,7 +107,7 @@ preload_rke2_images()
     fi
 
     readonly RKE2_IMAGES_DIR="/var/lib/rancher/rke2/agent/images"
-    readonly TMP_IMAGES_DIR="/var/lib/rancher/tmp/images"
+    readonly TMP_IMAGES_DIR="/usr/local/rancher/tmp/images"
     readonly IMAGES_LISTS_DIR="/tmp/images-lists"
     readonly AGENT_IMAGES_DIR="/var/lib/rancher/agent/images"
     mkdir -p $TARGET/$RKE2_IMAGES_DIR
@@ -307,7 +307,21 @@ do_mount
 
 save_configs
 save_nm_state
+
+# Bind mount var/lib/rancher 到 PERSISTENT（usr/local），containerd 镜像数据写 PERSISTENT 不占 active.img（对齐 harvester do_preload）
+RANCHER_BIND_MOUNTS=("var/lib/rancher")
+for i in ${RANCHER_BIND_MOUNTS[@]}; do
+    state_dir="/usr/local/.state/${i//\//-}.bind"
+    mkdir -p $TARGET/$i
+    mkdir -p $TARGET/$state_dir
+    mount -o bind $TARGET/$state_dir $TARGET/$i
+done
+
 preload_rke2_images
+
+for i in ${RANCHER_BIND_MOUNTS[@]}; do
+    umount $TARGET/$i
+done
 
 update_grub_settings
 
