@@ -23,7 +23,8 @@ source ${SCRIPTS_DIR}/version-kubeovn
 source ${SCRIPTS_DIR}/version-kagent
 source ${SCRIPTS_DIR}/version
 
-# 前置检查：BCLinux ISO + elemental + wharfie
+# 前置检查：自动下载 elemental/wharfie/yip（幂等），再检查 BCLinux ISO + 二进制
+${SCRIPTS_DIR}/fetch-deps
 ${SCRIPTS_DIR}/check-deps
 
 VDI_OS_IMAGE=rancher/vdi-os:${VERSION}

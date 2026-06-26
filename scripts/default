@@ -3,6 +3,8 @@ set -e
 
 cd $(dirname $0)
 
+# 自动下载 elemental/wharfie/yip（幂等，已存在则跳过），再检查 BCLinux ISO
+./fetch-deps
 ./check-deps
 ./build
 ./build-bundle
