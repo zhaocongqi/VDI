@@ -325,5 +325,49 @@ done
 
 update_grub_settings
 
+# BCLinux shim 硬编码找 grubx64.efi，但 elemental install 只放 grub.efi，需补 grubx64.efi 否则 UEFI 引导失败
+fix_efi_grubx64()
+{
+    local efi_part
+    efi_part=$(blkid -L COS_GRUB 2>/dev/null)
+    if [ -z "$efi_part" ]; then
+        echo "WARN: COS_GRUB 分区未找到，跳过 grubx64.efi 注入"
+        return
+    fi
+    mkdir -p /tmp/efi-fix
+    mount "$efi_part" /tmp/efi-fix 2>/dev/null || return
+    for dir in /tmp/efi-fix/EFI/boot /tmp/efi-fix/EFI/elemental; do
+        if [ -f "$dir/grub.efi" ] && [ ! -f "$dir/grubx64.efi" ]; then
+            cp "$dir/grub.efi" "$dir/grubx64.efi"
+            echo "注入 $dir/grubx64.efi"
+        fi
+    done
+    sync
+    umount /tmp/efi-fix
+}
+fix_efi_grubx64
+
+# grub loopback 加载大 active.img(8G) 会 OOM（cannot allocate verified buffer），改把 kernel/initrd 复制到 COS_STATE 分区 /boot/，grub 直接 linux ($root)/boot/vmlinuz 加载
+copy_kernel_to_state()
+{
+    # STATEDIR 是 COS_STATE 分区挂载点，$TARGET 是 active.img 挂载点
+    if [ -z "$STATEDIR" ] || [ ! -d "$STATEDIR" ]; then
+        echo "WARN: STATEDIR 未挂载，跳过 kernel 复制"
+        return
+    fi
+    mkdir -p $STATEDIR/boot
+    for f in vmlinuz initrd; do
+        # active.img 内的 /boot/vmlinuz-* 取实际文件名
+        src=$(ls $TARGET/boot/$f-* 2>/dev/null | head -1)
+        [ -z "$src" ] && src="$TARGET/boot/$f"
+        if [ -n "$src" ] && [ -f "$src" ]; then
+            cp "$src" $STATEDIR/boot/$f
+            echo "复制 $(basename $src) → COS_STATE/boot/$f"
+        fi
+    done
+    sync
+}
+copy_kernel_to_state
+
 # 日志必须最后保存，因为它会捕获本脚本的输出
 save_installation_log
