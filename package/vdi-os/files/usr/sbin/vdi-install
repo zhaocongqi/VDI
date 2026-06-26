@@ -136,7 +136,7 @@ preload_rke2_images()
     mount --rbind /sys sys
 
     echo "Loading images. This may take a few minutes..."
-    install_mode="$INSTALL_MODE" tmp_images_dir="$TMP_IMAGES_DIR" images_lists_dir="$IMAGES_LISTS_DIR" chroot . /bin/bash <<"EOF"
+    install_mode="$INSTALL_MODE" tmp_images_dir="$TMP_IMAGES_DIR" images_lists_dir="$IMAGES_LISTS_DIR" vdi_server_url="$VDI_SERVER_URL" chroot . /bin/bash <<"EOF"
       set -e
 
       wait_for_containerd_ready()
@@ -203,6 +203,27 @@ preload_rke2_images()
           ctr -n k8s.io images ls -q | grep -q "$img" || echo "WARNING: missing $img"
         done < "$i"
       done
+
+      # 持久化 RKE2 二进制 + systemd 服务到目标系统（harvester 用 rancherd 首启装，VDI 无 rancherd）
+      # rke2_tmp（/usr/local/tmp.*/rke2/）在 PERSISTENT，trap 退出时会删，需先复制到目标系统
+      if [ -n "$rke2_image" ] && [ -d "$rke2_tmp" ]; then
+        echo "Installing RKE2 binaries + systemd service to target..."
+        mkdir -p /var/lib/rancher/rke2/bin /usr/local/lib/systemd/system /var/lib/rancher/rke2/share
+        # 二进制（rke2, containerd, containerd-shim 等）
+        cp -a $rke2_tmp/bin/. /var/lib/rancher/rke2/bin/
+        # systemd 服务
+        cp $rke2_tmp/lib/systemd/system/rke2-*.service /usr/local/lib/systemd/system/ 2>/dev/null || echo "WARN: rke2 service 文件未找到"
+        # chart-templates（RKE2 内置 charts）
+        [ -d "$rke2_tmp/share/rke2" ] && cp -r $rke2_tmp/share/rke2/. /var/lib/rancher/rke2/share/
+        # enable rke2-server（首节点）或 rke2-agent（加入节点）
+        if [ -n "$vdi_server_url" ]; then
+          systemctl enable rke2-agent 2>/dev/null || ln -sf /usr/local/lib/systemd/system/rke2-agent.service /etc/systemd/system/multi-user.target.wants/
+          echo "RKE2 agent enabled"
+        else
+          systemctl enable rke2-server 2>/dev/null || ln -sf /usr/local/lib/systemd/system/rke2-server.service /etc/systemd/system/multi-user.target.wants/
+          echo "RKE2 server enabled"
+        fi
+      fi
 
       # teardown
       if [ "$install_mode" = "ISO" ]; then
