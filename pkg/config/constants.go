@@ -55,10 +55,10 @@ var (
 // Partition size constants (in MiB)
 const (
 	DefaultCosOemSizeMiB        = 512
-	DefaultCosStateSizeMiB      = 20480 // 容纳 active.img(8G) + passive.img(8G) = 16G + 余量
-	DefaultCosRecoverySizeMiB   = 12288 // > active.img(8G)，recovery.img 复制 active.img 需更大
-	DefaultSystemImageSizeMiB   = 8192  // active.img 的 ext2 大小；containerd 数据 bind mount 到 PERSISTENT，不占 active.img
-	PersistentSizeMinGiB        = 150
+	DefaultCosStateSizeMiB      = 49152 // 容纳 active.img(20G) + passive.img(20G) = 40G + 余量
+	DefaultCosRecoverySizeMiB   = 24576 // > active.img(20G)，recovery.img 复制 active.img 需更大
+	DefaultSystemImageSizeMiB   = 20480 // active.img 的 ext2 大小，容纳 rootfs+RKE2二进制+containerd全量镜像blob+余量
+	PersistentSizeMinGiB        = 100
 )
 
 // Default persistent partition percentage
