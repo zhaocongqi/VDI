@@ -35,7 +35,7 @@ $(TARGETS): .dapper
   - `cache/`、`dist/`：bind 挂载（项目根下，dist/ 含 BCLinux ISO 输入）
   - containerd socket + `--privileged`
 - docker/buildx 探测失败时 `make` 明确报错，而非静默挂载空路径
-- `DAPPER_OUTPUT` 声明容器→宿主机回传：`./bin ./dist ./cache ./package/vdi-os/files/usr/bin ./package/vdi-installer`
+- `DAPPER_OUTPUT` 声明容器→宿主机回传：`./bin ./dist ./cache ./package/vdi-os/files/usr/bin ./package/vdi-os/iso ./package/vdi-installer`。dapper 实际跑 **cp 模式**（`--debug` 确认 `Mode: cp`），只回传声明的目录——新增构建产物目录必须同步加到 DAPPER_OUTPUT，否则不回传（`package/vdi-os/iso` 含 build-bundle 下载的 bundle，缺失则 `--overlay-iso` 找不到 bundle）
 
 ## 二、scripts 脚本职责
 
@@ -55,6 +55,8 @@ $(TARGETS): .dapper
 
 ### build-bundle
 为每个组件拉取镜像 tar + Helm chart，落盘到 `package/vdi-os/iso/bundle/vdi/images/`（镜像）和 `package/vdi-cluster-repo/charts/`（chart）。公共函数在 `scripts/lib/http`（`get_url`/`save_image_list`）和 `scripts/lib/image`（`save_image`/`pull_images`）。
+
+额外下载 `rancherd-bootstrap-images`（`system-agent-installer-rke2:$RKE2_VERSION`）到 `bundle/rancherd/images/`——vdi-install 用 wharfie 从中提取 rke2 二进制+containerd（对齐 harvester）。kagent chart 拉取失败改为 warn 不中断构建。
 
 支持 `LOCAL_PKG_DIR` 环境变量指定本地离线包检索路径（命中则本地拷贝，否则无代理 curl 下载）；未设置时默认检索 `cache/downloads`。
 
@@ -92,21 +94,23 @@ var (
 
 ### VDI OS Dockerfile（`package/vdi-os/Dockerfile`）
 FROM `bclinux:21.10U5`，依次：
-1. dnf 安装 dracut/squashfs-tools/NetworkManager/openssh/iscsi/ebtables/ipvsadm 等
+1. dnf 安装 dracut/squashfs-tools/NetworkManager/openssh/iscsi/ebtables/ipvsadm/dosfstools/lvm2 等
 2. `rpm2cpio` 从 RPM 提取 EFI 文件（shim/grubx64/MokManager/fbx64）到 `/usr/share/efi/x86_64/`
-3. `COPY files/` 注入安装器二进制 + systemd service + manifests + dracut 模块
-4. 配置 systemd（禁 Anaconda，启 vdi-setup-installer/NetworkManager/sshd）
-5. getty drop-in 不在构建时创建——由 `setup-installer.sh` 运行时根据 `/sys/class/tty/console/active` 只为第一个 VGA tty 创建（对齐 harvester，避免多 vdi-installer 实例）
-6. `dracut` 重建 initrd（加 dmsquash-live 模块，`--no-hostonly` 避免读宿主内核）
-7. 设默认密码 root/vdi123、生成 SSH host key
+3. 多阶段从 `debian:bookworm-slim` 的 `grub-efi-amd64-bin` 提取 x86_64-efi 模块到 `/usr/lib/grub/x86_64-efi/`（BCLinux 仓库无 `grub2-efi-x64-modules`，elemental install 生成 UEFI core.img 需要）
+4. `COPY files/` 注入安装器二进制 + systemd service + manifests + dracut 模块 + `/etc/cos/grub.cfg`+`bootargs.cfg`（elemental install 复制 grub.cfg 到目标盘）
+5. 配置 systemd（禁 Anaconda，启 vdi-setup-installer/NetworkManager/sshd）
+6. getty drop-in 不在构建时创建——由 `setup-installer.sh` 运行时根据 `/sys/class/tty/console/active` 只为第一个 VGA tty 创建（对齐 harvester，避免多 vdi-installer 实例）
+7. `dracut` 重建 initrd（加 dmsquash-live 模块，`--no-hostonly` 避免读宿主内核）
+8. 设默认密码 root/vdi123、生成 SSH host key
 
 ### ISO 启动后的安装落地（`pkg/console/util.go:doInstall`）
-ISO 引导（`console=tty1` 单 VGA console）→ `start-installer.sh` → `vdi-installer` TUI 收集配置 → `doInstall()`：
+ISO 引导（`console=tty1` 单 VGA console，`selinux=0` 禁 selinux）→ `start-installer.sh` → `vdi-installer` TUI 收集配置 → `doInstall()`：
 1. `roleSetup` 设置节点角色 label
-2. `generateEnvAndConfig` 生成 elemental 配置
-3. `CreateRootPartitioningLayout*` 创建分区布局（含 Longhorn 数据分区）
-4. `saveElementalConfig` + 调用 `elemental install` 把 OS 写入目标盘
-5. 重启后 RKE2 启动 → 自动 apply `manifests/10-kube-ovn.yaml` 等 HelmChart → 部署 Kube-OVN/Longhorn/KubeVirt/kagent
+2. `generateEnvAndConfig` 生成 elemental 配置（分区大小见 `pkg/config/constants.go`：COS_STATE 20G 容纳 active.img+passive.img、COS_RECOVERY 12G、`Install.System.Size`=8G active.img ext2 大小）
+3. `CreateRootPartitioningLayout*` 创建分区布局（含 Longhorn 数据分区，显式设 `Install.System.Size`）
+4. `saveElementalConfig` + 调用 `elemental install` 把 OS 写入目标盘（需 `/etc/cos/grub.cfg` 模板 + x86_64-efi 模块）
+5. `vdi-install` 预加载镜像：复制 `bundle/rancherd/images/`（system-agent-installer-rke2）到 target → wharfie 提取 rke2+containerd → 启动临时 RKE2/containerd → `ctr import --no-unpack` 导入镜像 tar（导入后删原 tar.zst 释放 active.img 空间）
+6. 重启后 RKE2 启动 → 自动 apply `manifests/10-kube-ovn.yaml` 等 HelmChart → 部署 Kube-OVN/Longhorn/KubeVirt/kagent
 
 ## 四、构建产物依赖关系
 
@@ -161,5 +165,6 @@ qemu-system-x86_64 -m 4096 -smp 2 \
 ## 七、已知缺口
 
 1. `package-vdi-installer` / `package-vdi-repo` 在 `default` 中被跳过（离线环境限制）
-2. kagent 组件无法部署：镜像未打包（ghcr.io 需认证，`build-bundle` 跳过）；chart 拉取失败会中断构建并报错（不再静默）；manifest `40-kagent.yaml` 引用的 chart/镜像在 ISO 里缺失。启用需配 GHCR 认证。
+2. kagent 组件无法部署：镜像未打包（ghcr.io 需认证，`build-bundle` 跳过）；chart 拉取失败改为 **warn 不中断构建**（kagent 是可选组件）；manifest `40-kagent.yaml` 引用的 chart/镜像在 ISO 里缺失。启用需配 GHCR 认证。
 3. 当前 ISO 是 UEFI-only（无 BIOS/isolinux 引导记录）
+4. 安装落地分区/镜像约束详见 `CLAUDE.md` 的「安装落地分区/镜像红线」——`pkg/config/constants.go` 三常量配套 + `Install.System.Size` + selinux=0 + grub EFI 模块 + rancherd bootstrap

@@ -90,6 +90,17 @@ getty drop-in 由 `setup-installer.sh` 运行时根据 `/sys/class/tty/console/a
 
 构建环境内存需 ≥16G（elemental + mksquashfs xz 压缩峰值 ~9.7GB，7.7G 内存会 OOM），不足时加 swap。
 
+### 安装落地分区/镜像红线（踩坑）
+
+elemental install 落地阶段分区大小与镜像加载有一组强约束（`pkg/config/constants.go` + `pkg/config/cos.go` + `package/vdi-os/files/usr/sbin/vdi-install`），任一不满足都会在安装中途 No space / I/O error / command not found：
+
+- **内核参数 `selinux=0`**（不是 `enforcing=0`）：彻底禁用 selinux 不挂 selinuxfs。`enforcing=0`(Permissive) 下 rsync -X 设 `security.selinux` xattr 在 ext2 active.img 上 Permission denied (code 23)。改 `package/vdi-os/iso/boot/grub2/grub.cfg` + `isolinux/isolinux.cfg`。
+- **分区大小三常量必须配套**（`pkg/config/constants.go`）：`DefaultCosStateSizeMiB=20480`（容纳 active.img(8G)+passive.img(8G)=16G，elemental 创建两个镜像，超 COS_STATE 会 loop I/O error）、`DefaultCosRecoverySizeMiB=12288`（>active.img，recovery.img 复制 active.img）、`DefaultSystemImageSizeMiB=8192`（active.img 的 ext2 大小，容纳 rootfs+镜像tar+runtime+containerd 数据）。改一个要同步验算另两个。
+- **`Install.System.Size` 必须显式设**（`pkg/config/cos.go` 两个 `CreateRootPartitioningLayout*`）：不设则 elemental 自动按 rootfs 算，镜像预加载 No space。
+- **grub2 EFI 模块**：BCLinux 仓库无 `grub2-efi-x64-modules`，Dockerfile 多阶段从 `debian:bookworm-slim` 的 `grub-efi-amd64-bin` 提取 x86_64-efi 模块到 `/usr/lib/grub/x86_64-efi/`（elemental 找这个生成 UEFI core.img）。
+- **`/etc/cos/grub.cfg` 模板**：elemental install 复制它到目标盘，缺失报 stat no such file。在 `package/vdi-os/files/etc/cos/grub.cfg` + `bootargs.cfg`（参考 harvester）。
+- **RKE2 镜像加载需 `system-agent-installer-rke2`**：vdi-install 用 wharfie 从中提取 rke2 二进制+containerd。`build-bundle` 下载到 `bundle/rancherd/images/`，vdi-install 复制到 `target/var/lib/rancher/agent/images/` + chroot 找 `rancherd-bootstrap-images-*.txt`（对齐 harvester harv-install）。containerd 二进制不来自系统包，没这个镜像会 `containerd: command not found`。
+- **vdi-install 导入镜像后删原 tar.zst**（`rm -f $i`）：active.img 内部空间紧张，不删会 containerd 导入时 No space。
 
 ## 关键配置
 
