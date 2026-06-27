@@ -208,16 +208,18 @@ preload_rke2_images()
       # rke2_tmp（/usr/local/tmp.*/rke2/）在 PERSISTENT，trap 退出时会删，需先复制到目标系统
       if [ -n "$rke2_image" ] && [ -d "$rke2_tmp" ]; then
         echo "Installing RKE2 binaries + systemd service to target..."
+        # rke2 二进制 → /usr/local/bin（active.img，RKE2 标准入口，service ExecStart 默认指这）
+        # 注意：chroot 内 /usr/local 是 PERSISTENT，但重启后 cos mount 不挂 PERSISTENT，
+        # /usr/local 回到 active.img。这里写到 PERSISTENT 的 /usr/local/bin，重启后会丢。
+        # 所以改写 /var/lib/rancher/rke2/bin/rke2（active.img），service ExecStart 改指此路径。
         mkdir -p /var/lib/rancher/rke2/bin /usr/lib/systemd/system /var/lib/rancher/rke2/share
-        # 临时 RKE2 启动会把 bin 改成符号链接（指向 data/），删掉以便复制真实二进制
-        rm -f /var/lib/rancher/rke2/bin
-        mkdir -p /var/lib/rancher/rke2/bin
-        # 二进制（rke2, containerd, containerd-shim 等）→ active.img（不经过 /usr/local）
-        cp -a $rke2_tmp/bin/. /var/lib/rancher/rke2/bin/
-        # systemd 服务 → /usr/lib/systemd/system（active.img，/usr/local 是 PERSISTENT 重启后不挂会丢）
+        # 临时 RKE2 启动后 bin 可能是符号链接（指向 data/），强制替换为真实 rke2 二进制
+        rm -f /var/lib/rancher/rke2/bin/rke2
+        cp $rke2_tmp/bin/rke2 /var/lib/rancher/rke2/bin/rke2
+        chmod +x /var/lib/rancher/rke2/bin/rke2
+        # systemd 服务 → /usr/lib/systemd/system（active.img）
         cp $rke2_tmp/lib/systemd/system/rke2-*.service /usr/lib/systemd/system/ 2>/dev/null || echo "WARN: rke2 service 文件未找到"
-        # service ExecStart 默认 /usr/local/bin/rke2（PERSISTENT，重启丢失），改指 active.img 的实际路径
-        sed -i 's|/usr/local/bin/rke2|/var/lib/rancher/rke2/bin/rke2|g' /usr/lib/systemd/system/rke2-*.service 2>/dev/null
+        # service ExecStart 默认 /usr/local/bin/rke2（RKE2 标准），rke2 二进制由后续步骤写到 /usr/local/bin
         # chart-templates（RKE2 内置 charts）→ active.img
         [ -d "$rke2_tmp/share/rke2" ] && cp -r $rke2_tmp/share/rke2/. /var/lib/rancher/rke2/share/
         # enable rke2-server（首节点）或 rke2-agent（加入节点）
@@ -345,6 +347,30 @@ if [ -n "$VDI_RKE2_CONFIG" ] && [ -f "$VDI_RKE2_CONFIG" ]; then
     chmod 600 $TARGET/etc/rancher/rke2/config.yaml
     echo "RKE2 config.yaml written"
 fi
+
+# rke2 二进制 → /usr/local/bin（active.img，RKE2 标准入口，RKE2 server 不管理此路径）
+# chroot 内 /usr/local 是 PERSISTENT，需 umount PERSISTENT 后写到 active.img 的 /usr/local/bin
+if [ -f "$TARGET/var/lib/rancher/rke2/bin/rke2" ]; then
+    umount $TARGET/usr/local 2>/dev/null || true
+    mkdir -p $TARGET/usr/local/bin
+    cp $TARGET/var/lib/rancher/rke2/bin/rke2 $TARGET/usr/local/bin/rke2
+    chmod +x $TARGET/usr/local/bin/rke2
+    # 重新挂 PERSISTENT（后续可能用）
+    PERSISTENT=$(blkid -L COS_PERSISTENT 2>/dev/null)
+    [ -n "$PERSISTENT" ] && mount $PERSISTENT $TARGET/usr/local 2>/dev/null || true
+    echo "rke2 binary → /usr/local/bin/rke2"
+fi
+
+# 写首节点 HelmChart manifests（VDI 无 elemental cloud-init，vdi-installer 渲染后由 vdi-install 直接写盘）
+if [ -n "$VDI_RKE2_MANIFESTS_DIR" ] && [ -d "$VDI_RKE2_MANIFESTS_DIR" ]; then
+    mkdir -p $TARGET/var/lib/rancher/rke2/server/manifests
+    cp $VDI_RKE2_MANIFESTS_DIR/*.yaml $TARGET/var/lib/rancher/rke2/server/manifests/
+    echo "RKE2 manifests written"
+fi
+
+# 删 getty drop-in（Live 环境创建，硬盘系统不该跑 vdi-installer，否则重启回 TUI）
+rm -rf $TARGET/etc/systemd/system/getty@tty1.service.d
+echo "getty drop-in removed"
 
 update_grub_settings
 
