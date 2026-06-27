@@ -13,6 +13,8 @@ img_path="/sysroot${cos_img}"
 [ -f "$img_path" ] || { echo "cos-img: $img_path not found"; return 0; }
 
 mkdir -p /run/cos-img
+# /sysroot 此时是 COS_STATE 分区（dracut 可能 ro 挂），先 remount rw，否则 losetup active.img 会 ro 关联
+mount -o remount,rw /sysroot 2>/dev/null
 losetup --show -f "$img_path" > /run/cos-img/loopdev 2>/dev/null || { echo "cos-img: losetup failed"; return 1; }
 loopdev=$(cat /run/cos-img/loopdev)
 
