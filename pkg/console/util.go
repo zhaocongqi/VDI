@@ -595,6 +595,24 @@ func doInstall(g *gocui.Gui, hvstConfig *config.VDIConfig, webhooks RendererWebh
 	rke2ConfigFile.Close()
 	env = append(env, fmt.Sprintf("VDI_RKE2_CONFIG=%s", rke2ConfigFile.Name()))
 
+	// 渲染首节点 HelmChart manifests 到临时目录，传给 vdi-install 写到 server/manifests/
+	if hvstConfig.Install.Role == config.RoleFirst {
+		manifests, err := config.RenderRKE2Manifests(hvstConfig)
+		if err != nil {
+			return fmt.Errorf("render RKE2 manifests: %w", err)
+		}
+		manifestsDir, err := os.MkdirTemp("/tmp", "rke2-manifests.")
+		if err != nil {
+			return fmt.Errorf("create RKE2 manifests temp dir: %w", err)
+		}
+		for name, content := range manifests {
+			if err := os.WriteFile(filepath.Join(manifestsDir, name), []byte(content), 0644); err != nil {
+				return fmt.Errorf("write RKE2 manifest %s: %w", name, err)
+			}
+		}
+		env = append(env, fmt.Sprintf("VDI_RKE2_MANIFESTS_DIR=%s", manifestsDir))
+	}
+
 	// Apply a dummy route to ensure rke2 can extract the images
 	if installModeOnly {
 		if err := applyDummyRoute(); err != nil {

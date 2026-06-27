@@ -349,6 +349,13 @@ func RenderRKE2Config(config *VDIConfig) (string, error) {
 	return strings.TrimSpace(rke2Config), nil
 }
 
+// RenderRKE2Manifests 渲染首节点 HelmChart manifests（kube-ovn/longhorn/kubevirt/kagent），
+// 供 vdi-install 写到 /var/lib/rancher/rke2/server/manifests/
+// VDI 无 elemental cloud-init 触发层，initRKE2Stage 的 manifests 首启不会写，需 vdi-install 直接写
+func RenderRKE2Manifests(config *VDIConfig) (map[string]string, error) {
+	return genBootstrapResources(config)
+}
+
 func wipeNMConnectionProfiles(configPath string) error {
 	paths, err := filepath.Glob(fmt.Sprintf("%s/%s", configPath, NMConnectionGlobPattern))
 	if err != nil {
