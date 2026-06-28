@@ -94,7 +94,7 @@ var (
 
 ### VDI OS Dockerfile（`package/vdi-os/Dockerfile`）
 FROM `bclinux:21.10U5`，依次：
-1. dnf 安装 dracut/squashfs-tools/NetworkManager/openssh/iscsi/ebtables/ipvsadm/dosfstools/lvm2 等
+1. dnf 安装 dracut/squashfs-tools/NetworkManager/openssh/iscsi/ebtables/ipvsadm/dosfstools/lvm2/grub2-pc/grub2-pc-modules 等
 2. `rpm2cpio` 从 RPM 提取 EFI 文件（shim/grubx64/MokManager/fbx64）到 `/usr/share/efi/x86_64/`
 3. 多阶段从 `debian:bookworm-slim` 的 `grub-efi-amd64-bin` 提取 x86_64-efi 模块到 `/usr/lib/grub/x86_64-efi/`（BCLinux 仓库无 `grub2-efi-x64-modules`，elemental install 生成 UEFI core.img 需要）
 4. `COPY files/` 注入安装器二进制 + systemd service + manifests + dracut 模块（含自写的 `90cos-img`，BCLinux 无 cos dracut 模块）+ `/etc/cos/grub.cfg`+`bootargs.cfg`（elemental install 复制 grub.cfg 到目标盘）
@@ -102,6 +102,8 @@ FROM `bclinux:21.10U5`，依次：
 6. getty drop-in 不在构建时创建——由 `setup-installer.sh` 运行时根据 `/sys/class/tty/console/active` 只为第一个 VGA tty 创建（对齐 harvester，避免多 vdi-installer 实例）
 7. `dracut` 重建 initrd（`--add dmsquash-live --add cos-img`，`--no-hostonly` 避免读宿主内核；cos-img 模块需 `installkernel instmods loop` 否则 initrd 无 loop 设备）
 8. 设默认密码 root/vdi123、生成 SSH host key
+
+> grub2-pc-modules（BIOS grub）在步骤 1 dnf install 安装，elemental install 在 BIOS 模式下用 `grub2-install --target=i386-pc` 安装 BIOS grub。vdi-installer `--auto-install` 参数跳过 TUI 直接安装（用于 qemu 自动化测试）。
 
 ### ISO 启动后的安装落地（`pkg/console/util.go:doInstall`）
 ISO 引导（`console=tty1` 单 VGA console，`selinux=0` 禁 selinux）→ `start-installer.sh` → `vdi-installer` TUI 收集配置 → `doInstall()`：

@@ -1,0 +1,226 @@
+#!/bin/bash
+# VDI ISO qemu 自动化验证脚本
+# 用法: ./scripts/qemu-test [ISO路径]
+# 功能: UEFI 引导 ISO → 进 Live → SSH 验证装机流程
+#
+# 内存要求: ≥8G（装机需 squashfs + active.img + containerd）
+# 宿主机内存不足时，可加 swap: sudo fallocate -l 8G /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
+#
+# 本脚本做两件事:
+# 1. qemu 引导验证（4G 内存，只验 UEFI 引导 + Live 环境）
+# 2. 完整装机验证（8G 内存，SSH 进去触发安装 + 验证 RKE2）
+
+set -e
+
+TOP_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )/.." &> /dev/null && pwd )"
+ISO="${1:-${TOP_DIR}/dist/artifacts/$(ls -t ${TOP_DIR}/dist/artifacts/*.iso 2>/dev/null | head -1 | xargs basename 2>/dev/null)}"
+OVMF="/usr/share/ovmf/OVMF.fd"
+QEMU_DISK="${QEMU_DISK:-/tmp/qemu-vdi-disk.qcow2}"
+QEMU_MEM="${QEMU_MEM:-8192}"  # 默认 8G，可 QEMU_MEM=4096 只验引导
+SSH_PORT="${SSH_PORT:-2222}"
+VM_IP="127.0.0.1"
+VM_USER="root"
+VM_PASS="vdi123"
+
+# 颜色
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
+
+info()  { echo -e "${GREEN}[INFO]${NC} $1"; }
+warn()  { echo -e "${YELLOW}[WARN]${NC} $1"; }
+error() { echo -e "${RED}[ERROR]${NC} $1"; }
+
+# ============================================================
+# 前置检查
+# ============================================================
+echo "============================================"
+echo "  VDI ISO qemu 验证"
+echo "============================================"
+
+[ -z "$ISO" ] && { error "未找到 ISO，用法: $0 [ISO路径]"; exit 1; }
+[ ! -f "$ISO" ] && { error "ISO 不存在: $ISO"; exit 1; }
+[ ! -f "$OVMF" ] && { error "OVMF 固件不存在: $OVMF（apt install ovmf / dnf install edk2-ovmf）"; exit 1; }
+
+command -v qemu-system-x86_64 > /dev/null || { error "qemu-system-x86_64 未安装"; exit 1; }
+
+ISO_SIZE=$(du -h "$ISO" | awk '{print $1}')
+info "ISO: $ISO ($ISO_SIZE)"
+info "OVMF: $OVMF"
+info "内存: ${QEMU_MEM}MB"
+info "SSH 端口: $SSH_PORT (映射到 VM 22)"
+
+# 检查内存
+TOTAL_MEM=$(free -m | awk '/^Mem:/{print $2}')
+AVAIL_MEM=$(free -m | awk '/^Mem:/{print $7}')
+if [ "$AVAIL_MEM" -lt "$QEMU_MEM" ]; then
+    warn "可用内存 ${AVAIL_MEM}MB < qemu 需 ${QEMU_MEM}MB，可能 OOM"
+    warn "加 swap: sudo fallocate -l 8G /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile"
+    [ "$QEMU_MEM" -ge 8192 ] && { error "内存不足，无法装机验证（需 8G+）"; QEMU_MEM=4096; warn "降级为 4G 引导验证"; }
+fi
+
+# ============================================================
+# 创建虚拟磁盘
+# ============================================================
+mkdir -p "$(dirname "$QEMU_DISK")"
+if [ ! -f "$QEMU_DISK" ]; then
+    info "创建虚拟磁盘: $QEMU_DISK (250G)"
+    qemu-img create -f qcow2 "$QEMU_DISK" 250G
+fi
+
+# ============================================================
+# 启动 qemu
+# ============================================================
+info "启动 qemu（UEFI + ISO + 串口输出）"
+info "  - UEFI: $OVMF"
+info "  - ISO: $ISO"
+info "  - 磁盘: $QEMU_DISK"
+info "  - SSH: ssh -p $SSH_PORT root@127.0.0.1 (密码 $VM_PASS)"
+
+# qemu 参数:
+# -machine q35: 现代机器类型
+# -accel kvm: KVM 加速（如有）
+# -m: 内存
+# -bios: UEFI 固件
+# -smp: 2 核
+# -drive: 虚拟磁盘
+# -cdrom: ISO
+# -netdev user: 用户网络 + SSH 端口映射
+# -serial: 串口输出到文件（监控安装进度）
+# -display none: 无图形界面
+# -daemonize: 后台运行
+
+SERIAL_LOG="/tmp/qemu-serial.log"
+QEMU_PID_FILE="/tmp/qemu-vdi.pid"
+
+# 检查是否已有 qemu 在跑
+if [ -f "$QEMU_PID_FILE" ] && kill -0 "$(cat $QEMU_PID_FILE)" 2>/dev/null; then
+    warn "qemu 已在运行（PID $(cat $QEMU_PID_FILE)），先停止"
+    kill "$(cat $QEMU_PID_FILE)" 2>/dev/null || true
+    sleep 3
+fi
+
+ACCEL=""
+[ -e /dev/kvm ] && ACCEL="-accel kvm" || warn "无 KVM，qemu 软件模拟（慢）"
+
+qemu-system-x86_64 \
+    -machine q35 \
+    $ACCEL \
+    -m "$QEMU_MEM" \
+    -bios "$OVMF" \
+    -smp 2 \
+    -drive file="$QEMU_DISK",format=qcow2,if=virtio \
+    -cdrom "$ISO" \
+    -boot d \
+    -netdev user,id=net0,hostfwd=tcp::$SSH_PORT-:22 \
+    -device virtio-net-pci,netdev=net0 \
+    -serial file:"$SERIAL_LOG" \
+    -display none \
+    -daemonize \
+    -pidfile "$QEMU_PID_FILE" \
+    || { error "qemu 启动失败"; exit 1; }
+
+QEMU_PID=$(cat "$QEMU_PID_FILE")
+info "qemu 已启动（PID $QEMU_PID）"
+info "串口日志: $SERIAL_LOG"
+
+# ============================================================
+# 等 Live 环境起来
+# ============================================================
+info "等待 Live 环境启动（SSH 可达）..."
+SSH_OK=0
+for i in $(seq 1 60); do
+    sleep 10
+    if sshpass -p "$VM_PASS" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+        -o ConnectTimeout=5 -p "$SSH_PORT" "$VM_USER@$VM_IP" "echo OK" 2>/dev/null | grep -q OK; then
+        SSH_OK=1
+        info "Live 环境已就绪（${i}0 秒）"
+        break
+    fi
+    [ $((i % 6)) -eq 0 ] && info "等待中... ${i}0 秒（串口日志末尾: $(tail -1 $SERIAL_LOG 2>/dev/null | head -c 80)）"
+done
+
+if [ $SSH_OK -eq 0 ]; then
+    error "Live 环境未就绪（600 秒超时）"
+    error "串口日志末尾:"
+    tail -20 "$SERIAL_LOG" 2>/dev/null
+    exit 1
+fi
+
+# ============================================================
+# 验证 Live 环境
+# ============================================================
+info "=== 验证 Live 环境 ==="
+sshpass -p "$VM_PASS" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+    -p "$SSH_PORT" "$VM_USER@$VM_IP" "
+echo '---系统---'; uname -r; cat /etc/os-release | grep PRETTY
+echo '---ISO 挂载---'; ls /run/initramfs/live/bundle/vdi/images/*.tar.zst 2>/dev/null | head -3
+echo '---rancherd images---'; ls /run/initramfs/live/bundle/rancherd/images/ 2>/dev/null
+echo '---elemental---'; /usr/bin/elemental --version 2>/dev/null | head -1
+echo '---vdi-install---'; grep -c 'VDI_RKE2_MANIFESTS_DIR\|getty drop-in' /usr/sbin/vdi-install 2>/dev/null
+" 2>&1 | tee /tmp/qemu-live-check.log
+
+info "Live 环境验证完成"
+
+# ============================================================
+# 装机验证（需 8G 内存 + 手动触发）
+# ============================================================
+if [ "$QEMU_MEM" -ge 8192 ]; then
+    info "=== 装机验证（8G 内存）==="
+    info "Live 环境就绪，请手动 SSH 进去触发安装："
+    info "  ssh -p $SSH_PORT root@127.0.0.1 (密码 $VM_PASS)"
+    info "  或在 VMware-style TUI 走安装流程"
+    info ""
+    info "安装完成后，验证脚本继续..."
+    info ""
+    info "按 Enter 继续（安装完成后）..."
+    read
+
+    info "=== 验证装机结果 ==="
+    # 等系统重启
+    info "等待系统重启..."
+    for i in $(seq 1 60); do
+        sleep 10
+        if sshpass -p "$VM_PASS" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            -o ConnectTimeout=5 -p "$SSH_PORT" "$VM_USER@$VM_IP" "echo OK" 2>/dev/null | grep -q OK; then
+            info "系统已启动（${i}0 秒）"
+            break
+        fi
+        [ $((i % 6)) -eq 0 ] && info "等待中... ${i}0 秒"
+    done
+
+    # 验证 RKE2 + kubectl
+    info "=== 验证 RKE2 集群 ==="
+    sshpass -p "$VM_PASS" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+        -p "$SSH_PORT" "$VM_USER@$VM_IP" "
+echo '---系统---'; uname -r; cat /etc/os-release | grep PRETTY
+echo '---/ 挂载---'; mount | grep ' / '
+echo '---rke2-server---'; systemctl is-active rke2-server 2>/dev/null
+echo '---rke2 二进制---'; ls /var/lib/rancher/rke2/bin/rke2 2>/dev/null && echo '在' || echo '无'
+echo '---config.yaml---'; ls /etc/rancher/rke2/config.yaml 2>/dev/null && echo '在' || echo '无'
+echo '---manifests---'; ls /var/lib/rancher/rke2/server/manifests/ 2>/dev/null | head -5
+echo '---getty drop-in---'; ls /etc/systemd/system/getty@tty1.service.d/ 2>/dev/null && echo '还在（问题）' || echo '已删 ✓'
+echo '---kubectl---'
+export KUBECONFIG=/etc/rancher/rke2/rke2.yaml
+export PATH=/var/lib/rancher/rke2/bin:\$PATH
+kubectl get nodes 2>&1 | head -3
+kubectl get pods -A 2>&1 | head -8
+" 2>&1 | tee /tmp/qemu-install-check.log
+
+    info "装机验证完成（结果见 /tmp/qemu-install-check.log）"
+else
+    warn "内存 ${QEMU_MEM}MB < 8G，跳过装机验证（只验了引导）"
+fi
+
+# ============================================================
+# 清理
+# ============================================================
+echo ""
+info "qemu PID: $(cat $QEMU_PID_FILE 2>/dev/null)"
+info "停止 qemu: kill \$(cat $QEMU_PID_FILE)"
+info "串口日志: $SERIAL_LOG"
+info "虚拟磁盘: $QEMU_DISK（保留，下次复用）"
+echo "============================================"
+echo "  验证完成"
+echo "============================================"
