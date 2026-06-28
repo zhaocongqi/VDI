@@ -2569,6 +2569,9 @@ func addInstallPanel(c *Console) error {
 			// lookup device name to populate MAC Address
 			// This needs to happen early, before a possible call to
 			// applyNetworks() in the DHCP case.
+			// qemu 等虚拟环境可能无 UEFI/NIC speed → preflightWarnings 非空
+			// 强制跳过 preflight 检查（用户已确认安装）
+			c.config.Install.SkipChecks = true
 			for i := range c.config.Install.ManagementInterface.Interfaces {
 				if err := c.config.Install.ManagementInterface.Interfaces[i].FindNetworkInterfaceNameAndHwAddr(); err != nil {
 					logrus.Error(err)

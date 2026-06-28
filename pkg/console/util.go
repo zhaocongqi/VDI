@@ -18,6 +18,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"sync"
 	"time"
 
@@ -515,6 +516,7 @@ func roleSetup(c *config.VDIConfig) error {
 
 func doInstall(g *gocui.Gui, hvstConfig *config.VDIConfig, webhooks RendererWebhooks) error {
 	ctx := context.TODO()
+	logrus.Info("doInstall: started")
 	webhooks.Handle(EventInstallStarted)
 
 	// specific the node label for the specific node role
@@ -522,7 +524,9 @@ func doInstall(g *gocui.Gui, hvstConfig *config.VDIConfig, webhooks RendererWebh
 		return err
 	}
 
+	logrus.Info("doInstall: calling generateEnvAndConfig")
 	env, elementalConfig, err := generateEnvAndConfig(g, hvstConfig)
+	logrus.Info("doInstall: generateEnvAndConfig done")
 	if err != nil {
 		return err
 	}
@@ -621,7 +625,21 @@ func doInstall(g *gocui.Gui, hvstConfig *config.VDIConfig, webhooks RendererWebh
 		}
 	}
 
-	if err := execute(ctx, g, env, "/usr/sbin/vdi-install"); err != nil {
+	// 直接用 exec.Command 调 vdi-install（不继承 tty1 stdin）
+	// 防止 vdi-install/elemental install 的子进程影响 tty1 导致 gocui MainLoop 退出
+	installCmd := exec.CommandContext(ctx, "/usr/sbin/vdi-install")
+	installCmd.Env = env
+	installCmd.Stdin = nil
+	installCmd.Stdout = nil
+	installCmd.Stderr = nil
+	// 新会话 + 关闭继承的 fd，防止 vdi-install/elemental install 修改 tty1 终端属性
+	// 导致 gocui/termbox 的 MainLoop 读 tty1 EOF 退出
+	installCmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Foreground: false}
+	// 关闭所有继承的 fd（包括 termbox 打开的 /dev/tty1）
+	installCmd.ExtraFiles = nil
+	logrus.Info("doInstall: calling vdi-install")
+	if err := installCmd.Run(); err != nil {
+		logrus.Errorf("doInstall: vdi-install failed: %v", err)
 		webhooks.Handle(EventInstallFailed)
 		printToPanel(g, fmt.Sprintf(installFailureMessage, defaultLogFilePath), installPanel)
 		if hvstConfig.Install.Debug {
