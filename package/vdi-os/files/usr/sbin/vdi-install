@@ -3,6 +3,10 @@
 # 对应 Harvester 的 harv-install，适配 RKE2 + VDI 组件
 # 去除 Rancherd 相关逻辑，直接使用 RKE2 镜像预加载
 
+# 断开与 tty1 的关联，防止 elemental install 触发的 udev 事件 reset tty1
+# 导致 vdi-installer 的 gocui MainLoop 退出（进程退出，doInstall goroutine 中止）
+exec 0</dev/null 1>/var/log/vdi-install.log 2>&1
+
 ISOMNT=/run/initramfs/live
 TARGET=/run/cos/target
 DATA_DISK_FSLABEL="VDI_LH_DEFAULT"
@@ -219,7 +223,9 @@ preload_rke2_images()
         chmod +x /var/lib/rancher/rke2/bin/rke2
         # systemd 服务 → /usr/lib/systemd/system（active.img）
         cp $rke2_tmp/lib/systemd/system/rke2-*.service /usr/lib/systemd/system/ 2>/dev/null || echo "WARN: rke2 service 文件未找到"
-        # service ExecStart 默认 /usr/local/bin/rke2（RKE2 标准），rke2 二进制由后续步骤写到 /usr/local/bin
+        # service ExecStart 默认 /usr/local/bin/rke2，改指 /var/lib/rancher/rke2/bin/rke2（active.img，rke2 二进制实际位置）
+        # /usr/local 在 chroot 内是 PERSISTENT，重启后不挂会丢，不能放 rke2 二进制
+        sed -i 's|/usr/local/bin/rke2|/var/lib/rancher/rke2/bin/rke2|g' /usr/lib/systemd/system/rke2-*.service 2>/dev/null
         # chart-templates（RKE2 内置 charts）→ active.img
         [ -d "$rke2_tmp/share/rke2" ] && cp -r $rke2_tmp/share/rke2/. /var/lib/rancher/rke2/share/
         # enable rke2-server（首节点）或 rke2-agent（加入节点）
@@ -346,19 +352,6 @@ if [ -n "$VDI_RKE2_CONFIG" ] && [ -f "$VDI_RKE2_CONFIG" ]; then
     cp $VDI_RKE2_CONFIG $TARGET/etc/rancher/rke2/config.yaml
     chmod 600 $TARGET/etc/rancher/rke2/config.yaml
     echo "RKE2 config.yaml written"
-fi
-
-# rke2 二进制 → /usr/local/bin（active.img，RKE2 标准入口，RKE2 server 不管理此路径）
-# chroot 内 /usr/local 是 PERSISTENT，需 umount PERSISTENT 后写到 active.img 的 /usr/local/bin
-if [ -f "$TARGET/var/lib/rancher/rke2/bin/rke2" ]; then
-    umount $TARGET/usr/local 2>/dev/null || true
-    mkdir -p $TARGET/usr/local/bin
-    cp $TARGET/var/lib/rancher/rke2/bin/rke2 $TARGET/usr/local/bin/rke2
-    chmod +x $TARGET/usr/local/bin/rke2
-    # 重新挂 PERSISTENT（后续可能用）
-    PERSISTENT=$(blkid -L COS_PERSISTENT 2>/dev/null)
-    [ -n "$PERSISTENT" ] && mount $PERSISTENT $TARGET/usr/local 2>/dev/null || true
-    echo "rke2 binary → /usr/local/bin/rke2"
 fi
 
 # 写首节点 HelmChart manifests（VDI 无 elemental cloud-init，vdi-installer 渲染后由 vdi-install 直接写盘）

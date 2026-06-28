@@ -29,6 +29,7 @@ RUN --mount=type=bind,from=bclinux-repo,source=.,target=/iso,rw \
     squashfs-tools \
     dosfstools \
     lvm2 \
+    grub2-pc grub2-pc-modules \
     NetworkManager \
     openssh-server \
     iproute iputils net-tools \
