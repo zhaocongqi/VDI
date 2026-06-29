@@ -86,10 +86,12 @@ trap qemu_stop EXIT
 
 # 干净的磁盘（重装验证时不复用旧盘）
 qemu_stop
+QEMU_DATA_DISK="/tmp/qemu-vdi-ks-data-disk.qcow2"
 if [ "${REUSE_DISK:-0}" != "1" ]; then
-    rm -f "$QEMU_DISK"
+    rm -f "$QEMU_DISK" "$QEMU_DATA_DISK"
 fi
 qemu-img create -f qcow2 "$QEMU_DISK" 60G >/dev/null
+qemu-img create -f qcow2 "$QEMU_DATA_DISK" 20G >/dev/null
 
 # ============================================================
 # 阶段 1: 引导 ISO → anaconda 自动装机
@@ -103,6 +105,7 @@ qemu-system-x86_64 \
     $BIOS_ARGS \
     -smp 2 \
     -drive file="$QEMU_DISK",format=qcow2,if=virtio \
+    -drive file="$QEMU_DATA_DISK",format=qcow2,if=virtio \
     -cdrom "$ISO" \
     -boot d \
     -netdev user,id=net0,hostfwd=tcp::$SSH_PORT-:22 \
@@ -174,6 +177,9 @@ info "=== 装机阶段完成 ==="
 info "串口日志末尾（装机结果）:"
 strip_ansi "$SERIAL_LOG" | tail -25
 
+# 显式关闭第一阶段装机时软重启仍在后台运行的 QEMU 进程，防止 PID 锁与端口冲突
+qemu_stop
+
 # ============================================================
 # 阶段 2: 从硬盘引导进系统
 # ============================================================
@@ -186,6 +192,7 @@ qemu-system-x86_64 \
     $BIOS_ARGS \
     -smp 2 \
     -drive file="$QEMU_DISK",format=qcow2,if=virtio \
+    -drive file="$QEMU_DATA_DISK",format=qcow2,if=virtio \
     -netdev user,id=net0,hostfwd=tcp::$SSH_PORT-:22 \
     -device virtio-net-pci,netdev=net0 \
     -serial file:"$SERIAL_LOG" \
@@ -225,6 +232,7 @@ sshpass -p "$VM_PASS" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev
 echo '---系统---'; uname -r; cat /etc/os-release | grep PRETTY
 echo '---/ 挂载---'; mount | grep ' / '
 echo '---分区---'; lsblk -o NAME,SIZE,FSTYPE,MOUNTPOINT 2>/dev/null
+echo '---数据盘挂载---'; df -h | grep longhorn || echo '数据盘未成功挂载'
 echo '---root 登录---'; whoami
 echo '---网络---'; ip -4 addr show | grep inet | head -3
 echo '---selinux---'; getenforce 2>/dev/null
