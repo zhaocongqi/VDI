@@ -64,18 +64,29 @@ func KickstartRender(cfg *VDIConfig) (string, error) {
 func kickstartPre(cfg *VDIConfig) string {
 	dev := strings.TrimPrefix(cfg.Install.Device, "/dev/")
 	return fmt.Sprintf(`%%pre --interpreter=/bin/bash
-# 动态检测目标安装磁盘是否存在。若不存在则优雅回退，防止 Anaconda 闪退。
+# 1. 绝对防御性兜底：第一步先 touch 文件，防范任何意外导致 Anaconda 无法打开文件崩溃
+touch /tmp/ignoredisk-ks.cfg
+
+# 2. 读取配置的目标安装磁盘
 TARGET_DEV="%s"
+
+# 3. 动态判定设备是否存在
 if [ -n "${TARGET_DEV}" ] && [ -b "/dev/${TARGET_DEV}" ]; then
     echo "ignoredisk --only-use=${TARGET_DEV}" > /tmp/ignoredisk-ks.cfg
 else
-    # 回退机制：如果指定的盘不存在，寻找当前系统的第一个可用硬盘作为系统盘
-    FIRST_DEV=$(lsblk -d -n -o NAME,TYPE | grep disk | head -n 1 | awk '{print $1}')
+    # 4. 纯 Bash 内置语法适配异构盘符（不依赖 lsblk/awk/grep 等外部工具）
+    FIRST_DEV=""
+    for d in /sys/block/*; do
+        devname="${d##*/}"
+        case "${devname}" in
+            sd*|vd*|nvme*)
+                FIRST_DEV="${devname}"
+                break
+                ;;
+        esac
+    done
     if [ -n "${FIRST_DEV}" ]; then
         echo "ignoredisk --only-use=${FIRST_DEV}" > /tmp/ignoredisk-ks.cfg
-    else
-        # 兜底：写空行不报错
-        touch /tmp/ignoredisk-ks.cfg
     fi
 fi
 %%end
