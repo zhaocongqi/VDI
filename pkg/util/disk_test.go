@@ -31,12 +31,12 @@ func TestParsePartitionSize(t *testing.T) {
 		{
 			diskSize:      2000 * GiByteMultiplier,
 			partitionSize: "0Gi",
-			err:           "partition size is too small. Minimum 150Gi is required",
+			err:           "partition size is too small. Minimum 50Gi is required",
 		},
 		{
 			diskSize:      500 * GiByteMultiplier,
 			partitionSize: "0Mi",
-			err:           "partition size is too small. Minimum 150Gi is required",
+			err:           "partition size is too small. Minimum 50Gi is required",
 		},
 		{
 			diskSize:      100 * GiByteMultiplier,
@@ -114,13 +114,13 @@ func TestParsePartitionSizeWithSkipChecks(t *testing.T) {
 			testName:      "Should fail when partition size is too small",
 			diskSize:      2000 * GiByteMultiplier,
 			partitionSize: "0Gi",
-			err:           "partition size is too small. Minimum 150Gi is required",
+			err:           "partition size is too small. Minimum 50Gi is required",
 		},
 		{
 			testName:      "Should fail when partition size is too small",
 			diskSize:      500 * GiByteMultiplier,
 			partitionSize: "0Mi",
-			err:           "partition size is too small. Minimum 150Gi is required",
+			err:           "partition size is too small. Minimum 50Gi is required",
 		},
 		{
 			testName:      "Should allow for small installation disk size (249GB)",
