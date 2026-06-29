@@ -1,3 +1,0 @@
-iso:
-  bootloader-in-rootfs: true
-  label: "VDI_LIVE"
