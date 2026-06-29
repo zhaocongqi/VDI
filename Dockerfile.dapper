@@ -9,7 +9,7 @@ ENV ARCH $DAPPER_HOST_ARCH
 
 # 系统工具
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    git curl gzip tar wget ca-certificates zstd squashfs-tools xorriso \
+    git curl gzip tar wget ca-certificates zstd squashfs-tools xorriso isolinux syslinux-common \
     gawk jq mtools dosfstools unzip rsync patch \
     gnupg grub-efi-amd64-bin grub-pc-bin \
     p7zip-full rpm2cpio \
