@@ -152,12 +152,24 @@ auto_install.go/doInstall() 当前编排：ConvertToCOS → ConvertToElementalCo
 - ISO 5.6G（DVD 3.3G + bundle 2.3G），xorriso 重建无 ~3174MB 限制（那是 elemental squashfs live 的问题）
 - 镜像导入 + etcd 初始化首启约 3 分钟，kubectl 验证需等足
 
-### MVP3 — TUI 作 ks 生成器
-- `pkg/config/kickstart.go`：VDIConfig → ks 动态片段
-- `auto_install.go`/`doInstall()` 改造：生成 ks 片段而非 elemental env
-- ks `%pre` 调 vdi-installer TUI（验证 `%pre` gocui 可行性，不行走 rescue 备选）
-- 验证：TUI 配置 → 生成 ks → anaconda 装机 → RKE2 起来
-- 产出：kickstart.go + TUI 改造 + `%pre` 集成
+### MVP3a — kickstart.go 渲染器 + 构建期嵌入 ✅ 已完成
+- `pkg/config/kickstart.go`：`KickstartRender(cfg)` 把 VDIConfig 渲染成完整 ks.cfg
+  - 静态头（text/cdrom/selinux/firewall/reboot --eject）+ network + clearpart/autopart LVM + rootpw + %packages
+  - `%post --nochroot` 从 `/run/install/repo/bundle/vdi` 复制 RKE2 二进制/镜像/charts 到目标盘
+  - `%post` chroot：解压 rke2.tar.gz + 写 config.yaml + 首节点写 HelmChart manifests + enable rke2-server/agent
+- `main.go --auto-install --ks-out`：构建期渲染 ks 到指定路径（package-vdi-iso 优先用 vdi-installer 渲染，缺二进制 fallback 手写静态 ks.cfg）
+- 验证方式（关键，绕开 pexpect EOF 陷阱）：装完机后**断开 read-only nbd → read-write 重连 → `vgchange -ay` 激活 bclinux/root LV → 只读挂载直接读盘**，而非串口 pexpect 登录（`-no-reboot` + `-serial stdio` 模式下 qemu 会提前退出，pexpect 必 EOF）
+- 实测铁证（15:13 装机盘，挂盘直读）：
+  - `config.yaml`：`token: "vdi123"`（带引号，Go 版特征）+ `cni: none` + `tls-san: 10.0.2.100` + cluster-cidr/service-cidr/cluster-dns + `disable: rke2-ingress-nginx` + `kubelet-arg: max-pods=200` —— 全部为 Go 渲染版，区分 MVP2 静态版（token 无引号、无 cni、disable: ingress-nginx）
+  - `hostname: vdi-node1`（MVP2 是 localhost）
+  - `manifests/`：kubevirt/longhorn/kube-ovn/kagent HelmChart + rke2 自带 coredns/snapshot/metrics-server
+  - `/usr/local/bin/rke2` 114MB 解压到位 + sshd drop-in + rke2-server.service enabled
+- 踩坑日志：曾因 pexpect EOF + sg kvm 后台 ISO 路径解析误判"磁盘是 MVP2 版"，实为双重假象。结论：**验证装机产物一律挂盘直读，不靠串口 pexpect**。
+
+### MVP3b — %pre 接入 TUI（动态配置）
+- ks `%pre` 调 vdi-installer TUI 收集用户配置（网卡/磁盘/VIP/密码/role），生成 ks include 片段注入 anaconda
+- 验证 `%pre` 阶段 gocui 在串口/帧缓冲终端的可行性；不可行则走 rescue shell 备选或预置配置文件
+- 产出：TUI 改造 + `%pre` 集成脚本
 
 ### MVP4 — 组件栈 + 多节点 + 数据盘
 - HelmChart 组件栈（kube-ovn/longhorn/kubevirt/kagent）端到端

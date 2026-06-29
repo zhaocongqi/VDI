@@ -1,110 +1,75 @@
 package console
 
 import (
-	"context"
 	"fmt"
 	"os"
-	"os/exec"
-	"syscall"
 
 	"vdi-installer/pkg/config"
 	"vdi-installer/pkg/version"
 )
 
-// AutoInstall bypasses TUI and directly calls doInstall with a default config.
-// For automated testing in qemu (no TTY interaction needed).
-func AutoInstall() error {
+// AutoInstall renders a kickstart ks.cfg from a default VDIConfig and writes it
+// to KSOutPath (default /tmp/ks-rendered.cfg), then exits.
+//
+// kickstart 链路下，vdi-installer 不再 exec elemental/vdi-install 落地，而是把
+// VDIConfig 渲染成 ks.cfg，供 package-vdi-iso 构建期嵌入 ISO（静态 ks）或 %pre
+// 动态生成（MVP3b）。anaconda 按 ks 装机 + %post 装 RKE2。
+//
+// 默认配置面向 qemu 自动化验证（首节点/DHCP/单盘）。TUI 模式（RunConsole）收集
+// 用户配置后同样调 config.KickstartRender 渲染。
+func AutoInstall(ksOutPath string) error {
+	cfg := defaultQemuConfig()
+
+	ks, err := config.KickstartRender(cfg)
+	if err != nil {
+		return fmt.Errorf("render kickstart: %w", err)
+	}
+
+	if ksOutPath == "" {
+		ksOutPath = "/tmp/ks-rendered.cfg"
+	}
+	if err := os.WriteFile(ksOutPath, []byte(ks), 0644); err != nil {
+		return fmt.Errorf("write ks to %s: %w", ksOutPath, err)
+	}
+	fmt.Printf("kickstart 渲染完成: %s (%d 行)\n", ksOutPath, len(splitLines(ks)))
+	return nil
+}
+
+// defaultQemuConfig 是 qemu --auto-install 验证用的默认 VDIConfig（首节点单机）
+func defaultQemuConfig() *config.VDIConfig {
 	cfg := config.NewVDIConfig()
 	cfg.Install.Role = config.RoleFirst
 	cfg.Install.Mode = config.ModeCreate
 	cfg.Install.Device = "/dev/vda"
-	cfg.Install.PersistentPartitionSize = "150Gi"
 	cfg.Install.SkipChecks = true
 	cfg.OS.Hostname = "vdi-node1"
 	cfg.OS.Password = "vdi123"
 	cfg.Token = "vdi123"
 	cfg.Install.Vip = "10.0.2.100"
+	// 集群网络默认值（对齐 cos.go setConfigDefaultValues，避免 rke2 config 空值）
+	cfg.Install.ClusterPodCIDR = "10.52.0.0/16"
+	cfg.Install.ClusterServiceCIDR = "10.53.0.0/16"
+	cfg.Install.ClusterDNS = "10.53.0.10"
 	cfg.Install.ManagementInterface = config.Network{
 		Interfaces: []config.NetworkInterface{{Name: "enp0s2"}},
 		Method:     config.NetworkMethodDHCP,
 	}
+	return cfg
+}
 
-	// Generate elemental config
-	cosConfig, err := config.ConvertToCOS(cfg)
-	if err != nil {
-		return fmt.Errorf("ConvertToCOS: %w", err)
-	}
-	cosConfigFile, err := saveTemp(cosConfig, "cos")
-	if err != nil {
-		return fmt.Errorf("save cos config: %w", err)
-	}
-
-	hvstConfigFile, err := saveTemp(cfg, "vdi")
-	if err != nil {
-		return fmt.Errorf("save vdi config: %w", err)
-	}
-
-	cfg.Install.ConfigURL = cosConfigFile
-	elementalConfig, err := config.ConvertToElementalConfig(cfg)
-	if err != nil {
-		return fmt.Errorf("ConvertToElementalConfig: %w", err)
-	}
-
-	elementalConfig = config.CreateRootPartitioningLayoutSeparateDataDisk(elementalConfig)
-
-	elementalConfigDir, elementalConfigFile, err := saveElementalConfig(elementalConfig)
-	if err != nil {
-		return fmt.Errorf("save elemental config: %w", err)
-	}
-
-	env := append(os.Environ(),
-		fmt.Sprintf("HARVESTER_CONFIG=%s", hvstConfigFile),
-		fmt.Sprintf("HARVESTER_INSTALLATION_LOG=%s", defaultLogFilePath),
-		fmt.Sprintf("ELEMENTAL_CONFIG=%s", elementalConfigFile),
-		fmt.Sprintf("ELEMENTAL_CONFIG_DIR=%s", elementalConfigDir),
-	)
-
-	// Render RKE2 config
-	rke2ConfigContent, err := config.RenderRKE2Config(cfg)
-	if err != nil {
-		return fmt.Errorf("render RKE2 config: %w", err)
-	}
-	rke2ConfigFile, err := os.CreateTemp("/tmp", "rke2-config.")
-	if err != nil {
-		return fmt.Errorf("create RKE2 config temp file: %w", err)
-	}
-	if _, err := rke2ConfigFile.WriteString(rke2ConfigContent); err != nil {
-		rke2ConfigFile.Close()
-		return fmt.Errorf("write RKE2 config: %w", err)
-	}
-	rke2ConfigFile.Close()
-	env = append(env, fmt.Sprintf("VDI_RKE2_CONFIG=%s", rke2ConfigFile.Name()))
-
-	// Render manifests
-	manifests, err := config.RenderRKE2Manifests(cfg)
-	if err != nil {
-		return fmt.Errorf("render RKE2 manifests: %w", err)
-	}
-	manifestsDir, err := os.MkdirTemp("/tmp", "rke2-manifests.")
-	if err != nil {
-		return fmt.Errorf("create RKE2 manifests temp dir: %w", err)
-	}
-	for name, content := range manifests {
-		if err := os.WriteFile(manifestsDir+"/"+name, []byte(content), 0644); err != nil {
-			return fmt.Errorf("write RKE2 manifest %s: %w", name, err)
+func splitLines(s string) []string {
+	var lines []string
+	start := 0
+	for i, c := range s {
+		if c == '\n' {
+			lines = append(lines, s[start:i])
+			start = i + 1
 		}
 	}
-	env = append(env, fmt.Sprintf("VDI_RKE2_MANIFESTS_DIR=%s", manifestsDir))
-
-	// Execute vdi-install
-	fmt.Println("Starting vdi-install...")
-	installCmd := exec.CommandContext(context.TODO(), "/usr/sbin/vdi-install")
-	installCmd.Env = env
-	installCmd.Stdin = os.Stdin
-	installCmd.Stdout = os.Stdout
-	installCmd.Stderr = os.Stderr
-	installCmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-	return installCmd.Run()
+	if start < len(s) {
+		lines = append(lines, s[start:])
+	}
+	return lines
 }
 
 // Ensure version package is referenced

@@ -84,12 +84,21 @@ done
 echo "  解包完成: $(du -sh ${ISO_ROOTFS} | cut -f1)"
 
 # ============================================================
-# 步骤 2: 注入 ks.cfg（构建期替换 rootpw 占位符）
+# 步骤 2: 注入 ks.cfg
+# 优先用 vdi-installer --auto-install 渲染（Go kickstart.go，动态注入网络/磁盘/RKE2）；
+# 无 vdi-installer 二进制时 fallback 到手写静态 ks.cfg + rootpw 占位符替换
 # ============================================================
 echo ">>> 注入 ks.cfg"
 KS_OUT="${ISO_ROOTFS}/ks.cfg"
-ROOTPW_CRYPT=$(openssl passwd -6 -salt vdirootpw vdi123)
-sed "s|ROOTPW_HASH_PLACEHOLDER|${ROOTPW_CRYPT}|" "${KS_TEMPLATE}" > "${KS_OUT}"
+VDI_INSTALLER_BIN="${VDI_INSTALLER_BIN:-${TOP_DIR}/dist/artifacts/vdi-installer}"
+if [ -x "${VDI_INSTALLER_BIN}" ]; then
+    echo "  用 vdi-installer 渲染 ks: ${VDI_INSTALLER_BIN}"
+    "${VDI_INSTALLER_BIN}" --auto-install --ks-out "${KS_OUT}" >/dev/null
+else
+    echo "  WARN: 无 vdi-installer 二进制，fallback 手写 ks.cfg（构建后丢 dist/artifacts/vdi-installer）"
+    ROOTPW_CRYPT=$(openssl passwd -6 -salt vdirootpw vdi123)
+    sed "s|ROOTPW_HASH_PLACEHOLDER|${ROOTPW_CRYPT}|" "${KS_TEMPLATE}" > "${KS_OUT}"
+fi
 echo "  ks.cfg -> /ks.cfg ($(wc -l < ${KS_OUT}) 行)"
 
 # 清理 BCLinux ISO 原装自带的 ks 示例目录（/ks/ks.cfg），避免与根目录 /ks.cfg 混淆

@@ -19,12 +19,16 @@ func main() {
 		Flags: []cli.Flag{
 			&cli.BoolFlag{
 				Name:  "auto-install",
-				Usage: "Skip TUI and directly install with default config (for automated testing)",
+				Usage: "Render kickstart ks.cfg from default config and exit (no TUI, for automated testing / build-time ks generation)",
+			},
+			&cli.StringFlag{
+				Name:  "ks-out",
+				Usage: "Path to write rendered kickstart (used with --auto-install, default /tmp/ks-rendered.cfg)",
 			},
 		},
 		Action: func(ctx context.Context, c *cli.Command) error {
 			if c.Bool("auto-install") {
-				return console.AutoInstall()
+				return console.AutoInstall(c.String("ks-out"))
 			}
 			return console.RunConsole()
 		},
