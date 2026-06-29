@@ -1,0 +1,220 @@
+#!/bin/bash -e
+# 构建 VDI 安装型 ISO（BCLinux DVD + kickstart，xorriso 重建）
+#
+# 与 main 分支 elemental build-iso 的 Live 型不同：本脚本不重建 rootfs/squashfs，
+# 直接复用 BCLinux DVD ISO 自带的 anaconda 安装树（images/install.img），
+# 仅注入 ks.cfg + 改引导菜单加 inst.ks，实现无人值守装机。
+#
+# 流程：
+#   1. 校验 BCLinux ISO + xorriso
+#   2. 解出 DVD ISO 到临时目录（osirrox，保留 Rock Ridge + Eltorito + EFI）
+#   3. 注入 ks.cfg 到 ISO 根（inst.ks=hd:LABEL=...:/ks.cfg 寻址）
+#   4. 改 isolinux.cfg(BIOS) + grub.cfg(UEFI) 加 inst.ks + 设默认装机项 + 缩短 timeout
+#   5. xorriso 重建 ISO（保留双引导 + 卷标 BCLinux.x86_64）
+#   6. 验证 + SHA512
+
+TOP_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )/.." &> /dev/null && pwd )"
+SCRIPTS_DIR="${TOP_DIR}/scripts"
+PACKAGE_VDI_OS_DIR="${TOP_DIR}/package/vdi-os"
+ARTIFACTS_DIR="${TOP_DIR}/dist/artifacts"
+CACHE_DIR="${TOP_DIR}/cache"
+
+source ${SCRIPTS_DIR}/version
+
+# BCLinux DVD ISO 卷标（inst.ks / inst.stage2 据此寻址，不可改）
+ISO_LABEL="BCLinux.x86_64"
+BCLINUX_ISO="${TOP_DIR}/dist/iso/BCLinux-21.10U5-dvd-x86_64-260610.iso"
+
+# syslinux MBR 前缀（isohybrid 用，使 ISO 可 dd 写盘做 BIOS+UEFI 混合引导）
+# 宿主机 syslinux 提供，BCLinux ISO 内不带
+ISOHDPFX_BIN="/usr/lib/ISOLINUX/isohdpfx.bin"
+
+# VDI ks 模板（构建期注入；MVP3 起 %pre 调 vdi-installer TUI 动态生成配置段）
+KS_TEMPLATE="${PACKAGE_VDI_OS_DIR}/ks/ks.cfg"
+
+ISO_PREFIX="vdi-${VERSION}-amd64"
+ISO_FILE="${ARTIFACTS_DIR}/${ISO_PREFIX}.iso"
+ISO_ROOTFS="${CACHE_DIR}/iso-rootfs"
+
+echo "============================================"
+echo "  构建 VDI 安装型 ISO (BCLinux + kickstart)"
+echo "  版本: ${VERSION}"
+echo "============================================"
+
+# ============================================================
+# 前置检查
+# ============================================================
+if [ ! -s "${BCLINUX_ISO}" ]; then
+    echo "ERROR: 缺少 BCLinux ISO: ${BCLINUX_ISO}" >&2
+    echo "       客户提供，放至 dist/iso/" >&2
+    exit 1
+fi
+command -v xorriso >/dev/null 2>&1 || { echo "ERROR: 缺少 xorriso"; exit 1; }
+command -v openssl >/dev/null 2>&1 || { echo "ERROR: 缺少 openssl"; exit 1; }
+if [ ! -s "${ISOHDPFX_BIN}" ]; then
+    echo "ERROR: 缺少 syslinux isohdpfx.bin: ${ISOHDPFX_BIN}" >&2
+    echo "       Debian/Ubuntu: apt install isolinux syslinux-common" >&2
+    exit 1
+fi
+
+mkdir -p ${ARTIFACTS_DIR}
+
+# ============================================================
+# 步骤 1: 解出 DVD ISO 到临时目录
+# osirrox 把 ISO 当文件系统解包，保留 Rock Ridge 符号链接与权限
+# ============================================================
+echo ">>> 解出 BCLinux DVD ISO"
+# xorriso 解包保留 ISO 9660 权限（文件 0444 只读），删旧目录前先放开写权限
+# 否则 rm -rf 无法删只读目录内的只读文件
+if [ -d "${ISO_ROOTFS}" ]; then
+    chmod -R u+w "${ISO_ROOTFS}" 2>/dev/null || true
+    rm -rf "${ISO_ROOTFS}"
+fi
+mkdir -p ${ISO_ROOTFS}
+xorriso -osirrox on -indev "${BCLINUX_ISO}" -extract / ${ISO_ROOTFS}
+# 解包后全树放开写权限（改写 isolinux.cfg/grub.cfg、清理 ks/ 等需要）
+chmod -R u+w "${ISO_ROOTFS}" 2>/dev/null || true
+
+# 验证解包关键文件
+for f in isolinux/isolinux.cfg isolinux/isolinux.bin images/pxeboot/vmlinuz \
+         images/pxeboot/initrd.img images/install.img EFI/BOOT/grub.cfg \
+         EFI/BOOT/BOOTX64.EFI .discinfo .treeinfo; do
+    [ -e "${ISO_ROOTFS}/${f}" ] || { echo "ERROR: 解包缺失 ${f}"; exit 1; }
+done
+echo "  解包完成: $(du -sh ${ISO_ROOTFS} | cut -f1)"
+
+# ============================================================
+# 步骤 2: 注入 ks.cfg（构建期替换 rootpw 占位符）
+# ============================================================
+echo ">>> 注入 ks.cfg"
+KS_OUT="${ISO_ROOTFS}/ks.cfg"
+ROOTPW_CRYPT=$(openssl passwd -6 -salt vdirootpw vdi123)
+sed "s|ROOTPW_HASH_PLACEHOLDER|${ROOTPW_CRYPT}|" "${KS_TEMPLATE}" > "${KS_OUT}"
+echo "  ks.cfg -> /ks.cfg ($(wc -l < ${KS_OUT}) 行)"
+
+# 清理 BCLinux ISO 原装自带的 ks 示例目录（/ks/ks.cfg），避免与根目录 /ks.cfg 混淆
+rm -rf ${ISO_ROOTFS}/ks
+
+# xorriso 解包保留 ISO 9660 权限（0444 只读），改写前放开写权限
+chmod u+w ${ISO_ROOTFS}/isolinux/isolinux.cfg \
+           ${ISO_ROOTFS}/EFI/BOOT/grub.cfg
+
+# ============================================================
+# 步骤 3: 改 isolinux.cfg (BIOS) — 默认装机 + inst.ks + 缩短 timeout
+# ============================================================
+echo ">>> 改写 isolinux.cfg (BIOS)"
+cat > ${ISO_ROOTFS}/isolinux/isolinux.cfg <<'ISO_CFG'
+default vdi
+timeout 30
+prompt 0
+
+label vdi
+  menu label ^Install VDI (auto, kickstart)
+  menu default
+  kernel vmlinuz
+  append initrd=initrd.img inst.stage2=hd:LABEL=BCLinux.x86_64 inst.ks=hd:LABEL=BCLinux.x86_64:/ks.cfg console=ttyS0,115200 console=tty1 quiet fpi_to_tail=off
+
+label rescue
+  menu label ^Rescue a BCLinux system
+  kernel vmlinuz
+  append initrd=initrd.img inst.stage2=hd:LABEL=BCLinux.x86_64 inst.rescue console=ttyS0,115200 quiet fpi_to_tail=off
+
+label local
+  menu label Boot from ^local drive
+  localboot 0xffff
+ISO_CFG
+
+# ============================================================
+# 步骤 4: 改 EFI/BOOT/grub.cfg (UEFI) — 默认装机 + inst.ks + 缩短 timeout
+# ============================================================
+echo ">>> 改写 EFI/BOOT/grub.cfg (UEFI)"
+cat > ${ISO_ROOTFS}/EFI/BOOT/grub.cfg <<'GRUB_CFG'
+set default="0"
+set timeout=5
+
+function load_video {
+  insmod efi_gop
+  insmod efi_uga
+  insmod all_video
+}
+load_video
+set gfxpayload=keep
+insmod gzio
+insmod part_gpt
+insmod ext2
+search --no-floppy --set=root -l 'BCLinux.x86_64'
+
+menuentry 'Install VDI (auto, kickstart)' --class gnu-linux --class os {
+  set linux=linuxefi
+  set initrd=initrdefi
+  if [ "${grub_platform}" != "efi" ]; then
+    set linux=linux
+    set initrd=initrd
+  fi
+  $linux /images/pxeboot/vmlinuz inst.stage2=hd:LABEL=BCLinux.x86_64 inst.ks=hd:LABEL=BCLinux.x86_64:/ks.cfg console=ttyS0,115200 console=tty1 quiet fpi_to_tail=off
+  $initrd /images/pxeboot/initrd.img
+}
+
+menuentry 'Rescue a BCLinux system' --class gnu-linux --class os {
+  linux /images/pxeboot/vmlinuz inst.stage2=hd:LABEL=BCLinux.x86_64 inst.rescue console=ttyS0,115200 quiet fpi_to_tail=off
+  initrd /images/pxeboot/initrd.img
+}
+GRUB_CFG
+
+# UEFI efiboot.img 内通常也有一份 grub.cfg（anaconda 安装期读这份），
+# 同步改写以保持一致（efiboot.img 是 FAT 镜像，需挂载或 mtools 改）
+EFIIMG="${ISO_ROOTFS}/images/efiboot.img"
+if [ -f "${EFIIMG}" ] && command -v mtools >/dev/null 2>&1; then
+    echo "  同步 efiboot.img 内 grub.cfg"
+    # mcopy 覆盖 efiboot.img 内 EFI/BOOT/grub.cfg
+    mcopy -i "${EFIIMG}" "${ISO_ROOTFS}/EFI/BOOT/grub.cfg" ::EFI/BOOT/grub.cfg 2>/dev/null || \
+        echo "  WARN: mcopy efiboot.img 失败（UEFI 可能读到外层 grub.cfg 仍可用）"
+fi
+
+# ============================================================
+# 步骤 5: xorriso 重建 ISO（保留 BIOS Eltorito + UEFI 双引导 + 卷标）
+# -as mkisofs 兼容语法；-eltorito-* 设 BIOS 引导；-efi-boot-part 设 UEFI 引导
+# -volid 必须与 inst.ks/inst.stage2 的 LABEL 一致
+# ============================================================
+echo ">>> xorriso 重建 ISO"
+rm -f ${ISO_FILE}
+
+EFI_BOOT_IMG="images/efiboot.img"
+xorriso -as mkisofs \
+    -o "${ISO_FILE}" \
+    -V "${ISO_LABEL}" \
+    -J -R -joliet-long \
+    -b isolinux/isolinux.bin \
+    -c isolinux/boot.cat \
+    -no-emul-boot -boot-load-size 4 -boot-info-table \
+    -isohybrid-mbr ${ISOHDPFX_BIN} \
+    -eltorito-alt-boot \
+    -e ${EFI_BOOT_IMG} \
+    -no-emul-boot -isohybrid-gpt-basdat \
+    ${ISO_ROOTFS}
+
+# ============================================================
+# 步骤 6: 验证
+# ============================================================
+if [ ! -s "${ISO_FILE}" ]; then
+    echo "ERROR: ISO 未生成: ${ISO_FILE}"
+    exit 1
+fi
+
+echo ">>> ISO 验证"
+echo "--- 卷标 ---"
+isoinfo -d -i "${ISO_FILE}" 2>/dev/null | grep -i "Volume id" || true
+echo "--- Eltorito 引导 ---"
+isoinfo -d -i "${ISO_FILE}" 2>/dev/null | grep -iA1 "Eltorito" | head -6 || true
+echo "--- 关键文件 ---"
+7z l "${ISO_FILE}" 2>/dev/null | grep -iE "ks.cfg|isolinux.cfg|pxeboot/(vmlinuz|initrd)|install.img|grub.cfg" | head -10 || true
+
+cd ${ARTIFACTS_DIR}
+sha512sum ${ISO_PREFIX}.iso > ${ISO_PREFIX}.sha512
+
+echo "============================================"
+echo "  构建完成!"
+echo "  ISO:   ${ISO_FILE}"
+echo "  大小:  $(du -sh ${ISO_FILE} | cut -f1)"
+echo "  SHA512:${ISO_PREFIX}.sha512"
+echo "============================================"

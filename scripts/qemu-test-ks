@@ -1,0 +1,235 @@
+#!/bin/bash
+# VDI 安装型 ISO (kickstart) qemu 无人值守装机验证
+#
+# 与 main 分支 elemental Live 型 qemu-test 不同：kickstart ISO 引导后 anaconda
+# 按 ks.cfg 自动装机，无人值守，装完 reboot 进系统。无 "Live 环境" 中间态。
+#
+# 流程:
+#   1. qemu (UEFI 或 BIOS) 引导 ISO → anaconda 自动装机（看串口日志）
+#   2. 装机完 reboot → 从硬盘引导进系统
+#   3. SSH 验证系统装好（MVP1 只验装机，RKE2 在 MVP2）
+#
+# 注意 ks.cfg reboot 后 qemu 需改为从硬盘引导，否则再次引导 ISO 会循环重装。
+# 本脚本用两段式：装机阶段挂 ISO + -boot d；装机完后重启 qemu 去掉 ISO 只挂磁盘。
+#
+# 用法: ./scripts/qemu-test-ks [ISO路径] [bios|uefi]
+
+set -e
+
+TOP_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )/.." &> /dev/null && pwd )"
+ISO="${1:-${TOP_DIR}/dist/artifacts/$(ls -t ${TOP_DIR}/dist/artifacts/vdi-*.iso 2>/dev/null | head -1)}"
+BOOT_MODE="${2:-uefi}"
+
+OVMF="/usr/share/ovmf/OVMF.fd"
+QEMU_DISK="${QEMU_DISK:-/tmp/qemu-vdi-ks-disk.qcow2}"
+QEMU_MEM="${QEMU_MEM:-4096}"   # kickstart 装机无 squashfs live + active.img，4G 够
+SSH_PORT="${SSH_PORT:-2222}"
+VM_IP="127.0.0.1"
+VM_USER="root"
+VM_PASS="vdi123"
+
+# 装机超时（秒）：BCLinux @core 装机约 5-15 分钟，给足余量
+INSTALL_TIMEOUT="${INSTALL_TIMEOUT:-1800}"
+# 系统启动超时
+BOOT_TIMEOUT="${BOOT_TIMEOUT:-300}"
+
+RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
+info()  { echo -e "${GREEN}[INFO]${NC} $1"; }
+warn()  { echo -e "${YELLOW}[WARN]${NC} $1"; }
+error() { echo -e "${RED}[ERROR]${NC} $1"; }
+
+echo "============================================"
+echo "  VDI kickstart ISO qemu 装机验证"
+echo "  模式: ${BOOT_MODE}"
+echo "============================================"
+
+[ -z "$ISO" ] && { error "未找到 ISO，用法: $0 [ISO路径] [bios|uefi]"; exit 1; }
+[ ! -f "$ISO" ] && { error "ISO 不存在: $ISO"; exit 1; }
+command -v qemu-system-x86_64 >/dev/null || { error "缺 qemu-system-x86_64"; exit 1; }
+command -v sshpass >/dev/null || { error "缺 sshpass"; exit 1; }
+
+if [ "$BOOT_MODE" = "uefi" ] && [ ! -f "$OVMF" ]; then
+    error "OVMF 不存在: $OVMF（apt install ovmf）"
+    exit 1
+fi
+
+# KVM 可访问性检测：/dev/kvm 存在但不一定可读（用户需在 kvm 组）
+# 若当前会话无 kvm 组（usermod -aG kvm 后未重登录），请用 sg kvm -c 包裹本脚本：
+#   sg kvm -c "bash scripts/qemu-test-ks <iso> uefi"
+ACCEL=""
+if [ -e /dev/kvm ] && [ -r /dev/kvm ]; then
+    ACCEL="-accel kvm -cpu host"
+else
+    warn "无 KVM 访问权限，软件模拟（装机很慢，约 30-60 分钟）"
+    warn "若已 usermod -aG kvm，用: sg kvm -c \"bash $0 $ISO $BOOT_MODE\""
+fi
+
+info "ISO: $ISO ($(du -h "$ISO" | cut -f1))"
+info "磁盘: $QEMU_DISK  内存: ${QEMU_MEM}MB  SSH端口: $SSH_PORT"
+
+# BIOS/UEFI 引导参数
+BIOS_ARGS=""
+if [ "$BOOT_MODE" = "uefi" ]; then
+    BIOS_ARGS="-bios $OVMF"
+fi
+
+SERIAL_LOG="/tmp/qemu-ks-serial.log"
+QEMU_PID_FILE="/tmp/qemu-ks.pid"
+
+qemu_stop() {
+    if [ -f "$QEMU_PID_FILE" ] && kill -0 "$(cat $QEMU_PID_FILE)" 2>/dev/null; then
+        kill "$(cat $QEMU_PID_FILE)" 2>/dev/null || true
+        sleep 2
+    fi
+}
+trap qemu_stop EXIT
+
+# 干净的磁盘（重装验证时不复用旧盘）
+qemu_stop
+if [ "${REUSE_DISK:-0}" != "1" ]; then
+    rm -f "$QEMU_DISK"
+fi
+qemu-img create -f qcow2 "$QEMU_DISK" 60G >/dev/null
+
+# ============================================================
+# 阶段 1: 引导 ISO → anaconda 自动装机
+# ============================================================
+info "=== 阶段1: 引导 ISO 装机 ==="
+: > "$SERIAL_LOG"
+qemu-system-x86_64 \
+    -machine q35 \
+    $ACCEL \
+    -m "$QEMU_MEM" \
+    $BIOS_ARGS \
+    -smp 2 \
+    -drive file="$QEMU_DISK",format=qcow2,if=virtio \
+    -cdrom "$ISO" \
+    -boot d \
+    -netdev user,id=net0,hostfwd=tcp::$SSH_PORT-:22 \
+    -device virtio-net-pci,netdev=net0 \
+    -serial file:"$SERIAL_LOG" \
+    -display none \
+    -daemonize \
+    -pidfile "$QEMU_PID_FILE" \
+    || { error "qemu 启动失败"; exit 1; }
+
+info "qemu 已启动（PID $(cat $QEMU_PID_FILE)），串口日志: $SERIAL_LOG"
+info "等待 anaconda 装机完成（超时 ${INSTALL_TIMEOUT}s）..."
+
+# 装机完成标志（串口日志关键词）：
+# - "Installation finished" / "Performing post-installation setup" = 装机收尾
+# - "reboot:" / "Power down" = reboot --eject 触发重启
+# - "anaconda" 报错行 = 装机失败
+# 去控制码后 grep，避免 ANSI 序列干扰匹配
+strip_ansi() { sed 's/\x1b\[[0-9;]*[a-zA-Z]//g; s/\x1b\[=?[0-9]*[a-z]//g' "$1"; }
+
+INSTALL_DONE=0
+INSTALL_FAIL=0
+START=$(date +%s)
+while :; do
+    NOW=$(date +%s)
+    ELAPSED=$((NOW - START))
+    if [ $ELAPSED -ge $INSTALL_TIMEOUT ]; then
+        error "装机超时（${INSTALL_TIMEOUT}s）"
+        strip_ansi "$SERIAL_LOG" | tail -40
+        exit 1
+    fi
+    # qemu 进程异常退出
+    if ! kill -0 "$(cat $QEMU_PID_FILE)" 2>/dev/null; then
+        # 装机完 reboot --eject 后无引导目标，qemu 可能退出
+        if strip_ansi "$SERIAL_LOG" | grep -qiE "Installation (finished|complete)|Performing post-installation"; then
+            info "装机完成（reboot，qemu 退出，${ELAPSED}s）"
+            INSTALL_DONE=1
+            break
+        fi
+        warn "qemu 进程退出但未见装机完成标志，检查串口日志"
+        strip_ansi "$SERIAL_LOG" | tail -30
+        INSTALL_FAIL=1
+        break
+    fi
+    # 关键词判断
+    if strip_ansi "$SERIAL_LOG" | grep -qiE "Installation (finished|complete)|Performing post-installation setup"; then
+        info "检测到装机完成标志（${ELAPSED}s）"
+        INSTALL_DONE=1
+        break
+    fi
+    if strip_ansi "$SERIAL_LOG" | grep -qiE "anaconda.*error|traceback|panic"; then
+        error "检测到装机错误（${ELAPSED}s）"
+        strip_ansi "$SERIAL_LOG" | grep -iE "error|traceback|panic|fail" | tail -20
+        INSTALL_FAIL=1
+        break
+    fi
+    # 进度提示（每 60s）
+    [ $((ELAPSED % 60)) -eq 0 ] && [ $ELAPSED -gt 0 ] && \
+        info "装机中... ${ELAPSED}s（串口末尾: $(strip_ansi "$SERIAL_LOG" | tail -1 | head -c 90)）"
+    sleep 15
+done
+
+if [ $INSTALL_FAIL -ne 0 ]; then
+    exit 1
+fi
+
+info "=== 装机阶段完成 ==="
+info "串口日志末尾（装机结果）:"
+strip_ansi "$SERIAL_LOG" | tail -25
+
+# ============================================================
+# 阶段 2: 从硬盘引导进系统
+# ============================================================
+info "=== 阶段2: 从硬盘引导进系统 ==="
+: > "$SERIAL_LOG"
+qemu-system-x86_64 \
+    -machine q35 \
+    $ACCEL \
+    -m "$QEMU_MEM" \
+    $BIOS_ARGS \
+    -smp 2 \
+    -drive file="$QEMU_DISK",format=qcow2,if=virtio \
+    -netdev user,id=net0,hostfwd=tcp::$SSH_PORT-:22 \
+    -device virtio-net-pci,netdev=net0 \
+    -serial file:"$SERIAL_LOG" \
+    -display none \
+    -daemonize \
+    -pidfile "$QEMU_PID_FILE" \
+    || { error "硬盘引导启动失败"; exit 1; }
+
+info "等待系统启动（SSH 可达，超时 ${BOOT_TIMEOUT}s）..."
+SSH_OK=0
+START=$(date +%s)
+for i in $(seq 1 $((BOOT_TIMEOUT/10))); do
+    NOW=$(date +%s)
+    if [ $((NOW - START)) -ge $BOOT_TIMEOUT ]; then break; fi
+    sleep 10
+    if sshpass -p "$VM_PASS" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+        -o ConnectTimeout=5 -p "$SSH_PORT" "$VM_USER@$VM_IP" "echo OK" 2>/dev/null | grep -q OK; then
+        SSH_OK=1
+        info "系统已启动（$((NOW - START))s）"
+        break
+    fi
+done
+
+if [ $SSH_OK -eq 0 ]; then
+    error "系统未启动（SSH 超时）"
+    error "串口日志末尾:"
+    tail -30 "$SERIAL_LOG" 2>/dev/null
+    exit 1
+fi
+
+# ============================================================
+# 阶段 3: 验证装机结果
+# ============================================================
+info "=== 验证装机结果 ==="
+sshpass -p "$VM_PASS" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+    -p "$SSH_PORT" "$VM_USER@$VM_IP" "
+echo '---系统---'; uname -r; cat /etc/os-release | grep PRETTY
+echo '---/ 挂载---'; mount | grep ' / '
+echo '---分区---'; lsblk -o NAME,SIZE,FSTYPE,MOUNTPOINT 2>/dev/null
+echo '---root 登录---'; whoami
+echo '---网络---'; ip -4 addr show | grep inet | head -3
+echo '---selinux---'; getenforce 2>/dev/null
+" 2>&1 | tee /tmp/qemu-ks-check.log
+
+info "============================================"
+info "  MVP1 装机验证完成（结果见 /tmp/qemu-ks-check.log）"
+info "  qemu PID: $(cat $QEMU_PID_FILE 2>/dev/null)  停止: kill \$(cat $QEMU_PID_FILE)"
+info "============================================"
