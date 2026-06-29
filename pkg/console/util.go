@@ -18,7 +18,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"syscall"
 	"sync"
 	"time"
 
@@ -515,8 +514,7 @@ func roleSetup(c *config.VDIConfig) error {
 }
 
 func doInstall(g *gocui.Gui, hvstConfig *config.VDIConfig, webhooks RendererWebhooks) error {
-	ctx := context.TODO()
-	logrus.Info("doInstall: started")
+	logrus.Info("doInstall: started (Kickstart mode)")
 	webhooks.Handle(EventInstallStarted)
 
 	// specific the node label for the specific node role
@@ -524,155 +522,37 @@ func doInstall(g *gocui.Gui, hvstConfig *config.VDIConfig, webhooks RendererWebh
 		return err
 	}
 
-	logrus.Info("doInstall: calling generateEnvAndConfig")
-	env, elementalConfig, err := generateEnvAndConfig(g, hvstConfig)
-	logrus.Info("doInstall: generateEnvAndConfig done")
+	// 渲染完整的 Kickstart 配置
+	ks, err := config.KickstartRender(hvstConfig)
 	if err != nil {
-		return err
-	}
-
-	if hvstConfig.Install.Automatic && hvstConfig.Install.Mode == config.ModeInstall && hvstConfig.Install.RawDiskImagePath != "" {
-		return streamImageToDisk(ctx, g, env, *hvstConfig)
-	}
-
-	if hvstConfig.ShouldCreateDataPartitionOnOsDisk() {
-		// Use custom layout (which also creates Longhorn partition) when needed
-		elementalConfig, err = config.CreateRootPartitioningLayoutSharedDataDisk(elementalConfig, hvstConfig)
-		if err != nil {
-			return err
-		}
-	} else {
-		elementalConfig = config.CreateRootPartitioningLayoutSeparateDataDisk(elementalConfig)
-	}
-
-	if hvstConfig.Install.DataDisk != "" {
-		env = append(env, fmt.Sprintf("HARVESTER_DATA_DISK=%s", hvstConfig.Install.DataDisk))
-	}
-
-	if hvstConfig.OS.AdditionalKernelArguments != "" {
-		env = append(env, fmt.Sprintf("HARVESTER_ADDITIONAL_KERNEL_ARGUMENTS=%s", hvstConfig.OS.AdditionalKernelArguments))
-	}
-
-	// when WipeAllDisks is enabled then find all non installation disks with COS_ prefixed labels
-	// and add them to a list for wiping
-	if hvstConfig.Install.WipeAllDisks {
-		diskOpts := diskOptionsCache.getWipeDisksOptions(hvstConfig)
-		for _, opt := range diskOpts {
-			hvstConfig.Install.WipeDisksList = append(hvstConfig.Install.WipeDisksList, opt.Value)
-		}
-	}
-
-	// prepare to wipe disks
-	for _, disk := range hvstConfig.Install.WipeDisksList {
-		if _, err := os.Stat(disk); os.IsNotExist(err) {
-			logrus.Warnf("disk %s does not exist, skipping wipe", disk)
-			continue
-		}
-		logrus.Infof("wiping disk %s", disk)
-		if err := executeWipeDisks(ctx, disk); err != nil {
-			return fmt.Errorf("error wiping disk %s: %w", disk, err)
-		}
-	}
-
-	elementalConfigDir, elementalConfigFile, err := saveElementalConfig(elementalConfig)
-	if err != nil {
-		return nil
-	}
-	env = append(env, fmt.Sprintf("ELEMENTAL_CONFIG=%s", elementalConfigFile))
-	env = append(env, fmt.Sprintf("ELEMENTAL_CONFIG_DIR=%s", elementalConfigDir))
-
-	// 渲染 RKE2 config（server/agent）到临时文件，传给 vdi-install 写盘
-	// VDI 无 elemental cloud-init 触发层，initRKE2Stage 的 initramfs stage 首启不执行，
-	// 需 vdi-install 安装时直接写 /etc/rancher/rke2/config.yaml
-	rke2ConfigContent, err := config.RenderRKE2Config(hvstConfig)
-	if err != nil {
-		return fmt.Errorf("render RKE2 config: %w", err)
-	}
-	rke2ConfigFile, err := os.CreateTemp("/tmp", "rke2-config.")
-	if err != nil {
-		return fmt.Errorf("create RKE2 config temp file: %w", err)
-	}
-	if _, err := rke2ConfigFile.WriteString(rke2ConfigContent); err != nil {
-		rke2ConfigFile.Close()
-		return fmt.Errorf("write RKE2 config: %w", err)
-	}
-	rke2ConfigFile.Close()
-	env = append(env, fmt.Sprintf("VDI_RKE2_CONFIG=%s", rke2ConfigFile.Name()))
-
-	// 渲染首节点 HelmChart manifests 到临时目录，传给 vdi-install 写到 server/manifests/
-	if hvstConfig.Install.Role == config.RoleFirst {
-		manifests, err := config.RenderRKE2Manifests(hvstConfig)
-		if err != nil {
-			return fmt.Errorf("render RKE2 manifests: %w", err)
-		}
-		manifestsDir, err := os.MkdirTemp("/tmp", "rke2-manifests.")
-		if err != nil {
-			return fmt.Errorf("create RKE2 manifests temp dir: %w", err)
-		}
-		for name, content := range manifests {
-			if err := os.WriteFile(filepath.Join(manifestsDir, name), []byte(content), 0644); err != nil {
-				return fmt.Errorf("write RKE2 manifest %s: %w", name, err)
-			}
-		}
-		env = append(env, fmt.Sprintf("VDI_RKE2_MANIFESTS_DIR=%s", manifestsDir))
-	}
-
-	// Apply a dummy route to ensure rke2 can extract the images
-	if installModeOnly {
-		if err := applyDummyRoute(); err != nil {
-			printToPanel(g, fmt.Sprintf("error applying a fake default route during installOnlyMode: %v", err), installPanel)
-			return err
-		}
-	}
-
-	// 直接用 exec.Command 调 vdi-install（不继承 tty1 stdin）
-	// 防止 vdi-install/elemental install 的子进程影响 tty1 导致 gocui MainLoop 退出
-	installCmd := exec.CommandContext(ctx, "/usr/sbin/vdi-install")
-	installCmd.Env = env
-	installCmd.Stdin = nil
-	installCmd.Stdout = nil
-	installCmd.Stderr = nil
-	// 新会话 + 关闭继承的 fd，防止 vdi-install/elemental install 修改 tty1 终端属性
-	// 导致 gocui/termbox 的 MainLoop 读 tty1 EOF 退出
-	installCmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Foreground: false}
-	// 关闭所有继承的 fd（包括 termbox 打开的 /dev/tty1）
-	installCmd.ExtraFiles = nil
-	logrus.Info("doInstall: calling vdi-install")
-	if err := installCmd.Run(); err != nil {
-		logrus.Errorf("doInstall: vdi-install failed: %v", err)
+		logrus.Errorf("doInstall: KickstartRender failed: %v", err)
+		printToPanel(g, fmt.Sprintf("渲染 Kickstart 失败: %v", err), installPanel)
 		webhooks.Handle(EventInstallFailed)
-		printToPanel(g, fmt.Sprintf(installFailureMessage, defaultLogFilePath), installPanel)
-		if hvstConfig.Install.Debug {
-			printToPanel(g, "support config is being generated as running in debug mode, this can take a few minutes...", installPanel)
-			fileSuffix := fmt.Sprintf("vdi_%s", rand.String(5))
-			scErr := executeSupportconfig(ctx, fileSuffix)
-			if scErr != nil {
-				printToPanel(g, fmt.Sprintf("support config collection failed %v", err), installPanel)
-			}
-			printToPanel(g, fmt.Sprintf("support config is available at /var/log/scc_%s.txz", fileSuffix), installPanel)
-		}
 		return err
 	}
+
+	// 将其写入 /tmp/ks-include.cfg
+	ksPath := "/tmp/ks-include.cfg"
+	if err := os.WriteFile(ksPath, []byte(ks), 0644); err != nil {
+		logrus.Errorf("doInstall: write ks to %s failed: %v", ksPath, err)
+		printToPanel(g, fmt.Sprintf("写入 %s 失败: %v", ksPath, err), installPanel)
+		webhooks.Handle(EventInstallFailed)
+		return err
+	}
+	logrus.Infof("doInstall: Kickstart rendered to %s", ksPath)
+
+	printToPanel(g, fmt.Sprintf("配置已成功保存到 %s", ksPath), installPanel)
+	printToPanel(g, "即将退出配置程序，系统安装将由 Anaconda 接管...", installPanel)
+
 	webhooks.Handle(EventInstallSuceeded)
 
-	// Enable CTRL-C to stop system from rebooting after installation
-	cancellableCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	if err := g.SetKeybinding("", gocui.KeyCtrlC, gocui.ModNone,
-		func(g *gocui.Gui, v *gocui.View) error {
-			logrus.Info("Auto-reboot cancelled")
-			cancel()
-			return quit(g, v)
-		}); err != nil {
-
-		return err
-	}
-
-	if err := execute(cancellableCtx, g, env, "/usr/sbin/cos-installer-shutdown"); err != nil {
-		webhooks.Handle(EventInstallFailed)
-		return err
-	}
+	// 延时 2 秒，然后平滑关闭 gocui 主循环以退出 vdi-installer
+	go func() {
+		time.Sleep(2 * time.Second)
+		g.Update(func(g *gocui.Gui) error {
+			return gocui.ErrQuit
+		})
+	}()
 
 	return nil
 }

@@ -27,6 +27,11 @@ func main() {
 			},
 		},
 		Action: func(ctx context.Context, c *cli.Command) error {
+			// 优先读取内核命令行参数（如 vdi.install.automatic=true）
+			if cfg, err := config.ReadConfig(); err == nil && cfg.Install.Automatic {
+				return console.AutoInstall("/tmp/ks-include.cfg")
+			}
+
 			if c.Bool("auto-install") {
 				return console.AutoInstall(c.String("ks-out"))
 			}

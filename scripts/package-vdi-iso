@@ -84,22 +84,26 @@ done
 echo "  解包完成: $(du -sh ${ISO_ROOTFS} | cut -f1)"
 
 # ============================================================
-# 步骤 2: 注入 ks.cfg
-# 优先用 vdi-installer --auto-install 渲染（Go kickstart.go，动态注入网络/磁盘/RKE2）；
-# 无 vdi-installer 二进制时 fallback 到手写静态 ks.cfg + rootpw 占位符替换
+# 步骤 2: 注入 ks.cfg 与 vdi-installer
+# 1. 复制带有 %pre 交互的主引导 Kickstart 模板到 ISO 根目录
+# 2. 将编译好的 vdi-installer 复制至 ISO 的 vdi/ 目录下，供 %pre 引导调起
 # ============================================================
-echo ">>> 注入 ks.cfg"
+echo ">>> 注入 ks.cfg 与 vdi-installer"
 KS_OUT="${ISO_ROOTFS}/ks.cfg"
-VDI_INSTALLER_BIN="${VDI_INSTALLER_BIN:-${TOP_DIR}/dist/artifacts/vdi-installer}"
-if [ -x "${VDI_INSTALLER_BIN}" ]; then
-    echo "  用 vdi-installer 渲染 ks: ${VDI_INSTALLER_BIN}"
-    "${VDI_INSTALLER_BIN}" --auto-install --ks-out "${KS_OUT}" >/dev/null
-else
-    echo "  WARN: 无 vdi-installer 二进制，fallback 手写 ks.cfg（构建后丢 dist/artifacts/vdi-installer）"
-    ROOTPW_CRYPT=$(openssl passwd -6 -salt vdirootpw vdi123)
-    sed "s|ROOTPW_HASH_PLACEHOLDER|${ROOTPW_CRYPT}|" "${KS_TEMPLATE}" > "${KS_OUT}"
-fi
+ROOTPW_CRYPT=$(openssl passwd -6 -salt vdirootpw vdi123)
+sed "s|ROOTPW_HASH_PLACEHOLDER|${ROOTPW_CRYPT}|" "${KS_TEMPLATE}" > "${KS_OUT}"
 echo "  ks.cfg -> /ks.cfg ($(wc -l < ${KS_OUT}) 行)"
+
+VDI_INSTALLER_BIN="${VDI_INSTALLER_BIN:-${TOP_DIR}/bin/vdi-installer}"
+if [ -x "${VDI_INSTALLER_BIN}" ]; then
+    echo "  打包 vdi-installer 进 ISO"
+    mkdir -p "${ISO_ROOTFS}/vdi"
+    cp -f "${VDI_INSTALLER_BIN}" "${ISO_ROOTFS}/vdi/vdi-installer"
+    chmod +x "${ISO_ROOTFS}/vdi/vdi-installer"
+else
+    echo "ERROR: 找不到 vdi-installer 二进制: ${VDI_INSTALLER_BIN}，请先编译。" >&2
+    exit 1
+fi
 
 # 清理 BCLinux ISO 原装自带的 ks 示例目录（/ks/ks.cfg），避免与根目录 /ks.cfg 混淆
 rm -rf ${ISO_ROOTFS}/ks
@@ -135,7 +139,7 @@ label vdi
   menu label ^Install VDI (auto, kickstart)
   menu default
   kernel vmlinuz
-  append initrd=initrd.img inst.stage2=hd:LABEL=BCLinux.x86_64 inst.ks=hd:LABEL=BCLinux.x86_64:/ks.cfg console=ttyS0,115200 console=tty1 quiet fpi_to_tail=off
+  append initrd=initrd.img inst.stage2=hd:LABEL=BCLinux.x86_64 inst.ks=hd:LABEL=BCLinux.x86_64:/ks.cfg console=ttyS0,115200 console=tty1 quiet fpi_to_tail=off vdi.install.automatic=true
 
 label rescue
   menu label ^Rescue a BCLinux system
@@ -174,7 +178,7 @@ menuentry 'Install VDI (auto, kickstart)' --class gnu-linux --class os {
     set linux=linux
     set initrd=initrd
   fi
-  $linux /images/pxeboot/vmlinuz inst.stage2=hd:LABEL=BCLinux.x86_64 inst.ks=hd:LABEL=BCLinux.x86_64:/ks.cfg console=ttyS0,115200 console=tty1 quiet fpi_to_tail=off
+  $linux /images/pxeboot/vmlinuz inst.stage2=hd:LABEL=BCLinux.x86_64 inst.ks=hd:LABEL=BCLinux.x86_64:/ks.cfg console=ttyS0,115200 console=tty1 quiet fpi_to_tail=off vdi.install.automatic=true
   $initrd /images/pxeboot/initrd.img
 }
 
@@ -189,8 +193,8 @@ GRUB_CFG
 EFIIMG="${ISO_ROOTFS}/images/efiboot.img"
 if [ -f "${EFIIMG}" ] && command -v mtools >/dev/null 2>&1; then
     echo "  同步 efiboot.img 内 grub.cfg"
-    # mcopy 覆盖 efiboot.img 内 EFI/BOOT/grub.cfg
-    mcopy -i "${EFIIMG}" "${ISO_ROOTFS}/EFI/BOOT/grub.cfg" ::EFI/BOOT/grub.cfg 2>/dev/null || \
+    # mcopy 覆盖 efiboot.img 内 EFI/BOOT/grub.cfg，加 -o 强制覆盖避免交互式提问
+    mcopy -o -i "${EFIIMG}" "${ISO_ROOTFS}/EFI/BOOT/grub.cfg" ::EFI/BOOT/grub.cfg 2>/dev/null || \
         echo "  WARN: mcopy efiboot.img 失败（UEFI 可能读到外层 grub.cfg 仍可用）"
 fi
 

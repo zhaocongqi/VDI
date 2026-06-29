@@ -79,7 +79,7 @@ __pycache__/
 # QEMU/测试临时目录
 tmp/
 bin/
-dist/
+dist
 package/vdi-os/files/usr/bin/elemental
 package/vdi-os/files/usr/bin/wharfie
 package/vdi-os/files/usr/bin/elemental-iso-build
@@ -89,7 +89,7 @@ package/vdi-installer/vdi-installer
 # 离线资源（由 build-bundle 脚本下载，不提交到 git）
 package/vdi-os/iso/bundle/
 package/vdi-cluster-repo/charts/
-cache/
+cache
 Dockerfile.dapper*
 
 # 构建时自动生成的版本文件

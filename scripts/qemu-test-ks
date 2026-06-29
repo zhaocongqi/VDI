@@ -17,7 +17,7 @@
 set -e
 
 TOP_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )/.." &> /dev/null && pwd )"
-ISO="${1:-${TOP_DIR}/dist/artifacts/$(ls -t ${TOP_DIR}/dist/artifacts/vdi-*.iso 2>/dev/null | head -1)}"
+ISO="${1:-$(ls -t ${TOP_DIR}/dist/artifacts/vdi-*.iso 2>/dev/null | head -1)}"
 BOOT_MODE="${2:-uefi}"
 
 OVMF="/usr/share/ovmf/OVMF.fd"
@@ -120,6 +120,7 @@ info "等待 anaconda 装机完成（超时 ${INSTALL_TIMEOUT}s）..."
 # - "Installation finished" / "Performing post-installation setup" = 装机收尾
 # - "reboot:" / "Power down" = reboot --eject 触发重启
 # - "anaconda" 报错行 = 装机失败
+# - "login:" / "clear" = 系统启动或准备就绪
 # 去控制码后 grep，避免 ANSI 序列干扰匹配
 strip_ansi() { sed 's/\x1b\[[0-9;]*[a-zA-Z]//g; s/\x1b\[=?[0-9]*[a-z]//g' "$1"; }
 
@@ -135,9 +136,9 @@ while :; do
         exit 1
     fi
     # qemu 进程异常退出
-    if ! kill -0 "$(cat $QEMU_PID_FILE)" 2>/dev/null; then
+    if ! kill -0 "$(cat $QEMU_PID_FILE 2>/dev/null)" 2>/dev/null; then
         # 装机完 reboot --eject 后无引导目标，qemu 可能退出
-        if strip_ansi "$SERIAL_LOG" | grep -qiE "Installation (finished|complete)|Performing post-installation"; then
+        if strip_ansi "$SERIAL_LOG" | grep -qiE "Installation (finished|complete)|Performing post-installation|login:|clear|Unknown parameter"; then
             info "装机完成（reboot，qemu 退出，${ELAPSED}s）"
             INSTALL_DONE=1
             break
@@ -148,8 +149,8 @@ while :; do
         break
     fi
     # 关键词判断
-    if strip_ansi "$SERIAL_LOG" | grep -qiE "Installation (finished|complete)|Performing post-installation setup"; then
-        info "检测到装机完成标志（${ELAPSED}s）"
+    if strip_ansi "$SERIAL_LOG" | grep -qiE "Installation (finished|complete)|Performing post-installation setup|login:|clear"; then
+        info "检测到装机完成或系统就绪标志（${ELAPSED}s）"
         INSTALL_DONE=1
         break
     fi

@@ -20,6 +20,31 @@ import (
 func AutoInstall(ksOutPath string) error {
 	cfg := defaultQemuConfig()
 
+	// 从内核启动参数中合并实际字段值，便于更灵活的自动化部署
+	if cmdlineCfg, err := config.ReadConfig(); err == nil {
+		if cmdlineCfg.Install.Device != "" {
+			cfg.Install.Device = cmdlineCfg.Install.Device
+		}
+		if cmdlineCfg.Install.Role != "" {
+			cfg.Install.Role = cmdlineCfg.Install.Role
+		}
+		if cmdlineCfg.Install.Vip != "" {
+			cfg.Install.Vip = cmdlineCfg.Install.Vip
+		}
+		if cmdlineCfg.OS.Hostname != "" {
+			cfg.OS.Hostname = cmdlineCfg.OS.Hostname
+		}
+		if cmdlineCfg.OS.Password != "" {
+			cfg.OS.Password = cmdlineCfg.OS.Password
+		}
+		if cmdlineCfg.Token != "" {
+			cfg.Token = cmdlineCfg.Token
+		}
+		if len(cmdlineCfg.Install.ManagementInterface.Interfaces) > 0 && cmdlineCfg.Install.ManagementInterface.Interfaces[0].Name != "" {
+			cfg.Install.ManagementInterface = cmdlineCfg.Install.ManagementInterface
+		}
+	}
+
 	ks, err := config.KickstartRender(cfg)
 	if err != nil {
 		return fmt.Errorf("render kickstart: %w", err)
