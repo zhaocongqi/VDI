@@ -66,6 +66,7 @@ func defaultQemuConfig() *config.VDIConfig {
 	cfg.Install.Role = config.RoleFirst
 	cfg.Install.Mode = config.ModeCreate
 	cfg.Install.Device = "/dev/vda"
+	cfg.Install.DataDisk = "/dev/vdb"
 	cfg.Install.SkipChecks = true
 	cfg.OS.Hostname = "vdi-node1"
 	cfg.OS.Password = "vdi123"
