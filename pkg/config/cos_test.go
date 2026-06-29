@@ -1,12 +1,10 @@
 package config
 
 import (
-	"fmt"
 	"log"
 	"os"
 	"testing"
 
-	yipSchema "github.com/rancher/yip/pkg/schema"
 	"github.com/stretchr/testify/assert"
 
 	"vdi-installer/pkg/util"

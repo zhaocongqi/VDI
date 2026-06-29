@@ -330,14 +330,14 @@ func getFormattedServerURL(addr string) (string, error) {
 	return parsedURL.String(), nil
 }
 
-func getServerURLFromRancherdConfig(data []byte) (string, error) {
-	rancherdConf := make(map[string]interface{})
-	err := yaml.Unmarshal(data, rancherdConf)
+func getServerURLFromRKE2Config(data []byte) (string, error) {
+	rke2Conf := make(map[string]interface{})
+	err := yaml.Unmarshal(data, rke2Conf)
 	if err != nil {
 		return "", err
 	}
 
-	if server, ok := rancherdConf["server"]; ok {
+	if server, ok := rke2Conf["server"]; ok {
 		serverURL, typeOK := server.(string)
 		if typeOK {
 			return serverURL, nil

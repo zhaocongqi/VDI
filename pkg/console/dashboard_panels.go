@@ -249,7 +249,7 @@ func validateAdminPassword(passwd string) bool {
 }
 
 func initState() error {
-	envFile := config.RancherdConfigFile
+	envFile := config.Rke2ConfigFile
 	if _, err := os.Stat(envFile); os.IsNotExist(err) {
 		return err
 	}
@@ -257,7 +257,7 @@ func initState() error {
 	if err != nil {
 		return err
 	}
-	serverURL, err := getServerURLFromRancherdConfig(content)
+	serverURL, err := getServerURLFromRKE2Config(content)
 	if err != nil {
 		return err
 	}

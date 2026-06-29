@@ -88,7 +88,59 @@ func cleanupFile(content []byte) ([]byte, error) {
 	return []byte(strings.Join(config, "\n")), nil
 }
 
+func snakeToCamel(s string) string {
+	if s == "vlan_id" {
+		return "vlanId"
+	}
+	parts := strings.Split(s, "_")
+	for i := 1; i < len(parts); i++ {
+		if len(parts[i]) > 0 {
+			parts[i] = strings.ToUpper(parts[i][:1]) + parts[i][1:]
+		}
+	}
+	return strings.Join(parts, "")
+}
+
+func normalizeMapKeys(m map[string]any) map[string]any {
+	result := make(map[string]any)
+	for k, v := range m {
+		newKey := snakeToCamel(k)
+		if newKey == "sysctl" {
+			newKey = "sysctls"
+		}
+		// Specific dictionary maps must preserve their original keys (e.g. http_proxy, kernel.printk)
+		if k == "sysctl" || k == "sysctls" || k == "environment" || k == "labels" || k == "bond_options" || k == "headers" {
+			if subMap, ok := v.(map[string]any); ok {
+				result[newKey] = subMap
+			} else if subMapInterface, ok := v.(map[interface{}]interface{}); ok {
+				tempMap := make(map[string]any)
+				for sk, sv := range subMapInterface {
+					tempMap[fmt.Sprintf("%v", sk)] = sv
+				}
+				result[newKey] = tempMap
+			} else {
+				result[newKey] = v
+			}
+			continue
+		}
+
+		if subMap, ok := v.(map[string]any); ok {
+			result[newKey] = normalizeMapKeys(subMap)
+		} else if subMapInterface, ok := v.(map[interface{}]interface{}); ok {
+			tempMap := make(map[string]any)
+			for sk, sv := range subMapInterface {
+				tempMap[fmt.Sprintf("%v", sk)] = sv
+			}
+			result[newKey] = normalizeMapKeys(tempMap)
+		} else {
+			result[newKey] = v
+		}
+	}
+	return result
+}
+
 func readConfigFromMap(data map[string]any) (VDIConfig, error) {
+	data = normalizeMapKeys(data)
 	config := NewVDIConfig()
 	err := schema.Mapper.ToInternal(data)
 	if err != nil {

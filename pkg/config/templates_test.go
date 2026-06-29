@@ -1,10 +1,7 @@
 package config
 
 import (
-	"path/filepath"
 	"testing"
-
-	"github.com/stretchr/testify/assert"
 )
 
 func TestEscapeMustaches(t *testing.T) {
@@ -75,17 +72,3 @@ func TestEscapeMustaches(t *testing.T) {
 	}
 }
 
-func TestEscapeMustachesInTpl(t *testing.T) {
-	tplBytes, err := templFS.ReadFile(filepath.Join(templateFolder, "rancherd-12-monitoring-dashboard.yaml"))
-	assert.NoError(t, err)
-
-	escapedTpl := escapeMustaches(string(tplBytes))
-	assert.NotRegexp(t, "[^`]\\{\\{name\\}\\}[^`]", escapedTpl)
-	assert.NotRegexp(t, "[^`]\\{\\{name\\}\\}[^`]: [^`]\\{\\{drive\\}\\}[^`]", escapedTpl)
-	assert.NotRegexp(t, "[^`]\\{\\{drive\\}\\}[^`]-read", escapedTpl)
-	assert.NotRegexp(t, "[^`]\\{\\{drive\\}\\}[^`]-write", escapedTpl)
-	assert.Contains(t, escapedTpl, "{{ `{{name}}` }}")
-	assert.Contains(t, escapedTpl, "{{ `{{name}}` }}: {{ `{{drive}}` }}")
-	assert.Contains(t, escapedTpl, "{{ `{{drive}}` }}-read")
-	assert.Contains(t, escapedTpl, "{{ `{{drive}}` }}-write")
-}

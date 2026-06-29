@@ -145,7 +145,7 @@ func TestHarvesterRootfsRendering(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		content, err := render("cos-rootfs.yaml", tc.harvConfig)
+		content, err := render("cos-rootfs.yaml", &tc.harvConfig)
 		assert.NoError(t, err)
 		t.Log("Rendered content:")
 		t.Log(content)

@@ -167,6 +167,7 @@ func GetSystemSettingsAllowList() []string {
 		"ssl-parameters",
 		"http-proxy",
 		"ntp-servers",
+		"containerd-registry",
 	}
 }
 

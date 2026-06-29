@@ -134,7 +134,7 @@ func TestF(t *testing.T) {
 	}
 }
 
-func TestGetServerURLFromRancherdConfig(t *testing.T) {
+func TestGetServerURLFromRKE2Config(t *testing.T) {
 	testCases := []struct {
 		input []byte
 		url   string
@@ -153,7 +153,7 @@ func TestGetServerURLFromRancherdConfig(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
-		url, err := getServerURLFromRancherdConfig(testCase.input)
+		url, err := getServerURLFromRKE2Config(testCase.input)
 		assert.Equal(t, testCase.url, url)
 		assert.Equal(t, testCase.err, err)
 	}

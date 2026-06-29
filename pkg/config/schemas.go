@@ -38,6 +38,7 @@ func LoadVDIConfig(yamlBytes []byte) (*VDIConfig, error) {
 	if err := yaml.Unmarshal(yamlBytes, &data); err != nil {
 		return result, fmt.Errorf("failed to unmarshal yaml: %v", err)
 	}
+	data = normalizeMapKeys(data)
 	if err := schema.Mapper.ToInternal(data); err != nil {
 		return result, err
 	}

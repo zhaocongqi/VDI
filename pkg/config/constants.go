@@ -26,7 +26,7 @@ const (
 
 // Config file paths
 const (
-	RancherdConfigFile = "/etc/rancher/rancherd/config.yaml"
+	Rke2ConfigFile = "/etc/rancher/rke2/config.yaml"
 )
 
 // Network method constants

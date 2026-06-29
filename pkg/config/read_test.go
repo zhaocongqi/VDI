@@ -51,22 +51,24 @@ func TestReadUserData(t *testing.T) {
 
 func TestReadConfigFromMap1(t *testing.T) {
 	data, err := util.ParseCmdLine(
-		"harvester.scheme_version=2 "+
-			"harvester.install.skipchecks=true "+
-			"harvester.install.silent=yes "+
-			"harvester.install.debug=false "+
-			"harvester.install.forceGpt=no "+
-			"harvester.install.management_interface.method=dhcp "+
-			"harvester.install.management_interface.bond_options.mode=balance-tlb "+
-			"harvester.install.management_interface.bond_options.miimon=100 "+
-			"harvester.install.management_interface.mtu=1500 "+
-			"harvester.install.management_interface.vlan_id=1 "+
-			"harvester.install.wipeDisksList=/dev/sda "+
-			"harvester.install.wipeDisksList=/dev/sdb",
+		"vdi.scheme_version=2 "+
+			"vdi.install.skipchecks=true "+
+			"vdi.install.silent=yes "+
+			"vdi.install.debug=false "+
+			"vdi.install.forceGpt=no "+
+			"vdi.install.management_interface.method=dhcp "+
+			"vdi.install.management_interface.bond_options.mode=balance-tlb "+
+			"vdi.install.management_interface.bond_options.miimon=100 "+
+			"vdi.install.management_interface.mtu=1500 "+
+			"vdi.install.management_interface.vlan_id=1 "+
+			"vdi.install.wipeDisksList=/dev/sda "+
+			"vdi.install.wipeDisksList=/dev/sdb",
 		kernelParamPrefix)
 	assert.NoError(t, err, "expected no error when parsing the command line")
+	t.Logf("DEBUG: Raw parsed data from CmdLine: %+v", data)
 	config, err := readConfigFromMap(data)
 	assert.NoError(t, err, "expected no error when processing the config data")
+	t.Logf("DEBUG: Config object after readConfigFromMap: %+v", config)
 	assert.Equal(t, config.SchemeVersion, uint32(2), "expected scheme version to be 2")
 	assert.True(t, config.Install.SkipChecks, "expected skip checks to be true")
 	assert.True(t, config.Install.Silent, "expected silent to be true")
@@ -84,7 +86,7 @@ func TestReadConfigFromMap1(t *testing.T) {
 }
 
 func TestReadConfigFromMap2(t *testing.T) {
-	data, err := util.ParseCmdLine("harvester.scheme_version=1 harvester.install.management_interface.mtu=aaa", kernelParamPrefix)
+	data, err := util.ParseCmdLine("vdi.scheme_version=1 vdi.install.management_interface.mtu=aaa", kernelParamPrefix)
 	assert.NoError(t, err, "expected no error when parsing the command line")
 	config, err := readConfigFromMap(data)
 	assert.Error(t, err, "expected an error when processing the config data")
@@ -93,7 +95,7 @@ func TestReadConfigFromMap2(t *testing.T) {
 }
 
 func TestReadConfigFromMap3(t *testing.T) {
-	data, err := util.ParseCmdLine("harvester.scheme_version=1 harvester.install.debug=bbb", kernelParamPrefix)
+	data, err := util.ParseCmdLine("vdi.scheme_version=1 vdi.install.debug=bbb", kernelParamPrefix)
 	assert.NoError(t, err, "expected no error when parsing the command line")
 	config, err := readConfigFromMap(data)
 	assert.NoError(t, err, "expected no error when processing the config data")
@@ -102,7 +104,7 @@ func TestReadConfigFromMap3(t *testing.T) {
 }
 
 func TestReadConfigFromMap4(t *testing.T) {
-	data, err := util.ParseCmdLine("harvester.scheme_version=2 harvester.install.management_interface.vlan_id=1.5", kernelParamPrefix)
+	data, err := util.ParseCmdLine("vdi.scheme_version=2 vdi.install.management_interface.vlan_id=1.5", kernelParamPrefix)
 	assert.NoError(t, err, "expected no error when parsing the command line")
 	config, err := readConfigFromMap(data)
 	assert.Error(t, err, "expected an error when processing the config data")
@@ -112,7 +114,7 @@ func TestReadConfigFromMap4(t *testing.T) {
 
 // TestReadConfigFromMap5 test several entries in a string list.
 func TestReadConfigFromMap5(t *testing.T) {
-	data, err := util.ParseCmdLine("harvester.scheme_version=2 harvester.install.wipeDisksList=111 harvester.install.wipeDisksList=aaa", kernelParamPrefix)
+	data, err := util.ParseCmdLine("vdi.scheme_version=2 vdi.install.wipeDisksList=111 vdi.install.wipeDisksList=aaa", kernelParamPrefix)
 	assert.NoError(t, err, "expected no error when parsing the command line")
 	config, err := readConfigFromMap(data)
 	assert.NoError(t, err, "expected no error when processing the config data")
@@ -125,7 +127,7 @@ func TestReadConfigFromMap5(t *testing.T) {
 // TestReadConfigFromMap6 test a single entry in a string list. This will test
 // the `NewToSlice` converter function.
 func TestReadConfigFromMap6(t *testing.T) {
-	data, err := util.ParseCmdLine("harvester.install.wipeDisksList=bbb", kernelParamPrefix)
+	data, err := util.ParseCmdLine("vdi.install.wipeDisksList=bbb", kernelParamPrefix)
 	assert.NoError(t, err, "expected no error when parsing the command line")
 	config, err := readConfigFromMap(data)
 	assert.NoError(t, err, "expected no error when processing the config data")
@@ -135,10 +137,10 @@ func TestReadConfigFromMap6(t *testing.T) {
 
 func TestReadConfigFromMap7(t *testing.T) {
 	data, err := util.ParseCmdLine(
-		`harvester.install.management_interface.interfaces="hwAddr:be:44:8c:b0:5d:f2,name:ens1" `+
-			`harvester.install.management_interface.interfaces="hwAddr:af:6a:ad:0d:06:d3,ens2" `+
-			`harvester.install.management_interface.interfaces="name:ens3,6a:fe:da:c4:37:a4" `+
-			`harvester.install.management_interface.interfaces="ens4,10:fe:71:05:57:fd"`,
+		`vdi.install.management_interface.interfaces="hwAddr:be:44:8c:b0:5d:f2,name:ens1" `+
+			`vdi.install.management_interface.interfaces="hwAddr:af:6a:ad:0d:06:d3,ens2" `+
+			`vdi.install.management_interface.interfaces="name:ens3,6a:fe:da:c4:37:a4" `+
+			`vdi.install.management_interface.interfaces="ens4,10:fe:71:05:57:fd"`,
 		kernelParamPrefix)
 	assert.NoError(t, err, "expected no error when parsing the command line")
 	config, err := readConfigFromMap(data)
@@ -156,7 +158,7 @@ func TestReadConfigFromMap7(t *testing.T) {
 
 func Test_parseCmdLineWithError(t *testing.T) {
 	data, err := util.ParseCmdLine(
-		`harvester.install.debug=bbb`,
+		`vdi.install.debug=bbb`,
 		kernelParamPrefix)
 	assert.NoError(t, err, "expected no error when parsing the command line")
 	_, err = readConfigFromMap(data)
