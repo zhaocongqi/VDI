@@ -2,6 +2,8 @@ package config
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -12,9 +14,8 @@ import (
 func KickstartRender(cfg *VDIConfig) (string, error) {
 	var b strings.Builder
 
-	// 静态头与 %pre 阶段（%pre 必须定义在 %include 之前，确保 Anaconda 能够提前执行以生成动态磁盘配置）
+	// 静态头
 	b.WriteString("# VDI kickstart（由 pkg/config/kickstart.go 从 VDIConfig 渲染）\n")
-	b.WriteString(kickstartPre(cfg))
 	b.WriteString("text\n")
 	b.WriteString("cdrom\n")
 	b.WriteString("keyboard --vckeymap=us --xlayouts='us'\n")
@@ -27,8 +28,32 @@ func KickstartRender(cfg *VDIConfig) (string, error) {
 	// 网络（ks network 指令做基础；bond/bridge/vlan 留 MVP4 %post 写 NM profiles）
 	b.WriteString(kickstartNetwork(cfg) + "\n")
 
-	// 磁盘：清盘 + LVM autopart，通过 %pre 动态探测主盘写入以防物理盘符不存在而闪退
-	b.WriteString("%include /tmp/ignoredisk-ks.cfg\n")
+	// 磁盘：清盘 + LVM autopart，通过 Go 运行时动态探测物理主盘，防范异构设备不存在崩溃
+	if cfg.Install.Device != "" {
+		installDev := strings.TrimPrefix(cfg.Install.Device, "/dev/")
+		// 检查指定的安装盘在当前系统上是否真实存在
+		if _, err := os.Stat("/sys/block/" + installDev); err == nil {
+			// 设备真实存在，直接使用
+			b.WriteString(fmt.Sprintf("ignoredisk --only-use=%s\n", installDev))
+		} else {
+			// 设备不存在，Go 自动扫描 /sys/block/ 获取首个物理磁盘
+			files, err := filepath.Glob("/sys/block/*")
+			firstDev := ""
+			if err == nil {
+				for _, f := range files {
+					name := filepath.Base(f)
+					// 过滤出 sd, vd, nvme 设备
+					if strings.HasPrefix(name, "sd") || strings.HasPrefix(name, "vd") || strings.HasPrefix(name, "nvme") {
+						firstDev = name
+						break
+					}
+				}
+			}
+			if firstDev != "" {
+				b.WriteString(fmt.Sprintf("ignoredisk --only-use=%s\n", firstDev))
+			}
+		}
+	}
 	b.WriteString("clearpart --all --initlabel\n")
 	b.WriteString("autopart --type=lvm --fstype=ext4\n")
 	b.WriteString("bootloader --append=\"console=ttyS0,115200 console=tty1\"\n")
@@ -59,38 +84,6 @@ func KickstartRender(cfg *VDIConfig) (string, error) {
 	b.WriteString(kickstartPostChroot(cfg, rke2Cfg, manifests))
 
 	return b.String(), nil
-}
-
-func kickstartPre(cfg *VDIConfig) string {
-	dev := strings.TrimPrefix(cfg.Install.Device, "/dev/")
-	return fmt.Sprintf(`%%pre --interpreter=/bin/bash
-# 1. 绝对防御性兜底：第一步先 touch 文件，防范任何意外导致 Anaconda 无法打开文件崩溃
-touch /tmp/ignoredisk-ks.cfg
-
-# 2. 读取配置的目标安装磁盘
-TARGET_DEV="%s"
-
-# 3. 动态判定设备是否存在
-if [ -n "${TARGET_DEV}" ] && [ -b "/dev/${TARGET_DEV}" ]; then
-    echo "ignoredisk --only-use=${TARGET_DEV}" > /tmp/ignoredisk-ks.cfg
-else
-    # 4. 纯 Bash 内置语法适配异构盘符（不依赖 lsblk/awk/grep 等外部工具）
-    FIRST_DEV=""
-    for d in /sys/block/*; do
-        devname="${d##*/}"
-        case "${devname}" in
-            sd*|vd*|nvme*)
-                FIRST_DEV="${devname}"
-                break
-                ;;
-        esac
-    done
-    if [ -n "${FIRST_DEV}" ]; then
-        echo "ignoredisk --only-use=${FIRST_DEV}" > /tmp/ignoredisk-ks.cfg
-    fi
-fi
-%%end
-`, dev)
 }
 
 // kickstartNetwork 渲染 ks network 指令（装机期 DHCP/静态 IP，拿地址供 anaconda）
