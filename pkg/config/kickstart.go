@@ -12,8 +12,9 @@ import (
 func KickstartRender(cfg *VDIConfig) (string, error) {
 	var b strings.Builder
 
-	// 静态头
+	// 静态头与 %pre 阶段（%pre 必须定义在 %include 之前，确保 Anaconda 能够提前执行以生成动态磁盘配置）
 	b.WriteString("# VDI kickstart（由 pkg/config/kickstart.go 从 VDIConfig 渲染）\n")
+	b.WriteString(kickstartPre(cfg))
 	b.WriteString("text\n")
 	b.WriteString("cdrom\n")
 	b.WriteString("keyboard --vckeymap=us --xlayouts='us'\n")
@@ -56,9 +57,6 @@ func KickstartRender(cfg *VDIConfig) (string, error) {
 		return "", fmt.Errorf("render rke2 manifests: %w", err)
 	}
 	b.WriteString(kickstartPostChroot(cfg, rke2Cfg, manifests))
-
-	// %pre 段：动态注入磁盘以支持异构盘符
-	b.WriteString(kickstartPre(cfg))
 
 	return b.String(), nil
 }
