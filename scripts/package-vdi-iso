@@ -95,6 +95,20 @@ echo "  ks.cfg -> /ks.cfg ($(wc -l < ${KS_OUT}) 行)"
 # 清理 BCLinux ISO 原装自带的 ks 示例目录（/ks/ks.cfg），避免与根目录 /ks.cfg 混淆
 rm -rf ${ISO_ROOTFS}/ks
 
+# ============================================================
+# 步骤 2b: 打包离线 bundle（RKE2 二进制/镜像/组件镜像/charts）进 ISO
+# %post 从 /run/install/repo/bundle/ 读取，装机时无需联网
+# ============================================================
+BUNDLE_SRC="${PACKAGE_VDI_OS_DIR}/iso/bundle"
+if [ -d "${BUNDLE_SRC}/vdi" ]; then
+    echo ">>> 打包离线 bundle 进 ISO"
+    mkdir -p ${ISO_ROOTFS}/bundle
+    cp -a ${BUNDLE_SRC}/. ${ISO_ROOTFS}/bundle/
+    echo "  bundle: $(du -sh ${ISO_ROOTFS}/bundle | cut -f1)"
+else
+    echo "WARN: 无离线 bundle（${BUNDLE_SRC}），%post 装 RKE2 将失败。先跑 make build-bundle"
+fi
+
 # xorriso 解包保留 ISO 9660 权限（0444 只读），改写前放开写权限
 chmod u+w ${ISO_ROOTFS}/isolinux/isolinux.cfg \
            ${ISO_ROOTFS}/EFI/BOOT/grub.cfg

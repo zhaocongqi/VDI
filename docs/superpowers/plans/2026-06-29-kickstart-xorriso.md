@@ -137,12 +137,20 @@ auto_install.go/doInstall() 当前编排：ConvertToCOS → ConvertToElementalCo
 - `%post` 输出到 `/dev/console` 不通串口 → 用 `/dev/ttyS0` 诊断（已清理）
 - qemu 验证：须 `sg kvm -c`（usermod -aG kvm 后会话未刷新）；多并发 qemu 争磁盘锁导致密码登录假失败，须单实例 + nohup
 
-### MVP2 — RKE2 离线安装 + 单节点起来
-- `build-bundle` 加 rke2 二进制 tar.gz 下载
-- ks `%post`：解压 RKE2 + 放 images + 写 config/manifests/charts + enable rke2-server
-- qemu 装机后 RKE2 server 起来，`kubectl get nodes` Ready
-- 验证：装机 → RKE2 ready → 组件 HelmChart 部署
-- 产出：`post-install.sh` + bundle 调整
+### MVP2 — RKE2 离线安装 + 单节点起来 ✅ 已完成
+- `build-bundle` 加 `rke2.linux-amd64.tar.gz`（RKE2 二进制+containerd+systemd unit）下载到 `bundle/vdi/binaries/`
+- `package-vdi-iso` 打包 `iso/bundle/` 整个进 ISO（images 2.3G + binaries + charts）
+- ks 双 %post：`--nochroot` 从 `/run/install/repo/bundle` 复制镜像→`agent/images/`、二进制→`/tmp`、charts→`server/charts/`；chroot 解压 rke2→`/usr/local`、写 config.yaml、enable rke2-server
+- qemu 装机后 RKE2 server active，`kubectl get nodes` Ready（control-plane/etcd/master），etcd/apiserver/controller-manager/proxy/cloud-controller Running，canal/coredns/metrics-server helm-install Completed
+- 验证：装机（11min，磁盘 15.4G）→ 引导 → RKE2 首启（~3min 导入镜像+etcd）→ node Ready
+- 产出：build-bundle 加 binaries 下载 + package-vdi-iso 打包 bundle + ks.cfg 双 %post
+
+#### MVP2 踩坑
+- `%post --nochroot` 访问 ISO 用 `/run/install/repo`（非 chroot），目标盘用 `/mnt/sysroot`；chroot %post 访问目标盘用正常路径
+- RKE2 tar.gz 无独立 containerd（rke2 二进制内嵌），解压到 `/usr/local` 即可，省 wharfie 提取
+- RKE2 首启自动导入 `agent/images/*.tar.zst`（标准离线机制），删 chroot containerd + ctr import 整段
+- ISO 5.6G（DVD 3.3G + bundle 2.3G），xorriso 重建无 ~3174MB 限制（那是 elemental squashfs live 的问题）
+- 镜像导入 + etcd 初始化首启约 3 分钟，kubectl 验证需等足
 
 ### MVP3 — TUI 作 ks 生成器
 - `pkg/config/kickstart.go`：VDIConfig → ks 动态片段

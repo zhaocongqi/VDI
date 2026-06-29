@@ -3,7 +3,7 @@ entries:
   kube-ovn:
   - apiVersion: v2
     appVersion: 1.16.2
-    created: "2026-06-18T17:43:49.083295152+08:00"
+    created: "2026-06-29T13:32:31.784710594+08:00"
     description: Helm chart for Kube-OVN
     digest: 41256995024d1682325dc1415063ff535c19313f455178585eaa8878a5946341
     kubeVersion: '>= 1.29.0-0'
@@ -15,7 +15,7 @@ entries:
   longhorn:
   - apiVersion: v1
     appVersion: v1.8.1
-    created: "2026-06-18T17:43:49.085830477+08:00"
+    created: "2026-06-29T13:32:31.788399803+08:00"
     description: Longhorn is a distributed block storage system for Kubernetes.
     digest: 71cdd4d524926fc2f1587033480cf977deeb4df2fb7037f173ea8e8e6f1cdc20
     home: https://github.com/longhorn/longhorn
@@ -45,4 +45,4 @@ entries:
     urls:
     - longhorn-1.8.1.tgz
     version: 1.8.1
-generated: "2026-06-18T17:43:49.081101859+08:00"
+generated: "2026-06-29T13:32:31.781938154+08:00"

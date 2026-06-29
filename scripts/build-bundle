@@ -62,6 +62,16 @@ save_image_list "kubernetes" "${RKE2_IMAGES_URL}/rke2-images-multus.linux-amd64.
 save_image "rke2" $BUNDLE_DIR $image_list_file ${IMAGES_DIR}
 
 # ============================================================
+# RKE2 二进制（rke2 + containerd + chart-templates + systemd unit）
+# kickstart %post 解压到 /usr/local，替代 elemental 链的 wharfie 提取
+# ============================================================
+BINARIES_DIR="${BUNDLE_DIR}/vdi/binaries"
+mkdir -p ${BINARIES_DIR}
+rke2_binary="${BINARIES_DIR}/rke2.linux-${ARCH}.tar.gz"
+get_url "${RKE2_IMAGES_URL}/rke2.linux-${ARCH}.tar.gz" ${rke2_binary}
+echo "==> RKE2 binary: $(ls -lh ${rke2_binary} 2>/dev/null | awk '{print $5}')"
+
+# ============================================================
 # Longhorn chart + images
 # ============================================================
 echo "==> Pulling Longhorn chart (v${LONGHORN_VERSION})"
