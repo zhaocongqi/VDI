@@ -3,11 +3,9 @@ set -e
 
 cd $(dirname $0)
 
-# 自动下载 elemental/wharfie/yip（幂等，已存在则跳过），再检查 BCLinux ISO
-./fetch-deps
-./check-deps
+# 自动构建并打包
 ./build
 ./build-bundle
 # ./package-vdi-repo  # 跳过：需要 nginx:alpine，离线环境不可用
 # ./package-vdi-installer  # 跳过：无 Dockerfile，且不影响 ISO 构建
-./package-vdi-os
+./package-vdi-iso

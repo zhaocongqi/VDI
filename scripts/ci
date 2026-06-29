@@ -6,4 +6,4 @@ cd $(dirname $0)
 ./build
 ./test
 ./build-bundle
-./package-vdi-os
+./package-vdi-iso
