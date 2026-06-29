@@ -23,7 +23,6 @@ import (
 
 	"github.com/jroimartin/gocui"
 	"github.com/pkg/errors"
-	yipSchema "github.com/rancher/yip/pkg/schema"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/net/http/httpproxy"
@@ -736,220 +735,18 @@ func executeSupportconfig(ctx context.Context, fileName string) error {
 }
 
 func configureInstalledNode(g *gocui.Gui, hvstConfig *config.VDIConfig, webhooks RendererWebhooks) error {
-	// copy cosConfigFile
-	// copy hvstConfigFile and break execution here
-	ctx := context.TODO()
+	logrus.Info("configureInstalledNode: ignored under Kickstart mode")
 	webhooks.Handle(EventInstallStarted)
+	printToPanel(g, "系统配置在 Kickstart 自动化装机中由 Anaconda 接管，正在平滑退出...", installPanel)
+	webhooks.Handle(EventInstallSuceeded)
 
-	// specific the node label for the specific node role
-	if err := roleSetup(hvstConfig); err != nil {
-		return err
-	}
-
-	// skip rancherd and network config in the cos config
-	cosConfig, cosConfigFile, hvstConfigFile, err := generateTempConfigFiles(hvstConfig)
-	if err != nil {
-		printToPanel(g, err.Error(), installPanel)
-		return err
-	}
-
-	defer os.Remove(cosConfigFile)  //nolint:errcheck
-	defer os.Remove(hvstConfigFile) //nolint:errcheck
-
-	if err := applyRancherdConfig(ctx, g, hvstConfig, cosConfig); err != nil {
-		printToPanel(g, fmt.Sprintf("error applying rancherd config :%v", err), installPanel)
-		return err
-	}
-
-	if err := restartCoreServices(); err != nil {
-		printToPanel(g, fmt.Sprintf("error restarting core services: %v", err), installPanel)
-	}
-
+	go func() {
+		time.Sleep(2 * time.Second)
+		g.Update(func(g *gocui.Gui) error {
+			return gocui.ErrQuit
+		})
+	}()
 	return nil
-}
-
-func apply(ctx context.Context, g *gocui.Gui, configFile string, stage string) error {
-	cmd := exec.CommandContext(ctx, "/usr/bin/yip", "-s", stage, configFile)
-	cmd.Env = os.Environ()
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return err
-	}
-	defer stderr.Close() //nolint:errcheck
-
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return err
-	}
-	defer stdout.Close() //nolint:errcheck
-
-	var wg sync.WaitGroup
-	var writeLock sync.Mutex
-
-	wg.Add(2)
-	go func() {
-		defer wg.Done()
-		printToPanelAndLog(g, installPanel, "[stderr]", stderr, &writeLock)
-	}()
-
-	go func() {
-		defer wg.Done()
-		printToPanelAndLog(g, installPanel, "[stdout]", stdout, &writeLock)
-	}()
-
-	if err := cmd.Start(); err != nil {
-		return err
-	}
-
-	wg.Wait()
-	return cmd.Wait()
-}
-
-func applyDummyRoute() error {
-	cmd := exec.Command("/usr/sbin/harv-dummy-iface")
-	_, err := cmd.Output()
-	return err
-}
-
-func restartCoreServices() error {
-	cmd := exec.Command("/usr/sbin/harv-restart-services")
-	_, err := cmd.Output()
-	return err
-}
-
-func applyRancherdConfig(ctx context.Context, g *gocui.Gui, hvstConfig *config.VDIConfig, cosConfig *yipSchema.YipConfig) error {
-
-	bootstrap, err := hvstConfig.GenerateBootstrapConfig()
-	if err != nil {
-		return err
-	}
-
-	// Create a bootstrap stage from the config
-	bootstrapStage := yipSchema.Stage{
-		Name:    "bootstrap",
-		Commands: []string{},
-	}
-
-	// Write bootstrap config to file
-	bootstrapBytes, err := yaml.Marshal(bootstrap)
-	if err != nil {
-		return err
-	}
-
-	bootstrapFile, err := saveTemp(bootstrap, "bootstrap")
-	if err != nil {
-		return err
-	}
-	_ = bootstrapBytes
-
-	cosConfig.Stages["initramfs"] = append(cosConfig.Stages["initramfs"], bootstrapStage)
-	_ = bootstrapFile
-
-	// additional config to copy files over to persist the new changes
-	cosConfigFile, err := saveTemp(cosConfig, "cos")
-	if err != nil {
-		return err
-	}
-
-	hvstConfigFile, err := saveTemp(hvstConfig, "hvst")
-	if err != nil {
-		return err
-	}
-
-	copyFiles := yipSchema.Stage{
-		Name: "copy files",
-		Commands: []string{
-			fmt.Sprintf("cp %s %s", cosConfigFile, defaultCustomConfig),
-			fmt.Sprintf("cp %s %s", hvstConfigFile, defaultHarvesterConfig),
-		},
-	}
-
-	// Create a finalise stage with copy commands
-	finaliseConfig := &yipSchema.YipConfig{
-		Name: "VDI Finalise",
-		Stages: map[string][]yipSchema.Stage{
-			"finalise": {copyFiles},
-		},
-	}
-
-	liveCosConfig, err := saveTemp(finaliseConfig, "live")
-	if err != nil {
-		return err
-	}
-
-	// apply live stage to configure node
-	if err := apply(ctx, g, cosConfigFile, "live"); err != nil {
-		return err
-	}
-
-	// apply finalise stage to copy contents
-	// this will persist content across reboots
-	return apply(ctx, g, liveCosConfig, "finalise")
-}
-
-func generateTempConfigFiles(hvstConfig *config.VDIConfig) (*yipSchema.YipConfig, string, string, error) {
-	cosConfig, err := config.ConvertToCOS(hvstConfig)
-	if err != nil {
-		return nil, "", "", err
-	}
-	cosConfigFile, err := saveTemp(cosConfig, "cos")
-	if err != nil {
-		return nil, "", "", err
-	}
-
-	hvstConfigFile, err := saveTemp(hvstConfig, "vdi")
-	if err != nil {
-		return nil, "", "", err
-	}
-
-	return cosConfig, cosConfigFile, hvstConfigFile, err
-}
-
-func streamImageToDisk(ctx context.Context, g *gocui.Gui, env []string, cfg config.VDIConfig) error {
-	printToPanel(g, fmt.Sprintf("streaming disk image %s to device %s", cfg.Install.RawDiskImagePath, cfg.Install.Device), installPanel)
-	if err := execute(ctx, g, env, "/usr/sbin/stream-disk"); err != nil {
-		printToPanel(g, fmt.Sprintf("stream to disk failed %v", err), installPanel)
-		return err
-	}
-
-	return execute(ctx, g, env, "/usr/sbin/cos-installer-shutdown")
-}
-
-// generateEnvAndConfig encapsulates logic to generate elementalConfig and env variables
-// to simplify code execution and address codecov complexity failures
-func generateEnvAndConfig(g *gocui.Gui, hvstConfig *config.VDIConfig) ([]string, *config.ElementalConfig, error) {
-	cosConfig, err := config.ConvertToCOS(hvstConfig)
-	if err != nil {
-		printToPanel(g, err.Error(), installPanel)
-		return nil, nil, err
-	}
-	cosConfigFile, err := saveTemp(cosConfig, "cos")
-	if err != nil {
-		return nil, nil, err
-	}
-
-	hvstConfigFile, err := saveTemp(hvstConfig, "vdi")
-	if err != nil {
-		return nil, nil, err
-	}
-
-	userDataURL := hvstConfig.Install.ConfigURL
-	hvstConfig.Install.ConfigURL = cosConfigFile
-	elementalConfig, err := config.ConvertToElementalConfig(hvstConfig)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	// provide HARVESTER_ISO_URL, DEBUG, SILENT
-	ev, err := hvstConfig.ToCosInstallEnv()
-	if err != nil {
-		return nil, nil, nil
-	}
-	env := append(os.Environ(), ev...)
-	env = append(env, fmt.Sprintf("HARVESTER_CONFIG=%s", hvstConfigFile))
-	env = append(env, fmt.Sprintf("HARVESTER_INSTALLATION_LOG=%s", defaultLogFilePath))
-	env = append(env, fmt.Sprintf("HARVESTER_STREAMDISK_CLOUDINIT_URL=%s", userDataURL))
-	return env, elementalConfig, nil
 }
 
 // internal objects to parse lsblk output
