@@ -26,10 +26,10 @@ func KickstartRender(cfg *VDIConfig) (string, error) {
 	// 网络（ks network 指令做基础；bond/bridge/vlan 留 MVP4 %post 写 NM profiles）
 	b.WriteString(kickstartNetwork(cfg) + "\n")
 
-	// 磁盘：清盘 + LVM autopart，排除数据盘以防被 Anaconda 强占或污染
-	if cfg.Install.DataDisk != "" {
-		dataDev := strings.TrimPrefix(cfg.Install.DataDisk, "/dev/")
-		b.WriteString(fmt.Sprintf("ignoredisk --drives=%s\n", dataDev))
+	// 磁盘：清盘 + LVM autopart，仅使用系统安装盘以防其余数据盘被 Anaconda 强占或污染
+	if cfg.Install.Device != "" {
+		installDev := strings.TrimPrefix(cfg.Install.Device, "/dev/")
+		b.WriteString(fmt.Sprintf("ignoredisk --only-use=%s\n", installDev))
 	}
 	b.WriteString("clearpart --all --initlabel\n")
 	b.WriteString("autopart --type=lvm --fstype=ext4\n")
