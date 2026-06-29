@@ -672,6 +672,9 @@ func CreateRootPartitioningLayoutSeparateDataDisk(elementalConfig *ElementalConf
 
 	elementalConfig.Install.System = &ElementalSystem{
 		Size: DefaultSystemImageSizeMiB,
+		// ext4（带 journal）：active.img 是根分区，containerd 高频 rename/write，
+		// ext2 无 journal 异常断电会元数据损坏（ext4_mb_generate_buddy / inode freed）。
+		FS: "ext4",
 	}
 
 	return elementalConfig
@@ -724,10 +727,12 @@ func CreateRootPartitioningLayoutSharedDataDisk(elementalConfig *ElementalConfig
 		},
 	}
 
-	// active.img 的 ext2 文件系统大小：需容纳 rootfs + RKE2 离线镜像预加载。
+	// active.img 的文件系统大小：需容纳 rootfs + RKE2 离线镜像预加载。
 	// 不设则 elemental 自动按 rootfs 大小算，镜像预加载会 No space。
+	// FS=ext4 带 journal：containerd 高频写 + 异常断电下 ext2 无 journal 会元数据损坏。
 	elementalConfig.Install.System = &ElementalSystem{
 		Size: DefaultSystemImageSizeMiB,
+		FS:   "ext4",
 	}
 
 	return elementalConfig, nil

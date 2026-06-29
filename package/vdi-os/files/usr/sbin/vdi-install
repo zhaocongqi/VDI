@@ -75,7 +75,7 @@ do_mount()
     mkdir -p $STATEDIR || true
     mount ${STATE} $STATEDIR
     LOOP=$(losetup --show -f ${STATEDIR}/cOS/active.img)
-    mount -t ext2 $LOOP $TARGET
+    mount -t ext4 $LOOP $TARGET
     mkdir -p ${TARGET}/oem
     mount ${OEM} ${TARGET}/oem
     mkdir -p ${TARGET}/usr/local
@@ -361,9 +361,23 @@ if [ -n "$VDI_RKE2_MANIFESTS_DIR" ] && [ -d "$VDI_RKE2_MANIFESTS_DIR" ]; then
     echo "RKE2 manifests written"
 fi
 
-# 删 getty drop-in（Live 环境创建，硬盘系统不该跑 vdi-installer，否则重启回 TUI）
+# 复制 Helm chart tgz 到目标盘 server/charts/（HelmChart CRD spec.chart 引用这些路径）
+# build-bundle 已把 chart 重命名（kube-ovn.tgz/longhorn.tgz/kagent.tgz）放到 ISO bundle/vdi/charts/
+if [ -d "${ISOMNT}/bundle/vdi/charts" ]; then
+    mkdir -p $TARGET/var/lib/rancher/rke2/server/charts
+    cp ${ISOMNT}/bundle/vdi/charts/*.tgz $TARGET/var/lib/rancher/rke2/server/charts/ 2>/dev/null || true
+    echo "Helm charts copied: $(ls $TARGET/var/lib/rancher/rke2/server/charts/ 2>/dev/null)"
+else
+    echo "WARN: ISO bundle/vdi/charts 不存在，HelmChart CRD 将因 chart 缺失 CrashLoop"
+fi
+
+# 硬盘系统不该再跑 vdi-installer：禁用 vdi-setup-installer.service（首启会重建 getty override
+# 拉起安装器，导致重启回 TUI）+ 删 getty drop-in。
+# mask 而非 disable：彻底阻断任何方式拉起该 service（disable 只删 wants 软链）
+mkdir -p $TARGET/etc/systemd/system
+ln -sf /dev/null $TARGET/etc/systemd/system/vdi-setup-installer.service
 rm -rf $TARGET/etc/systemd/system/getty@tty1.service.d
-echo "getty drop-in removed"
+echo "vdi-setup-installer masked, getty drop-in removed"
 
 update_grub_settings
 

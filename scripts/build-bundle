@@ -165,6 +165,22 @@ echo "Skipping kagent image pull (ghcr.io requires authentication, TODO)"
 
 
 # ============================================================
+# 把 Helm chart tgz 复制到 ISO bundle，供 vdi-install 复制到目标盘
+# server/charts/（RKE2 HelmChart CRD spec.chart 引用这些路径）
+# 重命名为 manifest 期望的名字（不带版本号），kubevirt 是 KubeVirt CR 不需 tgz
+# ============================================================
+CHARTS_BUNDLE_DIR="${BUNDLE_DIR}/vdi/charts"
+mkdir -p ${CHARTS_BUNDLE_DIR}
+echo "==> Copying Helm charts to bundle (renamed to manifest names)"
+cp -f "${CHARTS_DIR}/kube-ovn-${KUBEOVN_VERSION}.tgz" "${CHARTS_BUNDLE_DIR}/kube-ovn.tgz"
+cp -f "${CHARTS_DIR}/longhorn-${LONGHORN_VERSION#v}.tgz" "${CHARTS_BUNDLE_DIR}/longhorn.tgz"
+# kagent chart 可能因 ghcr 认证未拉到，存在才复制
+[ -f "${CHARTS_DIR}/kagent-${KAGENT_VERSION}.tgz" ] && \
+  cp -f "${CHARTS_DIR}/kagent-${KAGENT_VERSION}.tgz" "${CHARTS_BUNDLE_DIR}/kagent.tgz" || \
+  echo "WARN: kagent chart 缺失，不复制到 bundle"
+ls -la ${CHARTS_BUNDLE_DIR}/
+
+# ============================================================
 # Create Helm repo index
 # ============================================================
 echo "==> Creating Helm repo index"

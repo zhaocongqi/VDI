@@ -20,7 +20,8 @@ loopdev=$(cat /run/cos-img/loopdev)
 
 mkdir -p /run/cos-img/root
 # rw 挂载：RKE2 运行时需写 /var/lib/rancher、/etc/rancher 等（active.img 内）
-mount -o rw "$loopdev" /run/cos-img/root 2>/dev/null || mount -o rw -t ext2 "$loopdev" /run/cos-img/root || { echo "cos-img: mount loop failed"; return 1; }
+# active.img 是 ext4（带 journal，cos.go 设 System.FS=ext4），自动探测失败时显式 -t ext4
+mount -o rw "$loopdev" /run/cos-img/root 2>/dev/null || mount -o rw -t ext4 "$loopdev" /run/cos-img/root || { echo "cos-img: mount loop failed"; return 1; }
 
 # bind 覆盖 /sysroot（COS_STATE → active.img 内容），保持 rw
 mount --bind /run/cos-img/root /sysroot || { echo "cos-img: bind /sysroot failed"; return 1; }
