@@ -142,6 +142,8 @@ func kickstartPostChroot(cfg *VDIConfig, rke2Cfg string, manifests map[string]st
 	b.WriteString("echo \"root:" + cfg.OS.Password + "\" | chpasswd\n")
 	b.WriteString("passwd -u root 2>/dev/null || true\n")
 	b.WriteString("mkdir -p /etc/ssh/sshd_config.d\ncat > /etc/ssh/sshd_config.d/00-vdi-root-login.conf <<'SSHD'\nPermitRootLogin yes\nPasswordAuthentication yes\nSSHD\n")
+	b.WriteString("sed -i 's/^#\\?PermitRootLogin.*/PermitRootLogin yes/g' /etc/ssh/sshd_config || true\n")
+	b.WriteString("sed -i 's/^#\\?PasswordAuthentication.*/PasswordAuthentication yes/g' /etc/ssh/sshd_config || true\n")
 	b.WriteString("systemctl enable sshd 2>/dev/null || ln -sf /usr/lib/systemd/system/sshd.service /etc/systemd/system/multi-user.target.wants/sshd.service\n")
 
 	// 数据盘处理 (MVP4)
