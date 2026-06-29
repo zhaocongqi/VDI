@@ -1,3 +1,6 @@
+{{- if .ServerURL }}
+server: {{ .ServerURL }}
+{{- end }}
 token: {{ printf "%q" .Token }}
 tls-san:
   - {{ .Install.Vip }}

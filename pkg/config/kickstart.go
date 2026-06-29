@@ -153,9 +153,11 @@ fi
 			b.WriteString(fmt.Sprintf("cat > /var/lib/rancher/rke2/server/manifests/%s <<'MANIFEST'\n%s\nMANIFEST\n", name, content))
 		}
 	}
-	// enable rke2-server（首节点）或 rke2-agent（加入节点）
+	// enable rke2-server（首节点/Master控制平面）或 rke2-agent（Worker/Witness工作节点）
 	service := "rke2-server"
-	if cfg.ServerURL != "" {
+	if cfg.Install.Role == RoleWorker || cfg.Install.Role == RoleWitness {
+		service = "rke2-agent"
+	} else if cfg.Install.Role == "" && cfg.ServerURL != "" {
 		service = "rke2-agent"
 	}
 	b.WriteString(fmt.Sprintf("systemctl enable %s 2>/dev/null || ln -sf /usr/local/lib/systemd/system/%s.service /etc/systemd/system/multi-user.target.wants/%s.service\n", service, service, service))

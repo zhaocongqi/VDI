@@ -339,9 +339,19 @@ func initRKE2Stage(config *VDIConfig, stage *yipSchema.Stage) error {
 // VDI 无 elemental cloud-init 触发层（harvester 由 SUSE MicroOS elemental-init 提供），
 // initRKE2Stage 的 initramfs stage 首启不会执行，需 vdi-install 安装时直接写 config.yaml
 func RenderRKE2Config(config *VDIConfig) (string, error) {
-	if config.ServerURL == "" {
-		return render("rke2-server.yaml", config)
+	isAgent := config.Install.Role == RoleWorker || config.Install.Role == RoleWitness
+	if config.Install.Role == "" && config.ServerURL != "" {
+		isAgent = true
 	}
+
+	if !isAgent {
+		rke2Config, err := render("rke2-server.yaml", config)
+		if err != nil {
+			return "", err
+		}
+		return strings.TrimSpace(rke2Config), nil
+	}
+
 	rke2Config, err := render("rke2-agent.yaml", config)
 	if err != nil {
 		return "", err
