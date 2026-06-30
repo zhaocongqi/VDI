@@ -34,7 +34,7 @@ KS_TEMPLATE="${PACKAGE_VDI_OS_DIR}/ks/ks.cfg"
 
 ISO_PREFIX="vdi-${VERSION}-amd64"
 ISO_FILE="${ARTIFACTS_DIR}/${ISO_PREFIX}.iso"
-ISO_ROOTFS="${CACHE_DIR}/iso-rootfs"
+ISO_ROOTFS="${ISO_ROOTFS:-${CACHE_DIR}/iso-rootfs}"
 
 echo "============================================"
 echo "  构建 VDI 安装型 ISO (BCLinux + kickstart)"

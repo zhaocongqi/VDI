@@ -2530,13 +2530,11 @@ func addInstallPanel(c *Console) error {
 	installV := widgets.NewPanel(c.Gui, installPanel)
 	installV.PreShow = func() error {
 		go func() {
-			// Legacy BIOS systems are no longer supported
-			biosCheck := preflight.BIOSCheck{}
-			if msg, _ := biosCheck.Run(); len(msg) > 0 {
-				logrus.Error(msg)
-				printToPanel(c.Gui, msg, installPanel)
-				return
-			}
+			// kickstart 链路下 BIOS/UEFI 均可装机（autopart + bootloader 自适应 MBR/GPT），
+			// 此处 elemental 遗留的 BIOSCheck 硬阻断是误报：它在 PreShow return 会让
+			// doInstall 永不被调用 → MainLoop 不退出 → %pre 阻塞 → anaconda 不装机。
+			// 跳过该检查，交由 anaconda 引导模式自适应处理。
+			dbgSerial("PreShow: 跳过 BIOSCheck（kickstart 链路 BIOS/UEFI 自适应）")
 
 			// in alreadyInstalled mode and auto configuration, the network is not available
 			if alreadyInstalled && c.config.Install.Automatic && c.config.Install.ManagementInterface.Method == "dhcp" {

@@ -515,6 +515,7 @@ func doInstall(g *gocui.Gui, hvstConfig *config.VDIConfig, webhooks RendererWebh
 		return err
 	}
 	logrus.Infof("doInstall: Kickstart rendered to %s", ksPath)
+	dbgSerial("doInstall: ks written to %s，准备退出 MainLoop", ksPath)
 
 	printToPanel(g, fmt.Sprintf("配置已成功保存到 %s", ksPath), installPanel)
 	printToPanel(g, "即将退出配置程序，系统安装将由 Anaconda 接管...", installPanel)
