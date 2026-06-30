@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"gopkg.in/yaml.v3"
 )
 
 func TestHarvesterConfig_sanitized(t *testing.T) {
@@ -75,88 +74,6 @@ func TestHarvesterConfig_GetKubeletLabelsArg(t *testing.T) {
 				)
 			}
 		})
-	}
-}
-
-func TestHarvesterRootfsRendering(t *testing.T) {
-	type Rootfs struct {
-		Environment map[string]string
-	}
-
-	testCases := []struct {
-		name       string
-		harvConfig VDIConfig
-		assertion  func(t *testing.T, rootfs *Rootfs)
-	}{
-		{
-			name:       "Test default config",
-			harvConfig: VDIConfig{},
-			assertion: func(t *testing.T, rootfs *Rootfs) {
-				assert.Contains(t, rootfs.Environment["VOLUMES"], "LABEL=HARV_LH_DEFAULT:/var/lib/harvester/defaultdisk")
-				assert.Contains(t, rootfs.Environment["PERSISTENT_STATE_PATHS"], "/var/lib/longhorn")
-				assert.NotContains(t, rootfs.Environment["PERSISTENT_STATE_PATHS"], "/var/lib/harvester/defaultdisk")
-			},
-		},
-		{
-			name: "Test ForceMBR=true and no DataDisk -> No need to mount data partition",
-			harvConfig: VDIConfig{
-				Install: InstallConfig{
-					ForceMBR: true,
-					DataDisk: "",
-				},
-			},
-			assertion: func(t *testing.T, rootfs *Rootfs) {
-				assert.NotContains(t, rootfs.Environment["VOLUMES"], "LABEL=HARV_LH_DEFAULT:/var/lib/harvester/defaultdisk")
-				assert.Contains(t, rootfs.Environment["PERSISTENT_STATE_PATHS"], "/var/lib/longhorn")
-				assert.Contains(t, rootfs.Environment["PERSISTENT_STATE_PATHS"], "/var/lib/harvester/defaultdisk")
-			},
-		},
-		{
-			name: "Test ForceMBR=true but has DataDisk -> Still need to mount data partition",
-			harvConfig: VDIConfig{
-				Install: InstallConfig{
-					ForceMBR: true,
-					DataDisk: "/dev/sdb",
-				},
-			},
-			assertion: func(t *testing.T, rootfs *Rootfs) {
-				assert.Contains(t, rootfs.Environment["VOLUMES"], "LABEL=HARV_LH_DEFAULT:/var/lib/harvester/defaultdisk")
-				assert.Contains(t, rootfs.Environment["PERSISTENT_STATE_PATHS"], "/var/lib/longhorn")
-				assert.NotContains(t, rootfs.Environment["PERSISTENT_STATE_PATHS"], "/var/lib/harvester/defaultdisk")
-			},
-		},
-		{
-			name: "Test additional persistent state paths",
-			harvConfig: VDIConfig{
-				OS: OSConfig{
-					PersistentStatePaths: []string{
-						"/path1",
-						"/path2",
-					},
-				},
-			},
-			assertion: func(t *testing.T, rootfs *Rootfs) {
-				assert.Contains(t, rootfs.Environment["VOLUMES"], "LABEL=HARV_LH_DEFAULT:/var/lib/harvester/defaultdisk")
-				assert.NotContains(t, rootfs.Environment["PERSISTENT_STATE_PATHS"], "/var/lib/harvester/defaultdisk")
-				assert.Contains(t, rootfs.Environment["PERSISTENT_STATE_PATHS"], "/path1")
-				assert.Contains(t, rootfs.Environment["PERSISTENT_STATE_PATHS"], "/path2")
-			},
-		},
-	}
-
-	for _, tc := range testCases {
-		content, err := render("cos-rootfs.yaml", &tc.harvConfig)
-		assert.NoError(t, err)
-		t.Log("Rendered content:")
-		t.Log(content)
-
-		rootfs := Rootfs{}
-		err = yaml.Unmarshal([]byte(content), &rootfs)
-		assert.NoError(t, err)
-		t.Log("Loaded Config:")
-		t.Log(rootfs)
-
-		tc.assertion(t, &rootfs)
 	}
 }
 
@@ -265,50 +182,6 @@ func TestHarvesterConfigMerge_OtherField(t *testing.T) {
 	assert.Equal(t, map[string]string{"foo": "bar", "key": "val"}, conf.OS.Labels, "Map field should be merged")
 	assert.Equal(t, []string{"1.1.1.1", "8.8.8.8"}, conf.OS.DNSNameservers, "Slice shoule be appended")
 	assert.Equal(t, "TokenValue", conf.Token, "New field should be added")
-}
-
-func TestHarvesterAfterInstallChrootRendering(t *testing.T) {
-	type HarvesterAfterInstallChroot struct {
-		Commands []string `yaml:"commands,omitempty"`
-	}
-
-	testCases := []struct {
-		name       string
-		harvConfig VDIConfig
-		assertion  func(t *testing.T, afterInstallChroot *HarvesterAfterInstallChroot)
-	}{
-
-		{
-			name: "Test after-install-chroot-command",
-			harvConfig: VDIConfig{
-				OS: OSConfig{
-					AfterInstallChrootCommands: []string{
-						`echo "hello"`,
-						`echo "world"`,
-					},
-				},
-			},
-			assertion: func(t *testing.T, afterInstallChroot *HarvesterAfterInstallChroot) {
-				assert.Contains(t, afterInstallChroot.Commands, `echo "hello"`)
-				assert.Contains(t, afterInstallChroot.Commands, `echo "world"`)
-			},
-		},
-	}
-
-	for _, tc := range testCases {
-		content, err := render("cos-after-install-chroot.yaml", tc.harvConfig)
-		assert.NoError(t, err)
-		t.Log("Rendered content:")
-		t.Log(content)
-
-		afterInstallChroot := HarvesterAfterInstallChroot{}
-		err = yaml.Unmarshal([]byte(content), &afterInstallChroot)
-		assert.NoError(t, err)
-		t.Log("Loaded Config:")
-		t.Log(afterInstallChroot)
-
-		tc.assertion(t, &afterInstallChroot)
-	}
 }
 
 func TestCalculateCPUReservedInMilliCPU(t *testing.T) {

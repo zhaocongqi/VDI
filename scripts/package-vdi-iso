@@ -50,7 +50,6 @@ if [ ! -s "${BCLINUX_ISO}" ]; then
     exit 1
 fi
 command -v xorriso >/dev/null 2>&1 || { echo "ERROR: 缺少 xorriso"; exit 1; }
-command -v openssl >/dev/null 2>&1 || { echo "ERROR: 缺少 openssl"; exit 1; }
 if [ ! -s "${ISOHDPFX_BIN}" ]; then
     echo "ERROR: 缺少 syslinux isohdpfx.bin: ${ISOHDPFX_BIN}" >&2
     echo "       Debian/Ubuntu: apt install isolinux syslinux-common" >&2
@@ -90,8 +89,9 @@ echo "  解包完成: $(du -sh ${ISO_ROOTFS} | cut -f1)"
 # ============================================================
 echo ">>> 注入 ks.cfg 与 vdi-installer"
 KS_OUT="${ISO_ROOTFS}/ks.cfg"
-ROOTPW_CRYPT=$(openssl passwd -6 -salt vdirootpw vdi123)
-sed "s|ROOTPW_HASH_PLACEHOLDER|${ROOTPW_CRYPT}|" "${KS_TEMPLATE}" > "${KS_OUT}"
+# 主引导 ks 模板（%pre 调 vdi-installer 收集配置后 %include /tmp/ks-include.cfg）。
+# rootpw/network/分区等动态段由 vdi-installer 在 %pre 渲染进 ks-include，主模板无需占位符替换。
+cp -f "${KS_TEMPLATE}" "${KS_OUT}"
 echo "  ks.cfg -> /ks.cfg ($(wc -l < ${KS_OUT}) 行)"
 
 VDI_INSTALLER_BIN="${VDI_INSTALLER_BIN:-${TOP_DIR}/bin/vdi-installer}"
@@ -136,10 +136,10 @@ timeout 30
 prompt 0
 
 label vdi
-  menu label ^Install VDI (auto, kickstart)
+  menu label ^Install VDI (interactive, kickstart)
   menu default
   kernel vmlinuz
-  append initrd=initrd.img inst.stage2=hd:LABEL=BCLinux.x86_64 inst.ks=hd:LABEL=BCLinux.x86_64:/ks.cfg console=ttyS0,115200 console=tty1 quiet fpi_to_tail=off vdi.install.automatic=true
+  append initrd=initrd.img inst.stage2=hd:LABEL=BCLinux.x86_64 inst.ks=hd:LABEL=BCLinux.x86_64:/ks.cfg console=ttyS0,115200 console=tty1 quiet fpi_to_tail=off
 
 label rescue
   menu label ^Rescue a BCLinux system
@@ -171,14 +171,14 @@ insmod part_gpt
 insmod ext2
 search --no-floppy --set=root -l 'BCLinux.x86_64'
 
-menuentry 'Install VDI (auto, kickstart)' --class gnu-linux --class os {
+menuentry 'Install VDI (interactive, kickstart)' --class gnu-linux --class os {
   set linux=linuxefi
   set initrd=initrdefi
   if [ "${grub_platform}" != "efi" ]; then
     set linux=linux
     set initrd=initrd
   fi
-  $linux /images/pxeboot/vmlinuz inst.stage2=hd:LABEL=BCLinux.x86_64 inst.ks=hd:LABEL=BCLinux.x86_64:/ks.cfg console=ttyS0,115200 console=tty1 quiet fpi_to_tail=off vdi.install.automatic=true
+  $linux /images/pxeboot/vmlinuz inst.stage2=hd:LABEL=BCLinux.x86_64 inst.ks=hd:LABEL=BCLinux.x86_64:/ks.cfg console=ttyS0,115200 console=tty1 quiet fpi_to_tail=off
   $initrd /images/pxeboot/initrd.img
 }
 

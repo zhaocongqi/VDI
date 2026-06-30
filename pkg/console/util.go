@@ -14,7 +14,6 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -48,12 +47,9 @@ You can see the full installation log by:
 `
 	https = "https://"
 
-	ElementalConfigDir  = "/tmp/elemental"
-	ElementalConfigFile = "config.yaml"
-	multipathOff        = "multipath=off"
-	PartitionType       = "part"
-	MpathType           = "mpath"
-	CosDiskLabelPrefix  = "COS_OEM"
+	PartitionType      = "part"
+	MpathType          = "mpath"
+	CosDiskLabelPrefix = "COS_OEM"
 )
 
 func newProxyClient() http.Client {
@@ -448,26 +444,6 @@ func printToPanelAndLog(g *gocui.Gui, panel string, logPrefix string, reader io.
 		printToPanel(g, scanner.Text(), panel)
 		lock.Unlock()
 	}
-}
-
-func saveElementalConfig(obj interface{}) (string, string, error) {
-	err := os.MkdirAll(ElementalConfigDir, os.ModePerm) //nolint:gosec
-	if err != nil {
-		return "", "", err
-	}
-
-	bytes, err := yaml.Marshal(obj)
-	if err != nil {
-		return "", "", err
-	}
-
-	elementalConfigFile := filepath.Join(ElementalConfigDir, ElementalConfigFile)
-	err = os.WriteFile(elementalConfigFile, bytes, 0600)
-	if err != nil {
-		return "", "", err
-	}
-
-	return ElementalConfigDir, elementalConfigFile, nil
 }
 
 func saveTemp(obj interface{}, prefix string) (string, error) {

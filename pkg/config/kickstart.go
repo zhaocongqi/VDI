@@ -29,30 +29,13 @@ func KickstartRender(cfg *VDIConfig) (string, error) {
 	b.WriteString(kickstartNetwork(cfg) + "\n")
 
 	// 磁盘：清盘 + LVM autopart，通过 Go 运行时动态探测物理主盘，防范异构设备不存在崩溃
-	if cfg.Install.Device != "" {
-		installDev := strings.TrimPrefix(cfg.Install.Device, "/dev/")
-		// 检查指定的安装盘在当前系统上是否真实存在
-		if _, err := os.Stat("/sys/block/" + installDev); err == nil {
-			// 设备真实存在，直接使用
-			b.WriteString(fmt.Sprintf("ignoredisk --only-use=%s\n", installDev))
-		} else {
-			// 设备不存在，Go 自动扫描 /sys/block/ 获取首个物理磁盘
-			files, err := filepath.Glob("/sys/block/*")
-			firstDev := ""
-			if err == nil {
-				for _, f := range files {
-					name := filepath.Base(f)
-					// 过滤出 sd, vd, nvme 设备
-					if strings.HasPrefix(name, "sd") || strings.HasPrefix(name, "vd") || strings.HasPrefix(name, "nvme") {
-						firstDev = name
-						break
-					}
-				}
-			}
-			if firstDev != "" {
-				b.WriteString(fmt.Sprintf("ignoredisk --only-use=%s\n", firstDev))
-			}
-		}
+	installDev, dataDev := detectInstallAndDataDisk(cfg)
+	if installDev != "" {
+		b.WriteString(fmt.Sprintf("ignoredisk --only-use=%s\n", installDev))
+	}
+	// 显式排除数据盘，防止 clearpart/autopart 扫描或 LVM 误伤（多盘隔离防线）
+	if dataDev != "" {
+		b.WriteString(fmt.Sprintf("ignoredisk --drives=%s\n", dataDev))
 	}
 	b.WriteString("clearpart --all --initlabel\n")
 	b.WriteString("autopart --type=lvm --fstype=ext4\n")
@@ -81,9 +64,64 @@ func KickstartRender(cfg *VDIConfig) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("render rke2 manifests: %w", err)
 	}
-	b.WriteString(kickstartPostChroot(cfg, rke2Cfg, manifests))
+	b.WriteString(kickstartPostChroot(cfg, rke2Cfg, manifests, dataDev))
 
 	return b.String(), nil
+}
+
+// detectInstallAndDataDisk 在 Go 运行时（%pre 阶段）探测主盘与数据盘设备名（不含 /dev/ 前缀）。
+// KickstartRender 在 %pre 阶段执行，此时看到的 /sys/block/* 与装机后目标系统磁盘拓扑一致
+// （同一台物理机），故 %pre 探测结果可作为字面量嵌入 %post 脚本，避免 %post chroot 依赖 lsblk。
+//   - 主盘：优先用 cfg.Install.Device（若在 /sys/block 存在），否则取首个物理盘
+//   - 数据盘：优先用 cfg.Install.DataDisk（若存在），否则取"非主盘"的首个物理盘
+//
+// 任一探测失败返回空串，调用方据此决定是否写 ignoredisk 行。
+func detectInstallAndDataDisk(cfg *VDIConfig) (installDev, dataDev string) {
+	disks := detectPhysicalDisks()
+
+	// 主盘
+	want := strings.TrimPrefix(cfg.Install.Device, "/dev/")
+	if want != "" {
+		if _, err := os.Stat("/sys/block/" + want); err == nil {
+			installDev = want
+		}
+	}
+	if installDev == "" && len(disks) > 0 {
+		installDev = disks[0]
+	}
+
+	// 数据盘
+	wantData := strings.TrimPrefix(cfg.Install.DataDisk, "/dev/")
+	if wantData != "" {
+		if _, err := os.Stat("/sys/block/" + wantData); err == nil {
+			dataDev = wantData
+		}
+	}
+	if dataDev == "" {
+		for _, d := range disks {
+			if d != installDev {
+				dataDev = d
+				break
+			}
+		}
+	}
+	return installDev, dataDev
+}
+
+// detectPhysicalDisks 扫描 /sys/block/ 返回 sd*/vd*/nvme* 物理盘设备名（按内核枚举顺序）。
+func detectPhysicalDisks() []string {
+	files, err := filepath.Glob("/sys/block/*")
+	if err != nil {
+		return nil
+	}
+	var disks []string
+	for _, f := range files {
+		name := filepath.Base(f)
+		if strings.HasPrefix(name, "sd") || strings.HasPrefix(name, "vd") || strings.HasPrefix(name, "nvme") {
+			disks = append(disks, name)
+		}
+	}
+	return disks
 }
 
 // kickstartNetwork 渲染 ks network 指令（装机期 DHCP/静态 IP，拿地址供 anaconda）
@@ -134,7 +172,7 @@ sync
 
 // kickstartPostChroot：%post chroot 解压 RKE2 + 写 config/manifests + enable
 // rke2Cfg/manifests 由 RenderRKE2Config/Manifests 渲染，嵌入 heredoc
-func kickstartPostChroot(cfg *VDIConfig, rke2Cfg string, manifests map[string]string) string {
+func kickstartPostChroot(cfg *VDIConfig, rke2Cfg string, manifests map[string]string, dataDev string) string {
 	var b strings.Builder
 	b.WriteString("%post --interpreter=/bin/bash\n")
 	b.WriteString("set -x\n")
@@ -146,16 +184,15 @@ func kickstartPostChroot(cfg *VDIConfig, rke2Cfg string, manifests map[string]st
 	b.WriteString("sed -i 's/^#\\?PasswordAuthentication.*/PasswordAuthentication yes/g' /etc/ssh/sshd_config || true\n")
 	b.WriteString("systemctl enable sshd 2>/dev/null || ln -sf /usr/lib/systemd/system/sshd.service /etc/systemd/system/multi-user.target.wants/sshd.service\n")
 
-	// 数据盘处理 (MVP4)
-	dev := cfg.Install.Device
-	dataDev := cfg.Install.DataDisk
+	// 数据盘处理 (MVP4)：dataDev 由 detectInstallAndDataDisk 在 %pre 阶段用 Go 读
+	// /sys/block/* 探测得到（含用户显式指定），作为字面量嵌入 %post，不再依赖 lsblk。
+	dataDiskPath := ""
+	if dataDev != "" {
+		dataDiskPath = "/dev/" + dataDev
+	}
 	b.WriteString(fmt.Sprintf(`
 # ----------------- 数据盘处理 (MVP4) -----------------
-SYS_DEV_NAME="%s"
 DATA_DISK="%s"
-if [ -z "${DATA_DISK}" ]; then
-    DATA_DISK=$(lsblk -d -n -o NAME,TYPE | grep disk | awk '{print "/dev/"$1}' | grep -v -E "(${SYS_DEV_NAME}|$(basename ${SYS_DEV_NAME}))" | head -n 1)
-fi
 
 if [ -n "${DATA_DISK}" ] && [ -b "${DATA_DISK}" ]; then
     echo "发现数据盘 ${DATA_DISK}，正在对其执行 ext4 格式化与 Longhorn 卷标处理..."
@@ -163,7 +200,7 @@ if [ -n "${DATA_DISK}" ] && [ -b "${DATA_DISK}" ]; then
     mkdir -p /var/lib/longhorn
     echo "LABEL=VDI_LH_DEFAULT /var/lib/longhorn ext4 defaults,noatime,nofail 0 2" >> /etc/fstab
 fi
-`, dev, dataDev))
+`, dataDiskPath))
 
 	// 解压 RKE2 二进制
 	b.WriteString("tar xzf /tmp/rke2.tar.gz -C /usr/local\nrm -f /tmp/rke2.tar.gz\nchmod +x /usr/local/bin/rke2\n")

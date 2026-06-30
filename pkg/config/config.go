@@ -273,68 +273,6 @@ func (c *VDIConfig) Merge(other VDIConfig) error {
 	return nil
 }
 
-// GenerateBootstrapConfig generates a yip-based bootstrap configuration for node initialization.
-// This replaces the former GenerateRancherdConfig, producing yip stages instead of rancherd config.
-func (c *VDIConfig) GenerateBootstrapConfig() (map[string]interface{}, error) {
-	bootstrap := map[string]interface{}{
-		"hostname": c.OS.Hostname,
-	}
-
-	if len(c.OS.SSHAuthorizedKeys) > 0 {
-		bootstrap["sshAuthorizedKeys"] = c.OS.SSHAuthorizedKeys
-	}
-
-	if c.OS.Password != "" {
-		bootstrap["users"] = []map[string]interface{}{
-			{
-				"name":              "root",
-				"passwordHash":      c.OS.Password,
-				"sshAuthorizedKeys": c.OS.SSHAuthorizedKeys,
-			},
-		}
-	}
-
-	if len(c.OS.NTPServers) > 0 {
-		bootstrap["ntp"] = map[string]interface{}{
-			"servers": c.OS.NTPServers,
-		}
-	}
-
-	if len(c.OS.Modules) > 0 {
-		bootstrap["modules"] = c.OS.Modules
-	}
-
-	if len(c.OS.Sysctls) > 0 {
-		bootstrap["sysctl"] = c.OS.Sysctls
-	}
-
-	if len(c.OS.Environment) > 0 {
-		bootstrap["environment"] = c.OS.Environment
-	}
-
-	// Install role information
-	bootstrap["role"] = c.Install.Role
-
-	// VDI component versions
-	if c.RKE2Version != "" {
-		bootstrap["rke2Version"] = c.RKE2Version
-	}
-	if c.KubevirtVersion != "" {
-		bootstrap["kubevirtVersion"] = c.KubevirtVersion
-	}
-	if c.LonghornVersion != "" {
-		bootstrap["longhornVersion"] = c.LonghornVersion
-	}
-	if c.KubeovnVersion != "" {
-		bootstrap["kubeovnVersion"] = c.KubeovnVersion
-	}
-	if c.KagentVersion != "" {
-		bootstrap["kagentVersion"] = c.KagentVersion
-	}
-
-	return bootstrap, nil
-}
-
 func (n *NetworkInterface) FindNetworkInterfaceNameAndHwAddr() error {
 	if err := n.FindNetworkInterfaceName(); err != nil {
 		return err

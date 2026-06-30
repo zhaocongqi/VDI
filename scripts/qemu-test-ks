@@ -98,6 +98,26 @@ qemu-img create -f qcow2 "$QEMU_DATA_DISK" 20G >/dev/null
 # ============================================================
 info "=== 阶段1: 引导 ISO 装机 ==="
 : > "$SERIAL_LOG"
+
+# 产线 ISO 默认装机项走交互 TUI（不带 vdi.install.automatic=true）。
+# qemu 无人值守验证需显式注入 automatic 参数：从 ISO 解出 vmlinuz/initrd，
+# 用 -kernel/-initrd 直引导 + -append 带 automatic，-cdrom 仍提供 stage2/ks/bundle。
+# 这样 -cdrom 引导用的是默认交互项（会被 -kernel 覆盖不走它），automatic 由 -append 注入。
+KERNEL_EXTRACT_DIR="/tmp/qemu-ks-kernel"
+rm -rf "$KERNEL_EXTRACT_DIR"
+mkdir -p "$KERNEL_EXTRACT_DIR"
+info "从 ISO 解出 vmlinuz/initrd（供 -kernel 直引导注入 automatic）..."
+xorriso -osirrox on -indev "$ISO" \
+    -extract /images/pxeboot/vmlinuz "${KERNEL_EXTRACT_DIR}/vmlinuz" \
+    -extract /images/pxeboot/initrd.img "${KERNEL_EXTRACT_DIR}/initrd.img" \
+    >/dev/null 2>&1 || { error "解出 vmlinuz/initrd 失败"; exit 1; }
+VMLINUZ="${KERNEL_EXTRACT_DIR}/vmlinuz"
+INITRD="${KERNEL_EXTRACT_DIR}/initrd.img"
+[ -s "$VMLINUZ" ] && [ -s "$INITRD" ] || { error "vmlinuz/initrd 解出后为空"; exit 1; }
+
+# -append 显式带 vdi.install.automatic=true 触发无人值守；inst.stage2/inst.ks 仍按 LABEL 寻址（-cdrom 提供）
+APPEND="inst.stage2=hd:LABEL=BCLinux.x86_64 inst.ks=hd:LABEL=BCLinux.x86_64:/ks.cfg console=ttyS0,115200 console=tty1 quiet fpi_to_tail=off vdi.install.automatic=true"
+
 qemu-system-x86_64 \
     -machine q35 \
     $ACCEL \
@@ -107,7 +127,9 @@ qemu-system-x86_64 \
     -drive file="$QEMU_DISK",format=qcow2,if=virtio \
     -drive file="$QEMU_DATA_DISK",format=qcow2,if=virtio \
     -cdrom "$ISO" \
-    -boot d \
+    -kernel "$VMLINUZ" \
+    -initrd "$INITRD" \
+    -append "$APPEND" \
     -netdev user,id=net0,hostfwd=tcp::$SSH_PORT-:22 \
     -device virtio-net-pci,netdev=net0 \
     -serial file:"$SERIAL_LOG" \
