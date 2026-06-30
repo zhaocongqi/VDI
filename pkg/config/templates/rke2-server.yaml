@@ -3,11 +3,16 @@ server: {{ .ServerURL }}
 {{- end }}
 token: {{ printf "%q" .Token }}
 tls-san:
+{{- if .Install.Vip }}
   - {{ .Install.Vip }}
+{{- end }}
 {{- if .SANS }}
 {{- range .SANS }}
   - {{ . }}
 {{- end }}
+{{- end }}
+{{- if not (or .Install.Vip .SANS) }}
+  - 127.0.0.1
 {{- end }}
 cluster-cidr: {{ printf "%q" .Install.ClusterPodCIDR }}
 service-cidr: {{ printf "%q" .Install.ClusterServiceCIDR }}

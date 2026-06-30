@@ -2676,8 +2676,10 @@ func addInstallPanel(c *Console) error {
 			}
 
 			if alreadyInstalled {
+				dbgSerial("PreShow: 走 configureInstalledNode（已安装）")
 				err = configureInstalledNode(c.Gui, c.config, webhooks)
 			} else {
+				dbgSerial("PreShow: 走 doInstall（kickstart 首次安装）")
 				err = doInstall(c.Gui, c.config, webhooks)
 			}
 			if err != nil {

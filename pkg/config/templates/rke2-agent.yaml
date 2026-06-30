@@ -1,4 +1,6 @@
+{{- if .ServerURL }}
 server: {{ .ServerURL }}
+{{- end }}
 token: {{ printf "%q" .Token }}
 kubelet-arg:
 {{- with $args := .GetKubeletArgs }}

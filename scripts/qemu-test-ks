@@ -222,8 +222,13 @@ while :; do
         break
     fi
     # 关键词判断
-    if strip_ansi "$SERIAL_LOG" | grep -qiE "Installation (finished|complete)|Performing post-installation setup|login:|clear"; then
-        info "检测到装机完成或系统就绪标志（${ELAPSED}s）"
+    # 装机完成标志（按可靠度排序）：
+    # - ">>> [vdi] enable" / "%post chroot END" = 我们的 %post 探针跑完（装机即将 reboot）
+    # - "Show Plymouth Reboot Screen" / "reboot: Restarting system" = 装机完触发 reboot
+    #   （qemu 下 reboot --eject 不弹虚拟 CD，若不及时 kill 会从 ISO 二次引导装机）
+    # - "Installation finished" / "Performing post-installation setup" = anaconda 官方收尾
+    if strip_ansi "$SERIAL_LOG" | grep -qiE ">>> \[vdi\] %post chroot END|>>> \[vdi\] enable.*完成|Show Plymouth Reboot Screen|reboot: Restarting system|Installation (finished|complete)|Performing post-installation setup|login:"; then
+        info "检测到装机完成标志（${ELAPSED}s）"
         INSTALL_DONE=1
         break
     fi
@@ -254,6 +259,8 @@ qemu_stop
 # 阶段 2: 从硬盘引导进系统
 # ============================================================
 info "=== 阶段2: 从硬盘引导进系统 ==="
+# 保留装机阶段串口日志（含 %pre/%post 探针），阶段2 清空前先备份供诊断
+cp -f "$SERIAL_LOG" "${SERIAL_LOG}.install" 2>/dev/null || true
 : > "$SERIAL_LOG"
 qemu-system-x86_64 \
     -machine q35 \
