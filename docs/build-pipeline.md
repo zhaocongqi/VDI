@@ -1,5 +1,7 @@
 # VDI 构建流程
 
+> ⚠️ **状态说明（2026-06-30）**：本文档描述的是 `main` 分支基于 SUSE elemental 的 Live ISO 构建链。`feat/kickstart-xorriso` 分支已弃 elemental，改用 **kickstart + xorriso** 构建"安装型"ISO（复用 BCLinux DVD 自带 anaconda stage2），构建脚本为 `scripts/package-vdi-iso`。kickstart 链路的现状以 [`CLAUDE.md`](../CLAUDE.md) 和 [迁移计划](superpowers/plans/2026-06-29-kickstart-xorriso.md) 为准。本文档待重写。
+
 VDI 离线安装器从源码到可引导 ISO 的完整构建链路。面向接手构建/运维的同事。
 
 ## 总览

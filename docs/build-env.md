@@ -1,5 +1,7 @@
 # VDI 构建环境前置条件
 
+> ⚠️ **状态说明（2026-06-30）**：本文档描述的是 `main` 分支 elemental Live ISO 的构建环境（含 elemental/wharfie/yip 二进制依赖）。`feat/kickstart-xorriso` 分支已改用 kickstart + xorriso，**不再需要 elemental/wharfie/yip**，外部输入仅剩 BCLinux ISO。kickstart 链路现状以 [`CLAUDE.md`](../CLAUDE.md) 为准。本文档待重写。
+
 新环境从零构建 VDI Live ISO 的前置条件清单。满足后 `make default` 一条命令跑通。
 
 ## 一、必须提供

@@ -15,7 +15,7 @@ func TestLoadVDIConfig(t *testing.T) {
 		err      error
 	}{
 		{
-			input: util.LoadFixture(t, "harvester-config.yaml"),
+			input: util.LoadFixture(t, "vdi-config.yaml"),
 			expected: &VDIConfig{
 				SchemeVersion: SchemeVersion,
 				ServerURL:     "https://someserver:6443",

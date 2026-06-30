@@ -72,7 +72,7 @@ func defaultQemuConfig() *config.VDIConfig {
 	cfg.OS.Password = "vdi123"
 	cfg.Token = "vdi123"
 	cfg.Install.Vip = "10.0.2.100"
-	// 集群网络默认值（对齐 cos.go setConfigDefaultValues，避免 rke2 config 空值）
+	// 集群网络默认值（对齐 rke2.go setConfigDefaultValues，避免 rke2 config 空值）
 	cfg.Install.ClusterPodCIDR = "10.52.0.0/16"
 	cfg.Install.ClusterServiceCIDR = "10.53.0.0/16"
 	cfg.Install.ClusterDNS = "10.53.0.10"

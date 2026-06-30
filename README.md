@@ -13,7 +13,7 @@
 | 虚拟化 | KubeVirt |
 | AI Agent | kagent |
 | 安装器 | Go + gocui |
-| ISO 构建 | dracut dmsquash-live + elemental build-iso |
+| ISO 构建 | kickstart + xorriso（BCLinux DVD + anaconda） |
 | 基础 OS | BCLinux 21.10 U5 |
 
 ## 快速开始
@@ -33,8 +33,8 @@ make default
 
 # 或分步执行
 make build              # 编译 Go 安装器
-make build-bundle       # 下载离线资源
-make package-vdi-os     # 构建 OS 镜像 + ISO
+make build-bundle       # 下载离线资源（RKE2 二进制/镜像/charts）
+make package-vdi-iso    # 构建安装型 ISO（BCLinux DVD + kickstart + xorriso）
 ```
 
 在执行 `make build-bundle` 时，支持使用 `LOCAL_PKG_DIR` 环境变量配置本地离线包的检索路径（例如 `export LOCAL_PKG_DIR=/opt/vdi-pkgs`）。若本地目录存在与所下载的目标或 URL 文件名一致的文件，将优先进行本地拷贝；否则执行纯净的无代理 `curl` 正常下载。若未设置此环境变量，默认会尝试从项目根目录下的 `cache/downloads` 目录进行检索拷贝。
@@ -54,11 +54,10 @@ qemu-system-x86_64 -m 4096 -smp 2 \
 
 ## 安装流程
 
-1. **TUI 配置收集** — 选择安装模式（首节点/管理节点/工作节点），配置网络、磁盘、VIP
-2. **配置生成** — 生成 RKE2 config.yaml + HelmChart manifests
-3. **OS 安装** — elemental install 将 OS 写入目标磁盘
-4. **镜像预加载** — 将离线镜像导入目标 OS 的 containerd
-5. **首次启动** — RKE2 server/agent 启动，HelmChart 控制器自动部署组件
+1. **ISO 引导** — BCLinux DVD ISO 引导，`inst.ks` 加载 kickstart 模板
+2. **`%pre` 配置收集** — ks `%pre` 调 vdi-installer：交互模式弹 gocui TUI（模式/网络/磁盘/VIP/密码/role）；自动模式用预置配置。渲染 ks 写 `/tmp/ks-include.cfg`
+3. **anaconda 装机** — `%include` 展开：LVM 分区 + 装包 + `%post` 解压 RKE2、写 config/manifests、enable rke2-server/agent
+4. **首次启动** — RKE2 首启自动导入离线镜像，HelmChart 控制器部署 KubeVirt/Longhorn/Kube-OVN/kagent
 
 ## 目录结构
 
@@ -77,8 +76,8 @@ VDI/
 ├── scripts/             # 构建脚本
 │   ├── version-*        # 组件版本
 │   ├── build            # 编译 Go 安装器
-│   ├── build-bundle     # 下载离线资源
-│   ├── package-vdi-os   # 构建 OS 镜像 + ISO
+│   ├── build-bundle     # 下载离线资源（RKE2 二进制/镜像/charts）
+│   ├── package-vdi-iso  # xorriso 重建 BCLinux DVD ISO（注入 ks + bundle）
 │   └── package-vdi-repo # 构建 Helm Chart 仓库镜像
 ├── package/             # Docker 镜像定义
 │   ├── vdi-os/          # BCLinux 21.10 U5 + VDI 安装器文件

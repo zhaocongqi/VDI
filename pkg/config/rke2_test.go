@@ -11,8 +11,7 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	//config.NMConnectionPath, err := os.MkdirTemp("/tmp", "cos-test-")
-	dir, err := os.MkdirTemp("", "cos-test-")
+	dir, err := os.MkdirTemp("", "rke2-test-")
 	if err != nil {
 		log.Fatalf("error: %v", err)
 	}
@@ -27,7 +26,7 @@ func TestMain(m *testing.M) {
 
 
 func TestGenBootstrapResources(t *testing.T) {
-	conf, err := LoadVDIConfig(util.LoadFixture(t, "harvester-config.yaml"))
+	conf, err := LoadVDIConfig(util.LoadFixture(t, "vdi-config.yaml"))
 	assert.NoError(t, err)
 	bootstrapResources, err := genBootstrapResources(conf)
 	assert.NoError(t, err)

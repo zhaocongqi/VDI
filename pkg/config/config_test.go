@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestHarvesterConfig_sanitized(t *testing.T) {
+func TestVDIConfig_sanitized(t *testing.T) {
 	c := NewVDIConfig()
 	c.OS.Password = `#3tQ66t!`
 	c.Token = `3mO3&nEJ`
@@ -20,7 +20,7 @@ func TestHarvesterConfig_sanitized(t *testing.T) {
 	assert.Equal(t, expected, s)
 }
 
-func TestHarvesterConfig_GetKubeletLabelsArg(t *testing.T) {
+func TestVDIConfig_GetKubeletLabelsArg(t *testing.T) {
 
 	testCases := []struct {
 		name      string
@@ -163,7 +163,7 @@ func TestNetworkRendering_MTU(t *testing.T) {
 	}
 }
 
-func TestHarvesterConfigMerge_OtherField(t *testing.T) {
+func TestVDIConfigMerge_OtherField(t *testing.T) {
 	conf := NewVDIConfig()
 	conf.OS.Hostname = "hellofoo"
 	conf.OS.Labels = map[string]string{"foo": "bar"}
