@@ -116,7 +116,21 @@ INITRD="${KERNEL_EXTRACT_DIR}/initrd.img"
 [ -s "$VMLINUZ" ] && [ -s "$INITRD" ] || { error "vmlinuz/initrd 解出后为空"; exit 1; }
 
 # -append 显式带 vdi.install.automatic=true 触发无人值守；inst.stage2/inst.ks 仍按 LABEL 寻址（-cdrom 提供）
-APPEND="inst.stage2=hd:LABEL=BCLinux.x86_64 inst.ks=hd:LABEL=BCLinux.x86_64:/ks.cfg console=ttyS0,115200 console=tty1 quiet fpi_to_tail=off vdi.install.automatic=true"
+# INTERACTIVE=1 时不注入 automatic，走 ks.cfg 交互 TUI 分支（tmux 内跑），验证产线默认路径。
+# 交互模式需 monitor socket 供 sendkey/screendump 验证键盘响应（当前用 socat）。
+APPEND="inst.stage2=hd:LABEL=BCLinux.x86_64 inst.ks=hd:LABEL=BCLinux.x86_64:/ks.cfg console=ttyS0,115200 console=tty1 quiet fpi_to_tail=off inst.text"
+if [ "${INTERACTIVE:-0}" != "1" ]; then
+    APPEND="${APPEND} vdi.install.automatic=true"
+fi
+info "APPEND=${APPEND}"
+
+# 交互模式启用 monitor socket（供 sendkey/screendump），自动模式无需
+MON_ARG=""
+if [ "${INTERACTIVE:-0}" = "1" ]; then
+    MON_SOCK="/tmp/qemu-ks-mon"
+    rm -f "$MON_SOCK"
+    MON_ARG="-monitor unix:${MON_SOCK},server,nowait"
+fi
 
 qemu-system-x86_64 \
     -machine q35 \
@@ -133,6 +147,7 @@ qemu-system-x86_64 \
     -netdev user,id=net0,hostfwd=tcp::$SSH_PORT-:22 \
     -device virtio-net-pci,netdev=net0 \
     -serial file:"$SERIAL_LOG" \
+    $MON_ARG \
     -display none \
     -daemonize \
     -pidfile "$QEMU_PID_FILE" \
@@ -152,6 +167,39 @@ strip_ansi() { sed 's/\x1b\[[0-9;]*[a-zA-Z]//g; s/\x1b\[=?[0-9]*[a-z]//g' "$1"; 
 INSTALL_DONE=0
 INSTALL_FAIL=0
 START=$(date +%s)
+
+# 交互模式：引导后 TUI 在 tmux 跑，等用户输入，不会自动装机。
+# 检测到 TUI 启动（串口 >>> [pre] 在 tmux 或 请按 Ctrl+Alt+F1）即视为引导成功，
+# 保持 qemu 运行 + 输出 monitor socket 供 sendkey/screendump 诊断，不阻塞等装机完成。
+if [ "${INTERACTIVE:-0}" = "1" ]; then
+    info "交互模式：等待 TUI 启动（超时 ${BOOT_TIMEOUT}s）..."
+    while :; do
+        NOW=$(date +%s); ELAPSED=$((NOW - START))
+        if [ $ELAPSED -ge $BOOT_TIMEOUT ]; then
+            error "TUI 启动超时（${BOOT_TIMEOUT}s）"
+            strip_ansi "$SERIAL_LOG" | tail -30
+            exit 1
+        fi
+        if strip_ansi "$SERIAL_LOG" | grep -qaE "在 tmux 会话|请按 Ctrl\+Alt\+F1"; then
+            info "TUI 已在 tmux 启动（${ELAPSED}s），monitor=${MON_SOCK}"
+            info "诊断：echo 'sendkey ret' | socat - UNIX-CONNECT:${MON_SOCK}"
+            info "截图：echo 'screendump /tmp/x.ppm' | socat - UNIX-CONNECT:${MON_SOCK}"
+            info "保持 qemu 运行（PID $(cat $QEMU_PID_FILE)），手动 Ctrl+C 退出本脚本"
+            info "=== 死循环验证：串口无 55 次 ks-script 重跑即通过 ==="
+            # 不退出，保持运行供诊断；打印串口尾部
+            sleep 5
+            strip_ansi "$SERIAL_LOG" | tail -15
+            exit 0
+        fi
+        if ! kill -0 "$(cat $QEMU_PID_FILE 2>/dev/null)" 2>/dev/null; then
+            error "qemu 提前退出，检查串口"
+            strip_ansi "$SERIAL_LOG" | tail -30
+            exit 1
+        fi
+        sleep 5
+    done
+fi
+
 while :; do
     NOW=$(date +%s)
     ELAPSED=$((NOW - START))

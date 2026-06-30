@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"syscall"
 
 	"github.com/jroimartin/gocui"
 	"github.com/sirupsen/logrus"
@@ -50,8 +51,49 @@ type Console struct {
 	config   *config.VDIConfig
 }
 
+// dbgSerial 把诊断写到串口 /dev/ttyS0（失败静默，且不污染 TUI 所在 tty），
+// 供 anaconda %pre / 真机串口诊断 TUI 启动与 grabTTY 结果。
+func dbgSerial(format string, args ...interface{}) {
+	f, err := os.OpenFile("/dev/ttyS0", os.O_WRONLY|os.O_APPEND, 0)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	fmt.Fprintf(f, ">>> [vdi] "+format+"\n", args...)
+}
+
+// grabTTY 新建会话并把 tty 强制设为控制终端，使当前进程成为该 tty 的前台会话 leader。
+// anaconda %pre 环境下，tty2 上的 anaconda 调试 shell 会抢占键盘输入，导致 vdi-installer
+// 的 TUI 虽渲染但收不到按键（TUI 与 shell 叠加、按键进 shell）。此处抢夺控制终端独占键盘。
+// ramdisk 无 setsid 命令，故用 syscall 实现（root 的 CAP_SYS_ADMIN 允许 TIOCSCTTY 强制抢占）。
+func grabTTY(tty string) error {
+	if _, _, errno := syscall.RawSyscall(syscall.SYS_SETSID, 0, 0, 0); errno != 0 {
+		return fmt.Errorf("setsid: %v", errno)
+	}
+	f, err := os.OpenFile(tty, os.O_RDWR, 0)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	const tiocsctty = 0x540E // Linux TIOCSCTTY
+	if _, _, errno := syscall.Syscall(syscall.SYS_IOCTL, f.Fd(), tiocsctty, 1); errno != 0 {
+		return fmt.Errorf("TIOCSCTTY: %v", errno)
+	}
+	return nil
+}
+
 // RunConsole starts the console
 func RunConsole() error {
+	// 抢 TTY 前台独占键盘（非 tmux 环境下，anaconda 调试 shell 会抢 tty 输入）。
+	// 在 anaconda tmux window 内运行时跳过：tmux pane 的 pty 已是单 reader，
+	// setsid+TIOCSCTTY 反而会干扰 tmux 的 pty 归属。失败仅告警不中断。
+	if tty := os.Getenv("TTY"); tty != "" && os.Getenv("TMUX") == "" {
+		if err := grabTTY(tty); err != nil {
+			dbgSerial("grabTTY(%s) 失败: %v（键盘可能仍被 shell 抢）", tty, err)
+		} else {
+			dbgSerial("grabTTY OK: 已抢 %s 前台独占键盘", tty)
+		}
+	}
 	c, err := NewConsole()
 	if err != nil {
 		return err
@@ -198,9 +240,12 @@ func (c *Console) doRun() error {
 		return err
 	}
 
+	dbgSerial("doRun: 进 MainLoop（TUI 应渲染）")
 	if err := c.MainLoop(); err != nil && err != gocui.ErrQuit {
+		dbgSerial("MainLoop err: %v", err)
 		return err
 	}
+	dbgSerial("doRun: MainLoop 退出（用户完成配置）")
 	return nil
 }
 
