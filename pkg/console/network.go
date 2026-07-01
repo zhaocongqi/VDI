@@ -3,6 +3,7 @@ package console
 import (
 	"fmt"
 	"net"
+	"os"
 	"os/exec"
 	"strings"
 	"syscall"
@@ -34,7 +35,25 @@ func checkDefaultRoute() (bool, error) {
 	return defaultRouteExists, nil
 }
 
+// isKickstartPre 检测当前是否在 kickstart %pre ramdisk 环境（/proc/cmdline 含 inst.ks=）。
+// ramdisk 下 hostnamectl/NetworkManager 等系统工具易卡（D-Bus/服务未全起），且配置不持久
+// （anaconda 用 ks network 指令配目标系统），故 kickstart 链路应跳过 ramdisk 网络配置。
+func isKickstartPre() bool {
+	data, err := os.ReadFile("/proc/cmdline")
+	if err != nil {
+		return false
+	}
+	return strings.Contains(string(data), "inst.ks=")
+}
+
 func applyNetworks(network config.Network, hostname string) error {
+	// kickstart %pre ramdisk 下 hostnamectl/NetworkManager 易卡（实测交互模式 PreShow 卡死，
+	// doInstall 永不执行 → ks-include 不生成 → anaconda 无装机指令 → 盘空）。ramdisk 配置不持久，
+	// anaconda 用 ks network 指令配目标系统，故跳过。
+	if isKickstartPre() {
+		logrus.Info("applyNetworks: kickstart %pre ramdisk, skip (anaconda 接管网络配置)")
+		return nil
+	}
 	if err := config.RestoreOriginalNetworkConfig(); err != nil {
 		return err
 	}

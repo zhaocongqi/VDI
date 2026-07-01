@@ -54,7 +54,7 @@ type Console struct {
 // dbgSerial 把诊断写到串口 /dev/ttyS0（失败静默，且不污染 TUI 所在 tty），
 // 供 anaconda %pre / 真机串口诊断 TUI 启动与 grabTTY 结果。
 func dbgSerial(format string, args ...interface{}) {
-	f, err := os.OpenFile("/dev/ttyS0", os.O_WRONLY|os.O_APPEND, 0)
+	f, err := os.OpenFile("/dev/ttyS0", os.O_WRONLY|os.O_APPEND|os.O_SYNC, 0)
 	if err != nil {
 		return
 	}
@@ -240,7 +240,8 @@ func (c *Console) doRun() error {
 		return err
 	}
 
-	dbgSerial("doRun: 进 MainLoop（TUI 应渲染）")
+	cmdlineBytes, _ := os.ReadFile("/proc/cmdline")
+	dbgSerial("doRun: 进 MainLoop isKickstartPre=%v cmdline=%.300s", isKickstartPre(), string(cmdlineBytes))
 	if err := c.MainLoop(); err != nil && err != gocui.ErrQuit {
 		dbgSerial("MainLoop err: %v", err)
 		return err

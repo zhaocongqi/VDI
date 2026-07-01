@@ -247,7 +247,9 @@ func showDiskPage(c *Console) error {
 		return showNext(c, diskFatalPanel)
 	}
 
-	showPersistentSizeOption := len(diskOptions) == 1 || c.config.Install.DataDisk == c.config.Install.Device
+	// Persistent size 是 elemental cos persistent 分区概念，kickstart 链路用 autopart LVM
+	// 无此分区（%post 也不创建），且其默认 50Gi < cos 要求的 250Gi 会卡住交互。kickstart 链路跳过。
+	showPersistentSizeOption := !isKickstartPre() && (len(diskOptions) == 1 || c.config.Install.DataDisk == c.config.Install.Device)
 
 	nextComponents := []string{diskPanel}
 	if len(diskOptions) > 1 {
@@ -476,10 +478,14 @@ func addDiskPanel(c *Console) error {
 			return err
 		}
 
-		// Make sure the persistent partition size is in the correct size.
-		// Do NOT allow proceeding to next field.
-		if valid, err := validatePersistentPartitionSize(c.config.Install.PersistentPartitionSize); !valid || err != nil {
-			return err
+		// Persistent size 是 elemental cos persistent 分区概念，kickstart 链路用 autopart LVM
+		// 无此分区（%post 也不创建），跳过其验证（否则空/默认值会触发 "Minimum 250Gi required" 卡死）。
+		if !isKickstartPre() {
+			// Make sure the persistent partition size is in the correct size.
+			// Do NOT allow proceeding to next field.
+			if valid, err := validatePersistentPartitionSize(c.config.Install.PersistentPartitionSize); !valid || err != nil {
+				return err
+			}
 		}
 
 		if !diskConfirmed {
@@ -492,6 +498,18 @@ func addDiskPanel(c *Console) error {
 			return showNext(c, confirmInstallPanel)
 		}
 		return showNetworkPage(c)
+	}
+
+	// showPersistentOrSkip：kickstart 链路跳过 persistentSizePanel（elemental 遗留），
+	// 直接进 afterPersistent（若有，如 dataDiskPanel）或 gotoNextPage（到 network 页）。
+	showPersistentOrSkip := func(g *gocui.Gui, v *gocui.View, afterPersistent ...string) error {
+		if isKickstartPre() {
+			if len(afterPersistent) > 0 {
+				return showNext(c, afterPersistent...)
+			}
+			return gotoNextPage(g, v)
+		}
+		return showNext(c, append([]string{persistentSizePanel}, afterPersistent...)...)
 	}
 
 	// isWipeDisksPanelNeeded is a helper function to render the wipeDisksPanel if needed
@@ -533,7 +551,7 @@ func addDiskPanel(c *Console) error {
 				return err
 			}
 			if device == dataDisk {
-				return showNext(c, persistentSizePanel, dataDiskPanel)
+				return showPersistentOrSkip(g, v, dataDiskPanel)
 			}
 			c.CloseElements(persistentSizePanel)
 			return showNext(c, dataDiskPanel)
@@ -547,7 +565,7 @@ func addDiskPanel(c *Console) error {
 		if err != nil {
 			return err
 		}
-		return showNext(c, persistentSizePanel)
+		return showPersistentOrSkip(g, v)
 	}
 
 	// Keybindings
@@ -583,7 +601,7 @@ func addDiskPanel(c *Console) error {
 			if _, err := validateAllDiskSizes(); err != nil {
 				return err
 			}
-			return showNext(c, persistentSizePanel)
+			return showPersistentOrSkip(g, v)
 		}
 
 		c.CloseElements(persistentSizePanel)
@@ -2578,10 +2596,14 @@ func addInstallPanel(c *Console) error {
 				}
 			}
 
+			dbgSerial("PreShow: 网络步骤前 Automatic=%v Method=%s VipMode=%s alreadyInstalled=%v installModeOnly=%v",
+				c.config.Install.Automatic, c.config.Install.ManagementInterface.Method,
+				c.config.Install.VipMode, alreadyInstalled, installModeOnly)
 			if c.config.Install.Automatic && c.config.Install.ManagementInterface.Method == config.NetworkMethodDHCP {
 				// Only need to do this for automatic installs, as manual installs will
 				// have already run applyNetworks()
 				printToPanel(c.Gui, "Configuring network...", installPanel)
+				dbgSerial("PreShow: applyNetworks 开始")
 				if err := applyNetworks(c.config.Install.ManagementInterface, c.config.OS.Hostname); err != nil {
 					printToPanel(c.Gui, fmt.Sprintf("Can't apply networks: %s", err), installPanel)
 					return
@@ -2601,6 +2623,7 @@ func addInstallPanel(c *Console) error {
 			// If no hostname was provided in the config, this function will
 			// default the hostname to either what's supplied by the DHCP sever,
 			// or a randomly generated name.
+			dbgSerial("PreShow: checkDHCPHostname 前")
 			checkDHCPHostname(c.config, true)
 
 			if c.config.Install.TTY == "" {
@@ -2618,6 +2641,7 @@ func addInstallPanel(c *Console) error {
 			if !alreadyInstalled {
 				// Have to handle preflight warnings here because we can't check
 				// the NIC speed until we've got the correct set of interfaces.
+				dbgSerial("PreShow: doNetworkSpeedCheck 前")
 				preflightWarnings = append(preflightWarnings, c.doNetworkSpeedCheck(c.config.Install.ManagementInterface.Interfaces)...)
 				if len(preflightWarnings) > 0 {
 					if c.config.Install.SkipChecks || preflightAck {
@@ -2641,6 +2665,7 @@ func addInstallPanel(c *Console) error {
 				}
 			}
 
+			dbgSerial("PreShow: checkDefaultRoute 前")
 			isDefaultRouteExist, err := checkDefaultRoute()
 			if err != nil {
 				logrus.Error(err)

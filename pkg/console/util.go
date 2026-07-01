@@ -506,6 +506,15 @@ func doInstall(g *gocui.Gui, hvstConfig *config.VDIConfig, webhooks RendererWebh
 		return err
 	}
 
+	// 诊断：打印交互模式 cfg 的 disk 配置 + 渲染 ks 的 disk 段（定位 anaconda 不写盘根因）
+	dbgSerial("doInstall: cfg Device=%s DataDisk=%s Role=%s Mode=%s",
+		hvstConfig.Install.Device, hvstConfig.Install.DataDisk, hvstConfig.Install.Role, hvstConfig.Install.Mode)
+	for _, line := range strings.Split(ks, "\n") {
+		if strings.HasPrefix(line, "ignoredisk") || strings.HasPrefix(line, "clearpart") || strings.HasPrefix(line, "autopart") || strings.HasPrefix(line, "bootloader") || strings.HasPrefix(line, "part ") || strings.HasPrefix(line, "reboot") {
+			dbgSerial("doInstall ks disk: %s", line)
+		}
+	}
+
 	// 将其写入 /tmp/ks-include.cfg
 	ksPath := "/tmp/ks-include.cfg"
 	if err := os.WriteFile(ksPath, []byte(ks), 0644); err != nil {
@@ -516,6 +525,8 @@ func doInstall(g *gocui.Gui, hvstConfig *config.VDIConfig, webhooks RendererWebh
 	}
 	logrus.Infof("doInstall: Kickstart rendered to %s", ksPath)
 	dbgSerial("doInstall: ks written to %s，准备退出 MainLoop", ksPath)
+	// 强制把 ks-include 完整内容写到串口（O_SYNC flush），诊断 %include 展开/anaconda 装机
+	dbgSerial("=== ks-include 内容开始 ===\n%s\n=== ks-include 内容结束 ===", ks)
 
 	printToPanel(g, fmt.Sprintf("配置已成功保存到 %s", ksPath), installPanel)
 	printToPanel(g, "即将退出配置程序，系统安装将由 Anaconda 接管...", installPanel)
