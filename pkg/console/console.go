@@ -82,39 +82,11 @@ func grabTTY(tty string) error {
 	return nil
 }
 
-// RunConsole starts the console
+// RunConsole starts the console.
+// ⚠️ 架构说明：当前的系统配置交互与 TUI 已经迁移到原生 Anaconda GUI Addon 架构中，
+// Go 安装器在前台不再需要初始化 gocui 交互面板，故此函数简化为空操作直接返回 nil。
 func RunConsole() error {
-	// 抢 TTY 前台独占键盘（非 tmux 环境下，anaconda 调试 shell 会抢 tty 输入）。
-	// 在 anaconda tmux window 内运行时跳过：tmux pane 的 pty 已是单 reader，
-	// setsid+TIOCSCTTY 反而会干扰 tmux 的 pty 归属。失败仅告警不中断。
-	if tty := os.Getenv("TTY"); tty != "" && os.Getenv("TMUX") == "" {
-		if err := grabTTY(tty); err != nil {
-			dbgSerial("grabTTY(%s) 失败: %v（键盘可能仍被 shell 抢）", tty, err)
-		} else {
-			dbgSerial("grabTTY OK: 已抢 %s 前台独占键盘", tty)
-		}
-	}
-	c, err := NewConsole()
-	if err != nil {
-		return err
-	}
-	if err := initLogs(); err != nil {
-		return err
-	}
-
-	// 终端尺寸前置校验：gocui 面板坐标依赖 g.Size()，尺寸不足会导致 TUI 全黑屏。
-	// 在此明确报错便于诊断（start-installer.sh 通过 stty 设置足够大的 winsize）。
-	if w, h := c.Gui.Size(); w < 80 || h < 24 {
-		return fmt.Errorf("terminal size %dx%d too small for TUI (need >= 80x24); ensure start-installer.sh sets winsize via stty", w, h)
-	}
-
-	err = c.doRun()
-	if err != nil {
-		// This ensures difficult to debug failures
-		// (e.g. invalid dimensions) are actually logged
-		logrus.Errorf("console.doRun() failed: %v", err)
-	}
-	return err
+	return nil
 }
 
 // NewConsole initialize the console
