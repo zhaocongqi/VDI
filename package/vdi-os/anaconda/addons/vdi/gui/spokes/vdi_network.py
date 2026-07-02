@@ -28,8 +28,23 @@ class WindowWrapper(object):
         return getattr(self._widget, name)
 
     def set_beta(self, beta):
-        # 屏蔽 Hub 调用
+        # 屏蔽 Hub 水印设置
         pass
+
+    def set_property(self, name, value):
+        # 拦截 GtkBox 不支持的 Anaconda 专有属性，避免 GTK 抛出 TypeError
+        if name in ("distribution", "window-name", "window_name"):
+            return
+        if hasattr(self._widget, "set_property"):
+            self._widget.set_property(name, value)
+
+    def get_property(self, name):
+        # 提供默认的安全属性回包
+        if name in ("distribution", "window-name", "window_name"):
+            return ""
+        if hasattr(self._widget, "get_property"):
+            return self._widget.get_property(name)
+        return None
 
     def connect_after(self, signal, callback):
         # 屏蔽 NormalSpoke 的帮助信号绑定
