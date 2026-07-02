@@ -103,7 +103,7 @@ kickstart 链路下 TUI 在 anaconda `%pre` 阶段跑（`ks.cfg` 交互分支 `e
 - **RKE2 离线**：`rke2.linux-amd64.tar.gz` 解压 `$SYSROOT/usr/local`（二进制内嵌 containerd，删 wharfie）；镜像 `*.tar.zst` 放 `agent/images/`，RKE2 首启自动导入（删 chroot ctr import）。`%post --nochroot` 从 `/run/install/repo/bundle/vdi` 复制 bundle 到 `$SYSROOT`，再 `$SYSROOT` 前缀写 `config.yaml`/manifests + `ln -sf` enable `rke2-server`/`rke2-agent`。sshd drop-in 加 `UseDNS no`/`GSSAPIAuthentication no`（否则 qemu user 网 reverse DNS 致 SSH banner 超时）。
 - **内存**：kickstart 装机无 squashfs/active.img，4G 够 (elemental 时代需 ≥16G)。
 - **Anaconda 33+ Addon 兼容性与 GtkBox 限制（致命红线）**：系统在 SummaryHub 渲染和 Spoke 进入阶段，会强制调用 `spoke.window.set_beta`、`set_property("distribution")` 并绑定 `help-button-clicked` 信号。若使用常规 `GtkBox` 作 Spoke 顶层窗口会触发 C 语言层和 GTK 底层崩溃。必须通过继承 `Gtk.Box` 的 `WindowWrapper` 并在 Python 层对属性和信号进行静默代理（通过 `GUIObject.window.fget(self)` 显式读取父类懒加载 Widget 并 pack_start 作为子树），同时在 D-Bus 私有总线上发布服务。
-- **`install.img` 嵌套 ext4 注入**：BCLinux 的 `install.img` 包含嵌套 ext4 分区，必须通过 loop 挂载 `LiveOS/rootfs.img` 内部目录，才能成功注入 Python 插件和 D-Bus 激活配置文件，直接在外层写入将失效。
+- **`install.img` 嵌套 ext4 注入与原生界面隐藏**：BCLinux 的 `install.img` 包含嵌套 ext4 分区，必须通过 loop 挂载 `LiveOS/rootfs.img` 内部，才能成功注入插件和 D-Bus 配置。同时，必须通过改写 `etc/anaconda/profile.d/bclinux.conf` 在 `[User Interface]` 段下追加 `hidden_spokes = NetworkSpoke`（或其它 spoke 类名）来屏蔽原生的“网络与主机名”等配置项，防止与 VDI 插件冲突。
 
 ## 关键配置
 
