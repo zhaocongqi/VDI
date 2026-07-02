@@ -94,6 +94,15 @@ cp "${VDI_DBUS_DIR}/org.fedoraproject.Anaconda.Addons.Vdi.conf" \
    "${MINI_ANACONDA_MNT}/usr/share/anaconda/dbus/confs/"
 echo "  DBus 服务文件已注入"
 
+# 声明式隐藏 Anaconda 自带的原生“网络与主机名 (NetworkSpoke)”页面，避免与 VDI 网络插件冲突
+MINI_PROFILE_CONF="${MINI_ANACONDA_MNT}/etc/anaconda/profile.d/bclinux.conf"
+if [ -f "${MINI_PROFILE_CONF}" ]; then
+    echo "  改写 bclinux.conf，隐藏原生网络配置界面 (NetworkSpoke)"
+    sed -i '/\[User Interface\]/a hidden_spokes = NetworkSpoke' "${MINI_PROFILE_CONF}"
+else
+    echo "WARN: 未找到 profile 配置文件 ${MINI_PROFILE_CONF}，原生网络界面可能无法隐藏" >&2
+fi
+
 # 同步文件系统并卸载
 sync
 umount "${MINI_ANACONDA_MNT}"
