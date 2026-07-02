@@ -78,6 +78,15 @@ BCLinux 的 `install.img` 为嵌套架构：SquashFS (install.img) ➜ LiveOS/ro
 1. 引导参数追加 `inst.sshd` 允许装机期 SSH 直连虚机。
 2. 开发了 `scripts/hot-reload-addon` 脚本，通过 `tar | ssh` 管道将本地修改的代码瞬间覆盖到虚机的 `/usr/share/anaconda/addons/`，并执行 `systemctl restart anaconda`，仅需 2 秒即可看到图形界面的热载入。
 
+### 3.4 装机收尾期网络与 Bond 自动持久化机制
+在 Anaconda 完成分区并向物理硬盘解压安装完包后，主进程会自动触发加载 `vdi/__init__.py` 中 `VdiAddon` 插件的 `execute(storage, ksdata, instClass)` 生命周期。
+1. **D-Bus 配置获取**：通过 D-Bus 代理 `VDI.get_proxy()`，动态读取用户在 GUI 提交的 Mode（网络模式）、Interface（主网卡）、Interface2（备网卡）、BondMode（绑定算法）、Ip（管理IP）和 Vip（虚拟IP）。
+2. **连接 Keyfile 动态配置**：
+   - 若为单网卡（`single`），在目标系统 `$SYSROOT/etc/NetworkManager/system-connections/` 下生成单独的物理网卡 Keyfile；
+   - 若为网卡绑定（`bond`），在上述目录下自动生成三个具有关联关系的 Keyfile：主虚拟网卡连接 `bond0.nmconnection`、物理主卡连接、物理从属卡连接。各 Keyfile 使用 Python 生成的唯一 UUID 建立 master-slave 关联。
+3. **严格安全权限管理**：生成的所有 `.nmconnection` 文件的系统权限必须为 `0600`（即只有 Owner 可读写），否则重启后目标系统的 NetworkManager 守护进程会因文件安全性问题直接将该配置忽略。
+4. **VDI 参数状态下发**：将 VIP 及网卡拓扑绑定参数写入目标盘的 `/etc/vdi/network.conf` 中，保证系统在重启首次启动后，VDI 守护进程能顺畅消费网络并拉起 RKE2 及 K8s 组件。
+
 ## 4. 残留资产清理计划
 本分支已彻底清理了以下旧版交互残留：
 1. **ks.cfg 前台劫持注销**：彻底删去了其中的 tmux 劫持窗口逻辑、`grabTTY` 键盘强占逻辑、以及 `%pre` 内阻塞 anaconda 运行的死循环等待。
