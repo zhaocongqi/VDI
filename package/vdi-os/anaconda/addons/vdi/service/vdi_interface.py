@@ -1,5 +1,6 @@
 """VDI Addon DBus 接口定义（参考 com_redhat_kdump/service/kdump_interface.py）"""
 from dasbus.server.interface import dbus_interface
+from dasbus.server.property import emits_properties_changed
 from dasbus.typing import Str
 from pyanaconda.modules.common.base import KickstartModuleInterface
 
@@ -12,8 +13,8 @@ class VdiInterface(KickstartModuleInterface):
 
     def connect_signals(self):
         super().connect_signals()
-        self.implementation.ip_changed.connect(self.changed("Ip"))
-        self.implementation.vip_changed.connect(self.changed("Vip"))
+        self.watch_property("Ip", self.implementation.ip_changed)
+        self.watch_property("Vip", self.implementation.vip_changed)
 
     @property
     def Ip(self) -> Str:
@@ -21,6 +22,7 @@ class VdiInterface(KickstartModuleInterface):
         return self.implementation.ip
 
     @Ip.setter
+    @emits_properties_changed
     def Ip(self, value: Str):
         self.implementation.ip = value
 
@@ -30,5 +32,7 @@ class VdiInterface(KickstartModuleInterface):
         return self.implementation.vip
 
     @Vip.setter
+    @emits_properties_changed
     def Vip(self, value: Str):
         self.implementation.vip = value
+
