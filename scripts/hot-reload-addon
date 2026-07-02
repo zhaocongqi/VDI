@@ -18,20 +18,22 @@ echo "============================================"
 echo ">>> 1. 清理并同步 Python Addon 核心代码..."
 ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@${IP} "rm -rf /usr/share/anaconda/addons/vdi"
 
-scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -r \
-    "${TOP_DIR}/package/vdi-os/anaconda/addons/vdi" \
-    root@${IP}:/usr/share/anaconda/addons/
+# 使用 tar 管道传输，避开部分裁剪系统不支持 scp/sftp 协议的限制
+(cd "${TOP_DIR}/package/vdi-os/anaconda/addons" && tar -cf - vdi) | \
+    ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@${IP} "tar -xf - -C /usr/share/anaconda/addons/"
 
 # 2. 同步 DBus 服务与权限配置文件
 echo ">>> 2. 同步 DBus 注册配置文件..."
 VDI_DBUS_DIR="${TOP_DIR}/package/vdi-os/anaconda/addons/vdi/dbus"
-scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-    "${VDI_DBUS_DIR}/org.fedoraproject.Anaconda.Addons.Vdi.service" \
-    root@${IP}:/usr/share/anaconda/dbus/services/
 
-scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-    "${VDI_DBUS_DIR}/org.fedoraproject.Anaconda.Addons.Vdi.conf" \
-    root@${IP}:/usr/share/anaconda/dbus/confs/
+ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@${IP} \
+    "cat > /usr/share/anaconda/dbus/services/org.fedoraproject.Anaconda.Addons.Vdi.service" \
+    < "${VDI_DBUS_DIR}/org.fedoraproject.Anaconda.Addons.Vdi.service"
+
+ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@${IP} \
+    "cat > /usr/share/anaconda/dbus/confs/org.fedoraproject.Anaconda.Addons.Vdi.conf" \
+    < "${VDI_DBUS_DIR}/org.fedoraproject.Anaconda.Addons.Vdi.conf"
+
 
 # 3. 重启 Anaconda 以重新加载插件
 echo ">>> 3. 重启 Anaconda 安装器主程序 (秒级载入)..."
