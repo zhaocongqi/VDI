@@ -69,7 +69,9 @@ BCLinux 的 `install.img` 为嵌套架构：SquashFS (install.img) ➜ LiveOS/ro
 2. 挂载 ext4：`mount -o loop CACHE/install-rootfs/LiveOS/rootfs.img MNT_DIR`。
 3. 将 Python 源码包拷贝至 `MNT_DIR/usr/share/anaconda/addons/vdi`。
 4. 将 DBus 激活声明和配置分别拷贝至 `MNT_DIR/usr/share/anaconda/dbus/services/` 和 `MNT_DIR/usr/share/anaconda/dbus/confs/` 目录。
-5. 卸载并重新封装 SquashFS：`umount` ➜ `mksquashfs`。
+5. 声明式隐藏原生界面：在挂载期，通过 `sed` 修改 `MNT_DIR/etc/anaconda/profile.d/bclinux.conf` 在 `[User Interface]` 插入 `hidden_spokes = NetworkSpoke`（可空格分隔追加 `KeyboardSpoke` / `DatetimeSpoke` 等隐藏其它原生界面）以避免与自定义 Spoke 配置冲突。
+6. 卸载并重新封装 SquashFS：`umount` ➜ `mksquashfs`。
+
 
 ### 3.3 极速热重载开发调试
 为了解决装机环境下反复打包 3.4G ISO 验证导致的极低调试效率：
