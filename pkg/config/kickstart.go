@@ -18,7 +18,7 @@ func KickstartRender(cfg *VDIConfig) (string, error) {
 
 	// 静态头
 	b.WriteString("# VDI kickstart（由 pkg/config/kickstart.go 从 VDIConfig 渲染）\n")
-	b.WriteString("text\n")
+	b.WriteString("graphical\n")
 	b.WriteString("cdrom\n")
 	b.WriteString("keyboard --vckeymap=us --xlayouts='us'\n")
 	b.WriteString("lang zh_CN.UTF-8\n")
