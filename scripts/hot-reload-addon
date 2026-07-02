@@ -1,0 +1,41 @@
+#!/bin/bash
+# ============================================================
+# VDI Anaconda Addon 极速热重载脚本
+# ============================================================
+#
+# 目的：
+#   无需重新打包 3.4G 的 ISO 镜像，也无需重新传输、重启虚拟机。
+#   直接将本地修改后的 Python Addon 代码和 DBus 配置同步到运行中的虚拟机，
+#   并秒级重启 Anaconda，实现热重载更新。
+#
+# 使用方式：
+#   ./scripts/hot-reload-addon [虚拟机IP，默认 192.168.220.138]
+
+IP="${1:-192.168.220.138}"
+TOP_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )/.." &> /dev/null && pwd )"
+
+echo "============================================"
+echo ">>> 1. 清理并同步 Python Addon 核心代码..."
+ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@${IP} "rm -rf /usr/share/anaconda/addons/vdi"
+
+scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -r \
+    "${TOP_DIR}/package/vdi-os/anaconda/addons/vdi" \
+    root@${IP}:/usr/share/anaconda/addons/
+
+# 2. 同步 DBus 服务与权限配置文件
+echo ">>> 2. 同步 DBus 注册配置文件..."
+VDI_DBUS_DIR="${TOP_DIR}/package/vdi-os/anaconda/addons/vdi/dbus"
+scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+    "${VDI_DBUS_DIR}/org.fedoraproject.Anaconda.Addons.Vdi.service" \
+    root@${IP}:/usr/share/anaconda/dbus/services/
+
+scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+    "${VDI_DBUS_DIR}/org.fedoraproject.Anaconda.Addons.Vdi.conf" \
+    root@${IP}:/usr/share/anaconda/dbus/confs/
+
+# 3. 重启 Anaconda 以重新加载插件
+echo ">>> 3. 重启 Anaconda 安装器主程序 (秒级载入)..."
+ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@${IP} "systemctl restart anaconda"
+
+echo ">>> 热重载完毕！请在虚拟机中观察 GUI 界面是否成功更新。"
+echo "============================================"
