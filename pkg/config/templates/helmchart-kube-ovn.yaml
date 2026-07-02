@@ -10,3 +10,4 @@ spec:
   bootstrap: true
   valuesContent: |-
     FUNC_OPTS: "--enable-mirror=false"
+    MASTER_NODES_LABEL: "node-role.kubernetes.io/control-plane"

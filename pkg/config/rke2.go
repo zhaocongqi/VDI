@@ -336,7 +336,6 @@ func genBootstrapResources(config *VDIConfig) (map[string]string, error) {
 		"helmchart-kube-ovn.yaml",
 		"helmchart-longhorn.yaml",
 		"helmchart-kubevirt.yaml",
-		"helmchart-kagent.yaml",
 	}
 
 	for _, templateName := range templates {

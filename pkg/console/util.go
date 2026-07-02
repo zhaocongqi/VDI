@@ -635,6 +635,11 @@ func retryRemoteConfig(configURL string, g *gocui.Gui) (*config.VDIConfig, error
 }
 
 func validateDiskSize(devPath string, single bool) error {
+	// kickstart 链路用 autopart LVM，盘大小由 anaconda 分区阶段实际处理；
+	// elemental 时代的 250Gi 下限对 qemu 验证/小盘场景过严，kickstart 链路放行。
+	if isKickstartPre() {
+		return nil
+	}
 	diskSizeBytes, err := util.GetDiskSizeBytes(devPath)
 	if err != nil {
 		return err
@@ -652,6 +657,9 @@ func validateDiskSize(devPath string, single bool) error {
 }
 
 func validateDataDiskSize(devPath string) error {
+	if isKickstartPre() {
+		return nil
+	}
 	diskSizeBytes, err := util.GetDiskSizeBytes(devPath)
 	if err != nil {
 		return err

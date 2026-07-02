@@ -459,6 +459,11 @@ func addDiskPanel(c *Console) error {
 		return true, nil
 	}
 	validatePersistentPartitionSize := func(persistentSize string) (bool, error) {
+		// Persistent size 是 elemental cos persistent 分区概念，kickstart 链路用 autopart LVM
+		// 无此分区（%post 也不创建），其 250Gi 下限会卡住 qemu/小盘交互。kickstart 链路直接放行。
+		if isKickstartPre() {
+			return true, nil
+		}
 		installDisk := c.config.Install.Device
 		dataDisk := c.config.Install.DataDisk
 		if dataDisk == "" || installDisk == dataDisk {
@@ -503,6 +508,7 @@ func addDiskPanel(c *Console) error {
 	// showPersistentOrSkip：kickstart 链路跳过 persistentSizePanel（elemental 遗留），
 	// 直接进 afterPersistent（若有，如 dataDiskPanel）或 gotoNextPage（到 network 页）。
 	showPersistentOrSkip := func(g *gocui.Gui, v *gocui.View, afterPersistent ...string) error {
+		dbgSerial("showPersistentOrSkip: isKickstartPre=%v afterPersistent=%v", isKickstartPre(), afterPersistent)
 		if isKickstartPre() {
 			if len(afterPersistent) > 0 {
 				return showNext(c, afterPersistent...)
@@ -545,26 +551,34 @@ func addDiskPanel(c *Console) error {
 		c.config.Install.Device = device
 
 		diskOpts := diskOptionsCache.getAllValidDiskOptions()
+		dbgSerial("diskConfirm: device=%s dataDisk=%s diskOptsCount=%d isKickstartPre=%v",
+			device, dataDisk, len(diskOpts), isKickstartPre())
 		if len(diskOpts) > 1 {
 			// Show error if disk size validation fails, but allow proceeding to next field
 			if _, err := validateAllDiskSizes(); err != nil {
+				dbgSerial("diskConfirm: validateAllDiskSizes err=%v", err)
 				return err
 			}
 			if device == dataDisk {
+				dbgSerial("diskConfirm: 双盘 device==dataDisk → showPersistentOrSkip(dataDiskPanel)")
 				return showPersistentOrSkip(g, v, dataDiskPanel)
 			}
 			c.CloseElements(persistentSizePanel)
+			dbgSerial("diskConfirm: 双盘 device!=dataDisk → showNext(dataDiskPanel)")
 			return showNext(c, dataDiskPanel)
 		}
 
+		dbgSerial("diskConfirm: 单盘分支 → persistentSizeNote + showPersistentOrSkip")
 		if err := c.setContentByName(diskNotePanel, persistentSizeNote); err != nil {
 			return err
 		}
 		// Show error if disk size validation fails, but allow proceeding to next field
 		_, err = validateAllDiskSizes()
 		if err != nil {
+			dbgSerial("diskConfirm: 单盘 validateAllDiskSizes err=%v", err)
 			return err
 		}
+		dbgSerial("diskConfirm: 单盘 → showPersistentOrSkip")
 		return showPersistentOrSkip(g, v)
 	}
 
@@ -594,6 +608,13 @@ func addDiskPanel(c *Console) error {
 			return err
 		}
 		if installDisk == dataDisk {
+			// kickstart 链路无 persistent 分区，跳过 persistentSizeNote 显示与
+			// showPersistentOrSkip（其 gotoNextPage 受 diskConfirmed 两次确认逻辑控制，
+			// kickstart 跳过 persistent 面板会致 diskConfirmed 链路断裂卡死），直接进 network 页。
+			if isKickstartPre() {
+				diskConfirmed = true
+				return showNetworkPage(c)
+			}
 			if err := c.setContentByName(diskNotePanel, persistentSizeNote); err != nil {
 				return err
 			}
@@ -647,6 +668,13 @@ func addDiskPanel(c *Console) error {
 		}
 
 		c.config.Install.PersistentPartitionSize = persistentSize
+
+		// kickstart 链路无 persistent 分区，也无需 wipe 盘交互（anaconda clearpart 接管），
+		// 直接进下一页（network），避免 isWipeDisksPanelNeeded 的 wipe 盘逻辑卡住。
+		if isKickstartPre() {
+			diskConfirmed = true
+			return gotoNextPage(g, v)
+		}
 
 		// At this point the disk configuration is valid.
 		diskConfirmed = true
@@ -1558,6 +1586,13 @@ func addNetworkPanel(c *Console) error {
 	}
 
 	preGotoNextPage := func() (string, error) {
+		// kickstart %pre ramdisk 下网卡名/DHCP/default route 与目标系统不一致，
+		// applyNetworks/getIPThroughDHCP/checkDefaultRoute 易失败（"no such network interface"）。
+		// ramdisk 配置不持久，anaconda 用 ks network 指令配目标系统，故 kickstart 链路直接放行。
+		if isKickstartPre() {
+			c.config.Install.ManagementInterface = mgmtNetwork
+			return "", nil
+		}
 		err := setupNetwork()
 		if err != nil {
 			return fmt.Sprintf("Configure network failed: %s", err), nil
@@ -2611,13 +2646,18 @@ func addInstallPanel(c *Console) error {
 			}
 
 			if needToGetVIPFromDHCP(c.config.Install.VipMode, c.config.Install.Vip, c.config.Install.VipHwAddr) {
-				vip, err := getVipThroughDHCP(getManagementInterfaceName(c.config.Install.ManagementInterface), "")
-				if err != nil {
-					printToPanel(c.Gui, fmt.Sprintf("fail to get vip: %s", err), installPanel)
-					return
+				// kickstart %pre ramdisk 下 getVipThroughDHCP 用管理网卡发 DHCP，ramdisk 网卡名/状态
+				// 与目标系统不一致易失败（"no such network interface"）。VIP 由用户在网络页填或
+				// 留空由 ks network 指令处理，ramdisk 不强取。
+				if !isKickstartPre() {
+					vip, err := getVipThroughDHCP(getManagementInterfaceName(c.config.Install.ManagementInterface), "")
+					if err != nil {
+						printToPanel(c.Gui, fmt.Sprintf("fail to get vip: %s", err), installPanel)
+						return
+					}
+					c.config.Install.Vip = vip.ipv4Addr
+					c.config.Install.VipHwAddr = vip.hwAddr
 				}
-				c.config.Install.Vip = vip.ipv4Addr
-				c.config.Install.VipHwAddr = vip.hwAddr
 			}
 
 			// If no hostname was provided in the config, this function will
@@ -2668,11 +2708,16 @@ func addInstallPanel(c *Console) error {
 			dbgSerial("PreShow: checkDefaultRoute 前")
 			isDefaultRouteExist, err := checkDefaultRoute()
 			if err != nil {
-				logrus.Error(err)
-				printToPanel(c.Gui, "Failed to check default route.", installPanel)
-				return
+				// kickstart %pre ramdisk 下 netlink 路由查询可能失败，anaconda 用 ks network
+				// 指令配目标系统路由，ramdisk 路由状态无意义，跳过不中断 doInstall。
+				if !isKickstartPre() {
+					logrus.Error(err)
+					printToPanel(c.Gui, "Failed to check default route.", installPanel)
+					return
+				}
+				isDefaultRouteExist = true
 			}
-			if !installModeOnly && !isDefaultRouteExist && c.config.Install.ManagementInterface.Method == config.NetworkMethodDHCP {
+			if !isKickstartPre() && !installModeOnly && !isDefaultRouteExist && c.config.Install.ManagementInterface.Method == config.NetworkMethodDHCP {
 				logrus.Error(ErrMsgNoDefaultRoute)
 				printToPanel(c.Gui, ErrMsgNoDefaultRoute, installPanel)
 				return

@@ -48,10 +48,7 @@ func KickstartRender(cfg *VDIConfig) (string, error) {
 	// 包
 	b.WriteString(kickstartPackages())
 
-	// %post --nochroot：从 ISO 复制 bundle（镜像/二进制/charts）
-	b.WriteString(kickstartPostNochroot())
-
-	// %post chroot：解压 RKE2 + config + manifests + enable
+	// %post --nochroot 单 section：先复制 bundle，再解压 rke2/config/manifests/enable
 	rke2Cfg, err := RenderRKE2Config(cfg)
 	if err != nil {
 		return "", fmt.Errorf("render rke2 config: %w", err)
@@ -60,7 +57,8 @@ func KickstartRender(cfg *VDIConfig) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("render rke2 manifests: %w", err)
 	}
-	b.WriteString(kickstartPostChroot(cfg, rke2Cfg, manifests, dataDev))
+	chrootBody := kickstartPostChroot(cfg, rke2Cfg, manifests, dataDev)
+	b.WriteString(kickstartPostNochroot(chrootBody))
 
 	return b.String(), nil
 }
@@ -152,14 +150,17 @@ func kickstartPackages() string {
 	b.WriteString("%packages\n")
 	b.WriteString("@core\n@base\n")
 	b.WriteString("iptables\niproute\nipset\nebtables\nnet-tools\nbind-utils\nnfs-utils\npolicycoreutils-python-utils\n")
+	b.WriteString("open-iscsi\n")
 	b.WriteString("-firmware-*\n-iwl*-firmware\n")
 	b.WriteString("%end\n")
 	return b.String()
 }
 
-// kickstartPostNochroot：%post --nochroot 从 ISO 复制离线 bundle 到目标盘
+// kickstartPostNochroot：%post --nochroot 单 section，先从 ISO 复制离线 bundle，
+// 再拼接 kickstartPostChroot 的 body（解压 rke2/config/manifests/enable），
+// 所有写盘操作在一个 %post --nochroot section 内完成（避免 anaconda 36 多 section 丢写入）。
 // anaconda 装机时 ISO 挂在 /run/install/repo，目标盘在 /mnt/sysroot
-func kickstartPostNochroot() string {
+func kickstartPostNochroot(chrootBody string) string {
 	return `%post --nochroot --interpreter=/bin/bash
 set -x
 echo ">>> [vdi] %post --nochroot START" > /dev/ttyS0
@@ -174,8 +175,14 @@ cp -f ${BUNDLE}/binaries/rke2.linux-*.tar.gz ${SYSROOT}/tmp/rke2.tar.gz 2>/dev/n
 ls -l ${SYSROOT}/tmp/rke2.tar.gz 2>/dev/null || echo "WARN: rke2.tar.gz 未复制到 sysroot"
 mkdir -p ${SYSROOT}/var/lib/rancher/rke2/server/charts
 cp -f ${BUNDLE}/charts/*.tgz ${SYSROOT}/var/lib/rancher/rke2/server/charts/ 2>/dev/null || echo "WARN: 无 charts"
+# kubevirt operator 多文档 manifest：放 server/manifests/ 让 RKE2 首启自动 apply
+# （operator 装好后处理 helmchart-kubevirt.yaml 的 KubeVirt CR）
+mkdir -p ${SYSROOT}/var/lib/rancher/rke2/server/manifests
+cp -f ${BUNDLE}/manifests/*.yaml ${SYSROOT}/var/lib/rancher/rke2/server/manifests/ 2>/dev/null || echo "WARN: 无 operator manifests"
+echo ">>> [vdi] %post --nochroot END（接 sysroot 段）" > /dev/ttyS0
+` + chrootBody + `
 sync
-echo ">>> [vdi] %post --nochroot END" > /dev/ttyS0
+echo ">>> [vdi] %post 全部完成 sync" > /dev/ttyS0
 %end
 `
 }
@@ -188,14 +195,32 @@ echo ">>> [vdi] %post --nochroot END" > /dev/ttyS0
 // 重启后全部丢失（实测 rke2 二进制/config/manifests/sshd drop-in 无一落地，root 仅靠
 // anaconda rootpw 兜底）。故改用 --nochroot + $SYSROOT(/mnt/sysroot) 绝对前缀显式写盘；
 // 需目标系统工具（chpasswd）的用 `chroot $SYSROOT ...`。
+//
+// ⚠️ 多 %post section 红线：BCLinux anaconda 36 对多个 %post --nochroot section 的执行
+// 不稳定（首段写入保留，后续段写入偶发丢失，致 rke2/config/manifests 落盘失败但诊断
+// 显示成功）。故本函数不再独立成 section，由 kickstartPostNochroot 在同一 %post --nochroot
+// section 内 %end 前拼接本函数 body，确保所有写盘操作在一个 section 内原子完成。
 func kickstartPostChroot(cfg *VDIConfig, rke2Cfg string, manifests map[string]string, dataDev string) string {
 	var b strings.Builder
-	b.WriteString("%post --nochroot --interpreter=/bin/bash\n")
-	b.WriteString("set -x\n")
-	b.WriteString("SYSROOT=/mnt/sysroot\n")
 	b.WriteString("echo \">>> [vdi] %post sysroot START\" > /dev/ttyS0\n")
-	// root 密码（anaconda rootpw 兜底，chpasswd 再设一次确保；chpasswd 须 chroot 进目标系统）
-	b.WriteString("chroot $SYSROOT bash -c 'echo \"root:" + cfg.OS.Password + "\" | chpasswd' 2>/dev/null || true\n")
+	// root 密码（anaconda rootpw 偶发不生效，%post 兜底）。
+	// BCLinux PAM pwquality 强制密码复杂度（大写字母/长度），纯数字/短密码经 chpasswd 会被
+	// pam_chauthtok() 拒绝；且 %post --nochroot 下 chroot $SYSROOT 跑 chpasswd 时 /proc 未挂
+	// PAM 依赖 /proc 易失败。故用 ramdisk openssl 生成 SHA-512 hash，直接 sed 替换 sysroot
+	// 的 /etc/shadow root 行，完全绕过 chpasswd/PAM/chroot。
+	b.WriteString("_ROOTPW='" + cfg.OS.Password + "'\n")
+	b.WriteString("_HASH=$(openssl passwd -6 \"$_ROOTPW\" 2>/dev/null)\n")
+	b.WriteString("if [ -n \"$_HASH\" ]; then\n")
+	b.WriteString("  sed -i -e \"s|^root:[^:]*:|root:${_HASH}:|\" $SYSROOT/etc/shadow\n")
+	b.WriteString("  echo \">>> [vdi] %post rootpw set via openssl+sed\" > /dev/ttyS0\n")
+	b.WriteString("else\n")
+	b.WriteString("  # openssl 缺失回退：临时清空 pwquality 再 chpasswd\n")
+	b.WriteString("  _PWQ=$SYSROOT/etc/security/pwquality.conf\n")
+	b.WriteString("  [ -f $_PWQ ] && cp $_PWQ ${_PWQ}.vdi.bak\n")
+	b.WriteString("  echo > $_PWQ 2>/dev/null || true\n")
+	b.WriteString("  chroot $SYSROOT bash -c 'echo \"root:'\"$_ROOTPW\"'\" | chpasswd' 2>/dev/null || true\n")
+	b.WriteString("  [ -f ${_PWQ}.vdi.bak ] && mv ${_PWQ}.vdi.bak $_PWQ || rm -f $_PWQ\n")
+	b.WriteString("fi\n")
 	b.WriteString("chroot $SYSROOT passwd -u root 2>/dev/null || true\n")
 	// sshd：允许 root + 密码登录，关 UseDNS/GSSAPI（避免 qemu user 网下 reverse DNS 致 SSH banner 超时）
 	b.WriteString("mkdir -p $SYSROOT/etc/ssh/sshd_config.d\n")
@@ -204,6 +229,8 @@ func kickstartPostChroot(cfg *VDIConfig, rke2Cfg string, manifests map[string]st
 	b.WriteString("sed -i 's/^#\\?PasswordAuthentication.*/PasswordAuthentication yes/g' $SYSROOT/etc/ssh/sshd_config || true\n")
 	b.WriteString("mkdir -p $SYSROOT/etc/systemd/system/multi-user.target.wants\n")
 	b.WriteString("ln -sf /usr/lib/systemd/system/sshd.service $SYSROOT/etc/systemd/system/multi-user.target.wants/sshd.service\n")
+	// longhorn-manager 需宿主机 iscsiadm（open-iscsi）+ iscsid 运行，否则 nsenter 调 iscsiadm 失败
+	b.WriteString("ln -sf /usr/lib/systemd/system/iscsid.service $SYSROOT/etc/systemd/system/multi-user.target.wants/iscsid.service 2>/dev/null || true\n")
 
 	// 数据盘处理 (MVP4)：dataDev 由 detectInstallAndDataDisk 在 %pre 阶段用 Go 读
 	// /sys/block/* 探测得到（含用户显式指定），作为字面量嵌入 %post，不再依赖 lsblk。
@@ -241,6 +268,21 @@ fi
 		for name, content := range manifests {
 			b.WriteString(fmt.Sprintf("cat > $SYSROOT/var/lib/rancher/rke2/server/manifests/%s <<'MANIFEST'\n%s\nMANIFEST\n", name, content))
 		}
+		// RKE2 v1.31 helm-controller 对 spec.chart 本地路径不注入 chart content Secret，
+		// helm-install job pod 报 "path ... not found"。改用 spec.chartContent（base64 内联）
+		// 绕过本地路径读取：对每个 helmchart-*.yaml，将 spec.chart 行替换为 spec.chartContent
+		// + base64 编码的 tgz 内容（从已复制的 server/charts/ 读取）。
+		b.WriteString("for mf in $SYSROOT/var/lib/rancher/rke2/server/manifests/helmchart-*.yaml; do\n")
+		b.WriteString("  [ -f \"$mf\" ] || continue\n")
+		b.WriteString("  chart_path=$(sed -n 's/^  chart: //p' \"$mf\" 2>/dev/null)\n")
+		b.WriteString("  [ -n \"$chart_path\" ] || continue\n")
+		b.WriteString("  chart_file=$SYSROOT$chart_path\n")
+		b.WriteString("  [ -f \"$chart_file\" ] || continue\n")
+		b.WriteString("  b64=$(base64 -w0 \"$chart_file\" 2>/dev/null)\n")
+		b.WriteString("  [ -n \"$b64\" ] || continue\n")
+		b.WriteString("  sed -i \"/^  chart: /c\\  chartContent: ${b64}\" \"$mf\"\n")
+		b.WriteString("  echo \">>> [vdi] helmchart $(basename $mf) chart→chartContent 注入\" > /dev/ttyS0\n")
+		b.WriteString("done\n")
 	}
 	// enable rke2-server（首节点/Master控制平面）或 rke2-agent（Worker/Witness工作节点）
 	// ln -sf 创建 wants 链接：链接文件内写开机后绝对路径（/usr/local/lib/...），链接位置在 $SYSROOT
@@ -253,6 +295,5 @@ fi
 	b.WriteString(fmt.Sprintf("ln -sf /usr/local/lib/systemd/system/%s.service $SYSROOT/etc/systemd/system/multi-user.target.wants/%s.service\n", service, service))
 	b.WriteString(fmt.Sprintf("echo \">>> [vdi] enable %s 完成\" > /dev/ttyS0\n", service))
 	b.WriteString("echo \">>> [vdi] %post sysroot END\" > /dev/ttyS0\n")
-	b.WriteString("%end\n")
 	return b.String()
 }

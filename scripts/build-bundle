@@ -78,15 +78,16 @@ sed -i '/longhornio\/openshift-origin-oauth-proxy/d' ${longhorn_image_list}
 save_image "longhorn" $BUNDLE_DIR ${longhorn_image_list} ${IMAGES_DIR}
 
 # ============================================================
-# KubeVirt manifests + chart + images
+# KubeVirt operator manifest + images
+# kubevirt 用 operator.yaml（多文档 manifest）放 server/manifests/ 让 RKE2 自动 apply，
+# 再由 helmchart-kubevirt.yaml（KubeVirt CR）触发 operator 部署 kubevirt 组件。
 # ============================================================
-echo "==> Pulling KubeVirt operator chart (v${KUBEVIRT_VERSION})"
-if [ -f "${CHARTS_DIR}/kubevirt-operator.yaml" ] || [ -f "${CHARTS_DIR}/kubevirt-operator-${KUBEVIRT_VERSION#v}.tgz" ]; then
-    echo "Chart already exists: kubevirt-operator"
+echo "==> Pulling KubeVirt operator manifest (v${KUBEVIRT_VERSION})"
+if [ -f "${CHARTS_DIR}/kubevirt-operator.yaml" ]; then
+    echo "Manifest already exists: kubevirt-operator.yaml"
 else
-    helm repo add kubevirt https://kubevirt.io/latest/charts/ 2>/dev/null || true
-    helm pull kubevirt/kubevirt-operator --version ${KUBEVIRT_VERSION#v} -d ${CHARTS_DIR} || \
-      get_url "https://github.com/kubevirt/kubevirt/releases/download/${KUBEVIRT_VERSION}/kubevirt-operator.yaml" "${CHARTS_DIR}/kubevirt-operator.yaml"
+    get_url "https://github.com/kubevirt/kubevirt/releases/download/${KUBEVIRT_VERSION}/kubevirt-operator.yaml" \
+      "${CHARTS_DIR}/kubevirt-operator.yaml"
 fi
 
 echo "==> Pulling KubeVirt image list"
@@ -134,49 +135,34 @@ fi
 save_image "kubeovn" $BUNDLE_DIR ${kubeovn_image_list} ${IMAGES_DIR}
 
 # ============================================================
-# kagent chart + images
+# kagent 暂不部署：chart 无 release 资产（v0.9.6 仅二进制，tgz 404）+
+# 镜像需 ghcr 认证。manifest 已从 genBootstrapResources 移除，此处跳过下载。
+# 启用步骤：确认 chart 来源（helm repo/ghcr OCI）+ 配 ghcr 认证拉镜像 + 恢复 manifest。
 # ============================================================
-echo "==> Pulling kagent chart (v${KAGENT_VERSION})"
-if [ -f "${CHARTS_DIR}/kagent-${KAGENT_VERSION}.tgz" ]; then
-    echo "Chart already exists: kagent-${KAGENT_VERSION}.tgz"
-else
-    get_url "https://github.com/kagent-dev/kagent/releases/download/v${KAGENT_VERSION}/kagent-${KAGENT_VERSION}.tgz" \
-      "${CHARTS_DIR}/kagent-${KAGENT_VERSION}.tgz" || {
-        echo "WARN: kagent chart 拉取失败，kagent 将无法部署（manifest 引用此 chart）" >&2
-        echo "  如暂不需要 kagent，请从构建链与 manifest 中移除" >&2
-    }
-fi
-
-# TODO(kagent): ghcr.io 需认证，kagent 镜像暂未打包，kagent 部署会因镜像缺失失败。
-# 启用步骤：配置 GHCR 认证 → 取消下方注释 → 确认镜像可拉
-# kagent_image_list="${IMAGES_LISTS_DIR}/kagent-images-${KAGENT_VERSION}.txt"
-# cat > ${kagent_image_list} <<EOF
-# ghcr.io/kagent-dev/kagent-controller:${KAGENT_VERSION}
-# ghcr.io/kagent-dev/kagent-ui:${KAGENT_VERSION}
-# ghcr.io/kagent-dev/kagent-proxy:${KAGENT_VERSION}
-# ghcr.io/kagent-dev/kagent-tools:${KAGENT_VERSION}
-# ghcr.io/kagent-dev/model-runner:${KAGENT_VERSION}
-# docker.io/library/postgres:17.4-alpine
-# EOF
-# save_image "kagent" $BUNDLE_DIR ${kagent_image_list} ${IMAGES_DIR}
-echo "Skipping kagent image pull (ghcr.io requires authentication, TODO)"
+echo "==> Skipping kagent (chart 404 + ghcr auth TODO)"
 
 
 # ============================================================
 # 把 Helm chart tgz 复制到 ISO bundle，供 vdi-install 复制到目标盘
 # server/charts/（RKE2 HelmChart CRD spec.chart 引用这些路径）
-# 重命名为 manifest 期望的名字（不带版本号），kubevirt 是 KubeVirt CR 不需 tgz
+# 重命名为 manifest 期望的名字（不带版本号）。
+# kubevirt 用 operator.yaml（多文档 manifest）放 server/manifests/ 让 RKE2 自动 apply，
+# 再由 helmchart-kubevirt.yaml（KubeVirt CR）触发 operator 部署 kubevirt 组件。
+# kagent 暂不部署（chart 无 release 资产 404 + 镜像需 ghcr 认证），从构建链移除。
 # ============================================================
 CHARTS_BUNDLE_DIR="${BUNDLE_DIR}/vdi/charts"
-mkdir -p ${CHARTS_BUNDLE_DIR}
+MANIFESTS_BUNDLE_DIR="${BUNDLE_DIR}/vdi/manifests"
+mkdir -p ${CHARTS_BUNDLE_DIR} ${MANIFESTS_BUNDLE_DIR}
 echo "==> Copying Helm charts to bundle (renamed to manifest names)"
 cp -f "${CHARTS_DIR}/kube-ovn-${KUBEOVN_VERSION}.tgz" "${CHARTS_BUNDLE_DIR}/kube-ovn.tgz"
 cp -f "${CHARTS_DIR}/longhorn-${LONGHORN_VERSION#v}.tgz" "${CHARTS_BUNDLE_DIR}/longhorn.tgz"
-# kagent chart 可能因 ghcr 认证未拉到，存在才复制
-[ -f "${CHARTS_DIR}/kagent-${KAGENT_VERSION}.tgz" ] && \
-  cp -f "${CHARTS_DIR}/kagent-${KAGENT_VERSION}.tgz" "${CHARTS_BUNDLE_DIR}/kagent.tgz" || \
-  echo "WARN: kagent chart 缺失，不复制到 bundle"
-ls -la ${CHARTS_BUNDLE_DIR}/
+# kubevirt operator manifest（fallback 拉的是 operator.yaml，非 tgz）
+if [ -f "${CHARTS_DIR}/kubevirt-operator.yaml" ]; then
+    cp -f "${CHARTS_DIR}/kubevirt-operator.yaml" "${MANIFESTS_BUNDLE_DIR}/kubevirt-operator.yaml"
+else
+    echo "WARN: kubevirt-operator.yaml 缺失，kubevirt 将无法部署" >&2
+fi
+ls -la ${CHARTS_BUNDLE_DIR}/ ${MANIFESTS_BUNDLE_DIR}/
 
 # ============================================================
 # Create Helm repo index

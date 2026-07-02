@@ -2,7 +2,7 @@ apiVersion: helm.cattle.io/v1
 kind: HelmChart
 metadata:
   name: longhorn
-  namespace: longhorn-system
+  namespace: kube-system
 spec:
   chart: /var/lib/rancher/rke2/server/charts/longhorn.tgz
   targetNamespace: longhorn-system
@@ -10,3 +10,5 @@ spec:
   valuesContent: |-
     defaultSettings:
       defaultDataPath: "/var/lib/longhorn"
+    persistence:
+      defaultClassReplicaCount: 1

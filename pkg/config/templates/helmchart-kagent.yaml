@@ -1,9 +1,0 @@
-apiVersion: helm.cattle.io/v1
-kind: HelmChart
-metadata:
-  name: kagent
-  namespace: kagent-system
-spec:
-  chart: /var/lib/rancher/rke2/server/charts/kagent.tgz
-  targetNamespace: kagent-system
-  createNamespace: true

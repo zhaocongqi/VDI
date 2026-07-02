@@ -5,7 +5,6 @@
 *.raw
 dist/
 cache/
-bin/
 .dapper
 .docker
 *.tar.gz

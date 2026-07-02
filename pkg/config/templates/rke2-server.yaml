@@ -14,9 +14,15 @@ tls-san:
 {{- if not (or .Install.Vip .SANS) }}
   - 127.0.0.1
 {{- end }}
+{{- if .Install.ClusterPodCIDR }}
 cluster-cidr: {{ printf "%q" .Install.ClusterPodCIDR }}
+{{- end }}
+{{- if .Install.ClusterServiceCIDR }}
 service-cidr: {{ printf "%q" .Install.ClusterServiceCIDR }}
+{{- end }}
+{{- if .Install.ClusterDNS }}
 cluster-dns: {{ printf "%q" .Install.ClusterDNS }}
+{{- end }}
 cni: none
 disable:
   - rke2-ingress-nginx

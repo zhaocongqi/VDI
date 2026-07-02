@@ -154,7 +154,16 @@ type VDIConfig struct {
 }
 
 func NewVDIConfig() *VDIConfig {
-	return &VDIConfig{}
+	// 版本号由 ldflags 注入包变量（constants.go），此处拷到结构体字段供模板渲染
+	// {{ .RKE2Version }} / {{ .KubevirtVersion }} 等使用。否则 NewVDIConfig 返回空结构体，
+	// 版本字段全空，致 helmchart-kubevirt.yaml 的 imageTag 渲染空、kubevirt operator 拉不到镜像。
+	return &VDIConfig{
+		RKE2Version:     RKE2Version,
+		KubevirtVersion: KubevirtVersion,
+		LonghornVersion: LonghornVersion,
+		KubeovnVersion:  KubeovnVersion,
+		KagentVersion:   KagentVersion,
+	}
 }
 
 // GetSystemSettingsAllowList returns the list of allowed system settings.
