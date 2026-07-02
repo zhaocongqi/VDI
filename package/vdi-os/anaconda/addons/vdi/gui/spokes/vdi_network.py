@@ -17,19 +17,50 @@ class WindowWrapper(Gtk.Box):
     """GTK 窗口包裹代理。
 
     直接继承自 Gtk.Box 以通过 Gtk.Stack C 语言底层的类型安全校验，
-    同时在 Python 层面屏蔽 Anaconda 专有信号和属性写入。
+    并在顶部动态组装包含“完成”按钮的导航条，实现退出并保存配置。
     """
 
-    def __init__(self, real_box):
+    def __init__(self, real_box, spoke_instance):
         # 初始化基类 Gtk.Box 容器
         Gtk.Box.__init__(self)
         self.set_orientation(Gtk.Orientation.VERTICAL)
-        self.set_spacing(0)
+        self.set_spacing(6)
         self._real_box = real_box
+        self._spoke = spoke_instance
 
-        # 将从 Glade 加载出的真实内容组件添加为子控件并显示
+        # 1. 创建顶栏水平容器
+        header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        header_box.set_margin_top(12)
+        header_box.set_margin_bottom(12)
+        header_box.set_margin_start(18)
+        header_box.set_margin_end(18)
+
+        # 2. 创建“完成 (Done)”退出确认按钮，并应用 suggested-action（蓝色高亮样式）
+        done_button = Gtk.Button.new_with_mnemonic("完成 (_D)")
+        done_button.get_style_context().add_class("suggested-action")
+        done_button.set_size_request(80, 36)
+        done_button.connect("clicked", self._on_done_clicked)
+        header_box.pack_start(done_button, False, False, 0)
+
+        # 3. 标题标签
+        title_label = Gtk.Label()
+        title_label.set_markup("<span size='large' weight='bold'>VDI 管理网络配置</span>")
+        title_label.set_margin_start(18)
+        header_box.pack_start(title_label, False, False, 0)
+
+        # 4. 按顺序组装：顶栏 -> 水平分割线 -> 真实表单内容
+        self.pack_start(header_box, False, False, 0)
+        
+        separator = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+        self.pack_start(separator, False, False, 0)
+
         self.pack_start(self._real_box, True, True, 0)
         self.show_all()
+
+    def _on_done_clicked(self, button):
+        # 触发 Spoke 绑定的退出回调，Anaconda 会自动调用 apply() 并切回主 Hub
+        if self._spoke:
+            self._spoke.on_back_clicked(button)
 
     def set_beta(self, beta):
         # 屏蔽 Hub 水印设置
@@ -81,7 +112,7 @@ class VdiNetworkSpoke(NormalSpoke):
         # 显式调用父类原始的 lazy-load 属性读取方法，获取真实的 GTK 控件
         raw_win = GUIObject.window.fget(self)
         if self._wrapped_window is None or self._wrapped_window._real_box != raw_win:
-            self._wrapped_window = WindowWrapper(raw_win)
+            self._wrapped_window = WindowWrapper(raw_win, self)
         return self._wrapped_window
 
     def __init__(self, data, storage, payload):
