@@ -1,0 +1,5 @@
+[D-BUS Service]
+# Start the org.fedoraproject.Anaconda.Addons.Vdi service.
+Name=org.fedoraproject.Anaconda.Addons.Vdi
+Exec=/usr/libexec/anaconda/start-module vdi.service
+User=root

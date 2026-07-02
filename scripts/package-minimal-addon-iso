@@ -86,6 +86,14 @@ echo "  现有插件: $(ls "${MINI_ANACONDA_MNT}/usr/share/anaconda/addons/")"
 cp -r "${TOP_DIR}/package/vdi-os/anaconda/addons/vdi" "${MINI_ANACONDA_MNT}/usr/share/anaconda/addons/"
 echo "  注入后插件: $(ls "${MINI_ANACONDA_MNT}/usr/share/anaconda/addons/")"
 
+# 注入 DBus 服务声明与权限配置（缺少这两个文件 Boss 无法发现 Addon 服务）
+VDI_DBUS_DIR="${TOP_DIR}/package/vdi-os/anaconda/addons/vdi/dbus"
+cp "${VDI_DBUS_DIR}/org.fedoraproject.Anaconda.Addons.Vdi.service" \
+   "${MINI_ANACONDA_MNT}/usr/share/anaconda/dbus/services/"
+cp "${VDI_DBUS_DIR}/org.fedoraproject.Anaconda.Addons.Vdi.conf" \
+   "${MINI_ANACONDA_MNT}/usr/share/anaconda/dbus/confs/"
+echo "  DBus 服务文件已注入"
+
 # 同步文件系统并卸载
 sync
 umount "${MINI_ANACONDA_MNT}"
