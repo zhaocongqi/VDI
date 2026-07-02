@@ -61,7 +61,7 @@ class VdiNetworkSpoke(NormalSpoke):
     @property
     def window(self):
         """覆盖基类的 window 实例读取，动态返回包装代理类。"""
-        if not hasattr(self, "_wrapped_window") or self._wrapped_window._widget != self._raw_window:
+        if self._wrapped_window is None or self._wrapped_window._widget != self._raw_window:
             self._wrapped_window = WindowWrapper(self._raw_window)
         return self._wrapped_window
 
