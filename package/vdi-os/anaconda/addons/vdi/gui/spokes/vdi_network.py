@@ -3,8 +3,6 @@ import logging
 
 from pyanaconda.modules.common.util import is_module_available
 from pyanaconda.ui.categories.system import SystemCategory
-from pyanaconda.ui.gui import GUIObject
-from pyanaconda.ui.common import NormalSpoke as CommonNormalSpoke
 from pyanaconda.ui.gui.spokes import NormalSpoke
 
 from vdi.constants import VDI
@@ -12,6 +10,32 @@ from vdi.constants import VDI
 log = logging.getLogger(__name__)
 
 __all__ = ["VdiNetworkSpoke"]
+
+
+class WindowWrapper(object):
+    """GTK 窗口包裹代理。
+
+    专门用于在不使用 Anaconda 专有窗口组件的情况下，
+    屏蔽 connect_after('help-button-clicked') 以及 set_beta()
+    等仅在 AnacondaWidgets 中存在的信号和方法。
+    """
+
+    def __init__(self, gtk_widget):
+        self._widget = gtk_widget
+
+    def __getattr__(self, name):
+        # 动态转发所有其它常规 GObject 属性与方法
+        return getattr(self._widget, name)
+
+    def set_beta(self, beta):
+        # 屏蔽 Hub 调用
+        pass
+
+    def connect_after(self, signal, callback):
+        # 屏蔽 NormalSpoke 的帮助信号绑定
+        if signal == "help-button-clicked":
+            return
+        return self._widget.connect_after(signal, callback)
 
 
 class VdiNetworkSpoke(NormalSpoke):
@@ -34,12 +58,23 @@ class VdiNetworkSpoke(NormalSpoke):
         """判断该 Spoke 是否应该在当前环境中显示。"""
         return is_module_available(VDI)
 
+    @property
+    def window(self):
+        """覆盖基类的 window 实例读取，动态返回包装代理类。"""
+        if not hasattr(self, "_wrapped_window") or self._wrapped_window._widget != self._raw_window:
+            self._wrapped_window = WindowWrapper(self._raw_window)
+        return self._wrapped_window
+
+    @window.setter
+    def window(self, val):
+        """捕获基类的 window 实例写入，保存在内部私有变量中。"""
+        self._raw_window = val
+
     def __init__(self, data, storage, payload):
-        # 绕过 NormalSpoke.__init__ 中强制连接 GtkBox 没有的 "help-button-clicked" 信号而导致的崩溃
-        # 我们手动进行父类分步初始化
-        GUIObject.__init__(self, data)
-        CommonNormalSpoke.__init__(self, storage, payload)
-        self._current_warning_message = ""
+        self._raw_window = None
+        self._wrapped_window = None
+        # 正常跑基类初始化，内部的所有 self.window 读写都会被上面的 property 接管
+        NormalSpoke.__init__(self, data, storage, payload)
         self._proxy = VDI.get_proxy()
         self._ip_entry = None
         self._vip_entry = None
