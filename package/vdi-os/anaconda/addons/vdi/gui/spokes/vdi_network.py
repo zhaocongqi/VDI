@@ -61,17 +61,14 @@ class VdiNetworkSpoke(NormalSpoke):
     @property
     def window(self):
         """覆盖基类的 window 实例读取，动态返回包装代理类。"""
-        if self._wrapped_window is None or self._wrapped_window._widget != self._raw_window:
-            self._wrapped_window = WindowWrapper(self._raw_window)
+        from pyanaconda.ui.gui import GUIObject
+        # 显式调用父类原始的 lazy-load 属性读取方法，获取真实的 GTK 控件
+        raw_win = GUIObject.window.fget(self)
+        if self._wrapped_window is None or self._wrapped_window._widget != raw_win:
+            self._wrapped_window = WindowWrapper(raw_win)
         return self._wrapped_window
 
-    @window.setter
-    def window(self, val):
-        """捕获基类的 window 实例写入，保存在内部私有变量中。"""
-        self._raw_window = val
-
     def __init__(self, data, storage, payload):
-        self._raw_window = None
         self._wrapped_window = None
         # 正常跑基类初始化，内部的所有 self.window 读写都会被上面的 property 接管
         NormalSpoke.__init__(self, data, storage, payload)
