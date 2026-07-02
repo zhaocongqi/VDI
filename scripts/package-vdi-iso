@@ -127,6 +127,16 @@ cp "${VDI_DBUS_DIR}/org.fedoraproject.Anaconda.Addons.Vdi.service" \
 cp "${VDI_DBUS_DIR}/org.fedoraproject.Anaconda.Addons.Vdi.conf" \
    "${ANACONDA_MNT}/usr/share/anaconda/dbus/confs/"
 
+# 声明式隐藏 Anaconda 自带的原生“网络与主机名 (NetworkSpoke)”页面，避免与 VDI 网络插件冲突
+PROFILE_CONF="${ANACONDA_MNT}/etc/anaconda/profile.d/bclinux.conf"
+if [ -f "${PROFILE_CONF}" ]; then
+    echo "  改写 bclinux.conf，隐藏原生网络配置界面 (NetworkSpoke)"
+    # 在 [User Interface] 下方插入 hidden_spokes = NetworkSpoke
+    sed -i '/\[User Interface\]/a hidden_spokes = NetworkSpoke' "${PROFILE_CONF}"
+else
+    echo "WARN: 未找到 profile 配置文件 ${PROFILE_CONF}，原生网络界面可能无法隐藏" >&2
+fi
+
 sync
 umount "${ANACONDA_MNT}"
 rmdir "${ANACONDA_MNT}" 2>/dev/null || true
