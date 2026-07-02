@@ -3,6 +3,8 @@ import logging
 
 from pyanaconda.modules.common.util import is_module_available
 from pyanaconda.ui.categories.system import SystemCategory
+from pyanaconda.ui.gui import GUIObject
+from pyanaconda.ui.common import NormalSpoke as CommonNormalSpoke
 from pyanaconda.ui.gui.spokes import NormalSpoke
 
 from vdi.constants import VDI
@@ -32,9 +34,15 @@ class VdiNetworkSpoke(NormalSpoke):
         """判断该 Spoke 是否应该在当前环境中显示。"""
         return is_module_available(VDI)
 
-    def __init__(self, *args):
-        NormalSpoke.__init__(self, *args)
+    def __init__(self, data, storage, payload):
+        # 绕过 NormalSpoke.__init__ 中强制连接 GtkBox 没有的 "help-button-clicked" 信号而导致的崩溃
+        # 我们手动进行父类分步初始化
+        GUIObject.__init__(self, data)
+        CommonNormalSpoke.__init__(self, storage, payload)
+        self._current_warning_message = ""
         self._proxy = VDI.get_proxy()
+        self._ip_entry = None
+        self._vip_entry = None
         log.debug("VdiNetworkSpoke 已初始化, proxy=%s", self._proxy)
 
     def initialize(self):
