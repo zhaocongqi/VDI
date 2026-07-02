@@ -177,6 +177,10 @@ strip_ansi() { sed 's/\x1b\[[0-9;]*[a-zA-Z]//g; s/\x1b\[=?[0-9]*[a-z]//g' "$1"; 
 INSTALL_DONE=0
 INSTALL_FAIL=0
 START=$(date +%s)
+# 记录 %pre 结束前的串口行数：ks-include 内容会被 anaconda 回显到串口，
+# 包含 %post 探针字面量（如 ">>> [vdi] enable.*完成"），若从头 grep 会误匹配。
+# 只在 %pre 之后的输出里搜索装机完成标志，避免误判。
+PRE_END_LINE=0
 
 # 交互模式：引导后 TUI 在 tmux 跑，等用户输入，不会自动装机。
 # 检测到 TUI 启动（串口 >>> [pre] 在 tmux 或 请按 Ctrl+Alt+F1）即视为引导成功，
@@ -191,17 +195,12 @@ if [ "${INTERACTIVE:-0}" = "1" ]; then
             exit 1
         fi
         if strip_ansi "$SERIAL_LOG" | grep -qaE "在 tmux 会话|请按 Ctrl\+Alt\+F1"; then
-            info "TUI 已在 tmux 启动（${ELAPSED}s），monitor=${MON_SOCK}"
-            info "诊断：echo 'sendkey ret' | socat - UNIX-CONNECT:${MON_SOCK}"
-            info "截图：echo 'screendump /tmp/x.ppm' | socat - UNIX-CONNECT:${MON_SOCK}"
-            info "保持 qemu 运行（PID $(cat $QEMU_PID_FILE)），手动 kill \$(cat $QEMU_PID_FILE) 停止"
-            info "=== 死循环验证：串口无 55 次 ks-script 重跑即通过 ==="
-            # 打印串口尾部后清除 EXIT trap 退出，让 -daemonize 的 qemu 独立存活供 socat 喂键诊断。
-            # 原先 exit 0 触发 trap qemu_stop 杀掉 qemu，导致交互模式无法后续 sendkey/screendump。
-            sleep 5
-            strip_ansi "$SERIAL_LOG" | tail -15
-            trap - EXIT
-            exit 0
+            info "TUI 已在 tmux 启动（${ELAPSED}s），VNC: vnc://127.0.0.1:${VNC_PORT:-5900}，monitor=${MON_SOCK}"
+            info "VNC 操作：Ctrl+B → W → 选 vdi window → 方向键/回车配置"
+            info "脚本将等待装机完成，自动处理 reboot 切硬盘引导..."
+            # 不退出——继续走下方装机监控循环，检测到装机完成后自动切阶段2 硬盘引导。
+            # 硬盘 bootindex=1 优先于 CD bootindex=2，即使 reboot --eject 未弹 CD 也不会循环重装。
+            break
         fi
         if ! kill -0 "$(cat $QEMU_PID_FILE 2>/dev/null)" 2>/dev/null; then
             error "qemu 提前退出，检查串口"
@@ -220,10 +219,28 @@ while :; do
         strip_ansi "$SERIAL_LOG" | tail -40
         exit 1
     fi
+    # 只看 %pre 之后的输出：ks-include 文本被 anaconda 回显含 %post 探针字面量，
+    # 从头 grep 会误匹配 ">>> [vdi] enable.*完成" 致提前切阶段2（磁盘空白引导失败）。
+    # 锚点：ks.cfg %pre 尾部 "vdi-installer 日志输出结束" 或 "配置收集完成"。
+    if [ "$PRE_END_LINE" -eq 0 ]; then
+        PRE_END_LINE=$(strip_ansi "$SERIAL_LOG" | grep -nE "vdi-installer 日志输出结束|配置收集完成" | tail -1 | cut -d: -f1)
+        PRE_END_LINE=${PRE_END_LINE:-0}
+        if [ "$PRE_END_LINE" -gt 0 ] 2>/dev/null; then
+            info "检测到 %pre 结束（串口行 $PRE_END_LINE），开始监控 anaconda 装机..."
+        fi
+    fi
+    SERIAL_AFTER_PRE() {
+        local end_line=${PRE_END_LINE:-0}
+        if [ "$end_line" -gt 0 ] 2>/dev/null; then
+            strip_ansi "$SERIAL_LOG" | tail -n +$((end_line + 1))
+        else
+            strip_ansi "$SERIAL_LOG"
+        fi
+    }
     # qemu 进程异常退出
     if ! kill -0 "$(cat $QEMU_PID_FILE 2>/dev/null)" 2>/dev/null; then
         # 装机完 reboot --eject 后无引导目标，qemu 可能退出
-        if strip_ansi "$SERIAL_LOG" | grep -qiE "Installation (finished|complete)|Performing post-installation|login:|clear|Unknown parameter"; then
+        if SERIAL_AFTER_PRE | grep -qiE "Installation (finished|complete)|Performing post-installation|reboot: Restarting system|login:"; then
             info "装机完成（reboot，qemu 退出，${ELAPSED}s）"
             INSTALL_DONE=1
             break
@@ -233,20 +250,19 @@ while :; do
         INSTALL_FAIL=1
         break
     fi
-    # 关键词判断
+    # 关键词判断（仅 %pre 之后的输出）
     # 装机完成标志（按可靠度排序）：
-    # - ">>> [vdi] enable" / "%post chroot END" = 我们的 %post 探针跑完（装机即将 reboot）
+    # - ">>> [vdi] enable.*完成" / ">>> [vdi] %post sysroot END" = 我们的 %post 探针跑完（装机即将 reboot）
     # - "Show Plymouth Reboot Screen" / "reboot: Restarting system" = 装机完触发 reboot
-    #   （qemu 下 reboot --eject 不弹虚拟 CD，若不及时 kill 会从 ISO 二次引导装机）
     # - "Installation finished" / "Performing post-installation setup" = anaconda 官方收尾
-    if strip_ansi "$SERIAL_LOG" | grep -qiE ">>> \[vdi\] %post chroot END|>>> \[vdi\] enable.*完成|Show Plymouth Reboot Screen|reboot: Restarting system|Installation (finished|complete)|Performing post-installation setup|login:"; then
+    if SERIAL_AFTER_PRE | grep -qiE ">>> \[vdi\] %post sysroot END|>>> \[vdi\] enable.*完成|Show Plymouth Reboot Screen|reboot: Restarting system|Installation (finished|complete)|Performing post-installation setup|login:"; then
         info "检测到装机完成标志（${ELAPSED}s）"
         INSTALL_DONE=1
         break
     fi
-    if strip_ansi "$SERIAL_LOG" | grep -qiE "anaconda.*error|traceback|panic"; then
+    if SERIAL_AFTER_PRE | grep -qiE "anaconda.*error|traceback|panic"; then
         error "检测到装机错误（${ELAPSED}s）"
-        strip_ansi "$SERIAL_LOG" | grep -iE "error|traceback|panic|fail" | tail -20
+        SERIAL_AFTER_PRE | grep -iE "error|traceback|panic|fail" | tail -20
         INSTALL_FAIL=1
         break
     fi

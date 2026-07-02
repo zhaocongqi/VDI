@@ -525,8 +525,6 @@ func doInstall(g *gocui.Gui, hvstConfig *config.VDIConfig, webhooks RendererWebh
 	}
 	logrus.Infof("doInstall: Kickstart rendered to %s", ksPath)
 	dbgSerial("doInstall: ks written to %s，准备退出 MainLoop", ksPath)
-	// 强制把 ks-include 完整内容写到串口（O_SYNC flush），诊断 %include 展开/anaconda 装机
-	dbgSerial("=== ks-include 内容开始 ===\n%s\n=== ks-include 内容结束 ===", ks)
 
 	printToPanel(g, fmt.Sprintf("配置已成功保存到 %s", ksPath), installPanel)
 	printToPanel(g, "即将退出配置程序，系统安装将由 Anaconda 接管...", installPanel)
