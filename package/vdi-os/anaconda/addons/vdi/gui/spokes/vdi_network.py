@@ -130,10 +130,9 @@ class VdiNetworkSpoke(NormalSpoke):
         self._proxy = VDI.get_proxy()
         
         # 获取 Anaconda 官方网络服务代理，用于获取可用网卡
-        from pyanaconda.core.dbus import get_proxy
         from pyanaconda.modules.common.constants.services import NETWORK
         try:
-            self.network_proxy = get_proxy(NETWORK)
+            self.network_proxy = NETWORK.get_proxy()
         except Exception as e:
             log.error("无法获取 NetworkManager D-Bus 代理: %s", e)
             self.network_proxy = None
