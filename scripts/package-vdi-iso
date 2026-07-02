@@ -60,6 +60,11 @@ fi
 
 mkdir -p "${ARTIFACTS_DIR}"
 
+# 清理旧的 VDI ISO 及校验文件，防止多次构建后磁盘空间被撑爆
+echo ">>> 清理旧的 VDI ISO 产物"
+rm -f "${ARTIFACTS_DIR}"/vdi-*.iso "${ARTIFACTS_DIR}"/vdi-*.sha512
+
+
 # ============================================================
 # 步骤 1: 解出 DVD ISO 到临时目录
 # osirrox 把 ISO 当文件系统解包，保留 Rock Ridge 符号链接与权限
