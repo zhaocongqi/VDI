@@ -1,6 +1,7 @@
 """VDI 管理网络 GUI Spoke（严格参考 com_redhat_kdump/gui/spokes/kdump.py 架构）"""
 import logging
 
+from gi.repository import Gtk
 from pyanaconda.modules.common.util import is_module_available
 from pyanaconda.ui.categories.system import SystemCategory
 from pyanaconda.ui.gui.spokes import NormalSpoke
@@ -12,20 +13,23 @@ log = logging.getLogger(__name__)
 __all__ = ["VdiNetworkSpoke"]
 
 
-class WindowWrapper(object):
+class WindowWrapper(Gtk.Box):
     """GTK 窗口包裹代理。
 
-    专门用于在不使用 Anaconda 专有窗口组件的情况下，
-    屏蔽 connect_after('help-button-clicked') 以及 set_beta()
-    等仅在 AnacondaWidgets 中存在的信号和方法。
+    直接继承自 Gtk.Box 以通过 Gtk.Stack C 语言底层的类型安全校验，
+    同时在 Python 层面屏蔽 Anaconda 专有信号和属性写入。
     """
 
-    def __init__(self, gtk_widget):
-        self._widget = gtk_widget
+    def __init__(self, real_box):
+        # 初始化基类 Gtk.Box 容器
+        Gtk.Box.__init__(self)
+        self.set_orientation(Gtk.Orientation.VERTICAL)
+        self.set_spacing(0)
+        self._real_box = real_box
 
-    def __getattr__(self, name):
-        # 动态转发所有其它常规 GObject 属性与方法
-        return getattr(self._widget, name)
+        # 将从 Glade 加载出的真实内容组件添加为子控件并显示
+        self.pack_start(self._real_box, True, True, 0)
+        self.show_all()
 
     def set_beta(self, beta):
         # 屏蔽 Hub 水印设置
@@ -35,22 +39,19 @@ class WindowWrapper(object):
         # 拦截 GtkBox 不支持的 Anaconda 专有属性，避免 GTK 抛出 TypeError
         if name in ("distribution", "window-name", "window_name"):
             return
-        if hasattr(self._widget, "set_property"):
-            self._widget.set_property(name, value)
+        return Gtk.Box.set_property(self, name, value)
 
     def get_property(self, name):
         # 提供默认的安全属性回包
         if name in ("distribution", "window-name", "window_name"):
             return ""
-        if hasattr(self._widget, "get_property"):
-            return self._widget.get_property(name)
-        return None
+        return Gtk.Box.get_property(self, name)
 
     def connect_after(self, signal, callback):
         # 屏蔽 NormalSpoke 的帮助信号绑定
         if signal == "help-button-clicked":
             return
-        return self._widget.connect_after(signal, callback)
+        return Gtk.Box.connect_after(self, signal, callback)
 
 
 class VdiNetworkSpoke(NormalSpoke):
@@ -79,7 +80,7 @@ class VdiNetworkSpoke(NormalSpoke):
         from pyanaconda.ui.gui import GUIObject
         # 显式调用父类原始的 lazy-load 属性读取方法，获取真实的 GTK 控件
         raw_win = GUIObject.window.fget(self)
-        if self._wrapped_window is None or self._wrapped_window._widget != raw_win:
+        if self._wrapped_window is None or self._wrapped_window._real_box != raw_win:
             self._wrapped_window = WindowWrapper(raw_win)
         return self._wrapped_window
 
