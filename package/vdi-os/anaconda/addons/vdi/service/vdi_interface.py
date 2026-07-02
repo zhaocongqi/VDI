@@ -13,8 +13,48 @@ class VdiInterface(KickstartModuleInterface):
 
     def connect_signals(self):
         super().connect_signals()
+        self.watch_property("Mode", self.implementation.mode_changed)
+        self.watch_property("Interface", self.implementation.interface_changed)
+        self.watch_property("Interface2", self.implementation.interface2_changed)
+        self.watch_property("BondMode", self.implementation.bond_mode_changed)
         self.watch_property("Ip", self.implementation.ip_changed)
         self.watch_property("Vip", self.implementation.vip_changed)
+
+    @property
+    def Mode(self) -> Str:
+        """配置模式 (single / bond)。"""
+        return self.implementation.mode
+
+    @Mode.setter
+    def Mode(self, value: Str):
+        self.implementation.mode = value
+
+    @property
+    def Interface(self) -> Str:
+        """主物理网卡名称。"""
+        return self.implementation.interface
+
+    @Interface.setter
+    def Interface(self, value: Str):
+        self.implementation.interface = value
+
+    @property
+    def Interface2(self) -> Str:
+        """备物理网卡名称。"""
+        return self.implementation.interface2
+
+    @Interface2.setter
+    def Interface2(self, value: Str):
+        self.implementation.interface2 = value
+
+    @property
+    def BondMode(self) -> Str:
+        """网卡绑定模式 (active-backup / 802.3ad)。"""
+        return self.implementation.bond_mode
+
+    @BondMode.setter
+    def BondMode(self, value: Str):
+        self.implementation.bond_mode = value
 
     @property
     def Ip(self) -> Str:

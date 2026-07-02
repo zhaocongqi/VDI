@@ -89,10 +89,20 @@ class VdiNetworkSpoke(NormalSpoke):
     """VDI 管理网络图形配置 Spoke。
 
     在 Anaconda 安装器主界面（Hub）的 SYSTEM 分类下显示，
-    提供 IPv4 地址和集群虚拟 IP 的配置入口。
+    提供配置模式（单网卡/绑定）、物理网卡选择、IPv4 地址和集群虚拟 IP 的配置入口。
     """
 
-    builderObjects = ["vdi_network_box"]
+    builderObjects = [
+        "vdi_network_box",
+        "mode_combo",
+        "interface_combo",
+        "interface2_label",
+        "interface2_combo",
+        "bond_mode_label",
+        "bond_mode_combo",
+        "ip_entry",
+        "vip_entry"
+    ]
     mainWidgetName = "vdi_network_box"
     uiFile = "vdi_network.glade"
 
@@ -109,7 +119,6 @@ class VdiNetworkSpoke(NormalSpoke):
     def window(self):
         """覆盖基类的 window 实例读取，动态返回包装代理类。"""
         from pyanaconda.ui.gui import GUIObject
-        # 显式调用父类原始的 lazy-load 属性读取方法，获取真实的 GTK 控件
         raw_win = GUIObject.window.fget(self)
         if self._wrapped_window is None or self._wrapped_window._real_box != raw_win:
             self._wrapped_window = WindowWrapper(raw_win, self)
@@ -117,33 +126,129 @@ class VdiNetworkSpoke(NormalSpoke):
 
     def __init__(self, data, storage, payload):
         self._wrapped_window = None
-        # 正常跑基类初始化，内部的所有 self.window 读写都会被上面的 property 接管
         NormalSpoke.__init__(self, data, storage, payload)
         self._proxy = VDI.get_proxy()
+        
+        # 获取 Anaconda 官方网络服务代理，用于获取可用网卡
+        from pyanaconda.core.dbus import get_proxy
+        from pyanaconda.modules.common.constants.services import NETWORK
+        try:
+            self.network_proxy = get_proxy(NETWORK)
+        except Exception as e:
+            log.error("无法获取 NetworkManager D-Bus 代理: %s", e)
+            self.network_proxy = None
+
+        # 界面控件占位
+        self._mode_combo = None
+        self._interface_combo = None
+        self._interface2_label = None
+        self._interface2_combo = None
+        self._bond_mode_label = None
+        self._bond_mode_combo = None
         self._ip_entry = None
         self._vip_entry = None
         log.debug("VdiNetworkSpoke 已初始化, proxy=%s", self._proxy)
 
     def initialize(self):
-        """初始化 GTK 控件引用。"""
+        """初始化 GTK 控件引用并绑定交互信号。"""
         NormalSpoke.initialize(self)
+        self._mode_combo = self.builder.get_object("mode_combo")
+        self._interface_combo = self.builder.get_object("interface_combo")
+        self._interface2_label = self.builder.get_object("interface2_label")
+        self._interface2_combo = self.builder.get_object("interface2_combo")
+        self._bond_mode_label = self.builder.get_object("bond_mode_label")
+        self._bond_mode_combo = self.builder.get_object("bond_mode_combo")
         self._ip_entry = self.builder.get_object("ip_entry")
         self._vip_entry = self.builder.get_object("vip_entry")
+
+        # 监听模式下拉框改变事件，以动态展示/隐藏备网卡及 Bond 模式选项
+        self._mode_combo.connect("changed", self._on_mode_changed)
         log.debug("VdiNetworkSpoke 控件初始化完成")
+
+    def _on_mode_changed(self, combo):
+        """当网络配置模式在单网卡与网卡绑定之间切换时的响应。"""
+        active_id = combo.get_active_id()
+        is_bond = (active_id == "bond")
+        self._interface2_label.set_visible(is_bond)
+        self._interface2_combo.set_visible(is_bond)
+        self._bond_mode_label.set_visible(is_bond)
+        self._bond_mode_combo.set_visible(is_bond)
+
+    def _fill_network_interfaces(self):
+        """扫描系统的物理网卡列表并填充到界面下拉栏中。"""
+        if not self.network_proxy:
+            return
+        
+        try:
+            devices = self.network_proxy.GetDevices()
+        except Exception as e:
+            log.error("D-Bus 获取网卡列表失败: %s", e)
+            devices = ["ens33", "ens34"] # 降级默认备选
+
+        # 过滤掉本地环回
+        physical_devs = [d for d in devices if d != "lo"]
+
+        self._interface_combo.remove_all()
+        self._interface2_combo.remove_all()
+
+        for dev in physical_devs:
+            self._interface_combo.append(dev, dev)
+            self._interface2_combo.append(dev, dev)
 
     def refresh(self):
         """刷新界面，从 DBus 代理读取数据并填充控件。"""
+        # 1. 扫描网卡列表
+        self._fill_network_interfaces()
+
+        # 2. 从 DBus 回显数据状态
+        mode_val = self._proxy.Mode or "single"
+        self._mode_combo.set_active_id(mode_val)
+        
+        if self._proxy.Interface:
+            self._interface_combo.set_active_id(self._proxy.Interface)
+        else:
+            self._interface_combo.set_active(0) # 默认选第一块
+
+        if self._proxy.Interface2:
+            self._interface2_combo.set_active_id(self._proxy.Interface2)
+        else:
+            self._interface2_combo.set_active(0)
+
+        bond_mode_val = self._proxy.BondMode or "active-backup"
+        self._bond_mode_combo.set_active_id(bond_mode_val)
+
         self._ip_entry.set_text(self._proxy.Ip)
         self._vip_entry.set_text(self._proxy.Vip)
 
+        # 3. 强制触发显隐同步
+        self._on_mode_changed(self._mode_combo)
+
     def apply(self):
         """将界面数据写回 DBus 代理。"""
+        self._proxy.Mode = self._mode_combo.get_active_id() or "single"
+        self._proxy.Interface = self._interface_combo.get_active_id() or ""
+        
+        # 若是 Bonding 模式，对主/备网卡重合执行防御性校验
+        if self._proxy.Mode == "bond":
+            dev1 = self._interface_combo.get_active_id()
+            dev2 = self._interface2_combo.get_active_id()
+            if dev1 == dev2:
+                # 冲突时备用网卡置空或提示
+                self._proxy.Interface2 = ""
+                log.warning("主备物理网卡选择重合，已静默将备网卡置空。")
+            else:
+                self._proxy.Interface2 = dev2 or ""
+            self._proxy.BondMode = self._bond_mode_combo.get_active_id() or "active-backup"
+        else:
+            self._proxy.Interface2 = ""
+            self._proxy.BondMode = "active-backup"
+
         self._proxy.Ip = self._ip_entry.get_text()
         self._proxy.Vip = self._vip_entry.get_text()
 
     @property
     def ready(self):
-        """Spoke 是否已就绪可以被访问。"""
+        """Spoke 是否已就绪。"""
         return True
 
     @property
@@ -159,4 +264,11 @@ class VdiNetworkSpoke(NormalSpoke):
     @property
     def status(self):
         """在 Hub 主界面上显示的一行状态摘要文字。"""
-        return "IP: %s  VIP: %s" % (self._proxy.Ip, self._proxy.Vip)
+        if self._proxy.Mode == "bond":
+            return "Bonding[%s]: %s,%s  IP: %s" % (
+                self._proxy.BondMode,
+                self._proxy.Interface,
+                self._proxy.Interface2 or "未配置",
+                self._proxy.Ip
+            )
+        return "Single: %s  IP: %s" % (self._proxy.Interface, self._proxy.Ip)

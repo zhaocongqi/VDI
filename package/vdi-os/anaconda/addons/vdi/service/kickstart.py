@@ -17,6 +17,10 @@ class VdiKickstartData(AddonData):
 
     def __init__(self):
         super().__init__()
+        self.mode = "single"
+        self.interface = "ens33"
+        self.interface2 = ""
+        self.bond_mode = "active-backup"
         self.ip = "192.168.10.10"
         self.netmask = "255.255.255.0"
         self.gateway = "192.168.10.1"
@@ -26,6 +30,11 @@ class VdiKickstartData(AddonData):
     def __str__(self):
         """生成 Kickstart 文本表示。"""
         addon_str = "%addon vdi"
+        addon_str += " --mode='%s'" % self.mode
+        addon_str += " --interface='%s'" % self.interface
+        if self.interface2:
+            addon_str += " --interface2='%s'" % self.interface2
+        addon_str += " --bond-mode='%s'" % self.bond_mode
         addon_str += " --ip='%s'" % self.ip
         addon_str += " --netmask='%s'" % self.netmask
         addon_str += " --gateway='%s'" % self.gateway
@@ -36,8 +45,28 @@ class VdiKickstartData(AddonData):
 
     def handle_header(self, args, line_number=None):
         """处理 %addon vdi 行的参数。"""
-        # 极简实现：暂不解析命令行参数，使用默认值
-        pass
+        import argparse
+        parser = argparse.ArgumentParser()
+        parser.add_argument("--mode", default="single")
+        parser.add_argument("--interface", default="ens33")
+        parser.add_argument("--interface2", default="")
+        parser.add_argument("--bond-mode", default="active-backup")
+        parser.add_argument("--ip", default="192.168.10.10")
+        parser.add_argument("--netmask", default="255.255.255.0")
+        parser.add_argument("--gateway", default="192.168.10.1")
+        parser.add_argument("--dns", default="8.8.8.8")
+        parser.add_argument("--vip", default="192.168.10.100")
+        
+        parsed, _ = parser.parse_known_args(args)
+        self.mode = parsed.mode
+        self.interface = parsed.interface
+        self.interface2 = parsed.interface2
+        self.bond_mode = parsed.bond_mode
+        self.ip = parsed.ip
+        self.netmask = parsed.netmask
+        self.gateway = parsed.gateway
+        self.dns = parsed.dns
+        self.vip = parsed.vip
 
     def handle_line(self, line, line_number=None):
         """处理 %addon 段内部的行。"""

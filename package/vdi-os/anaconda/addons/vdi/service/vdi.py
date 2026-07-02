@@ -20,6 +20,18 @@ class VdiService(KickstartService):
 
     def __init__(self):
         super().__init__()
+        self._mode = "single"
+        self.mode_changed = Signal()
+
+        self._interface = "ens33"
+        self.interface_changed = Signal()
+
+        self._interface2 = ""
+        self.interface2_changed = Signal()
+
+        self._bond_mode = "active-backup"
+        self.bond_mode_changed = Signal()
+
         self._ip = "192.168.10.10"
         self.ip_changed = Signal()
 
@@ -31,6 +43,46 @@ class VdiService(KickstartService):
         TaskContainer.set_namespace(VDI.namespace)
         DBus.publish_object(VDI.object_path, VdiInterface(self))
         DBus.register_service(VDI.service_name)
+
+    @property
+    def mode(self):
+        return self._mode
+
+    @mode.setter
+    def mode(self, value):
+        self._mode = value
+        self.mode_changed.emit()
+        log.debug("VDI Network Mode is set to '%s'.", value)
+
+    @property
+    def interface(self):
+        return self._interface
+
+    @interface.setter
+    def interface(self, value):
+        self._interface = value
+        self.interface_changed.emit()
+        log.debug("VDI Network Interface is set to '%s'.", value)
+
+    @property
+    def interface2(self):
+        return self._interface2
+
+    @interface2.setter
+    def interface2(self, value):
+        self._interface2 = value
+        self.interface2_changed.emit()
+        log.debug("VDI Network Interface2 is set to '%s'.", value)
+
+    @property
+    def bond_mode(self):
+        return self._bond_mode
+
+    @bond_mode.setter
+    def bond_mode(self, value):
+        self._bond_mode = value
+        self.bond_mode_changed.emit()
+        log.debug("VDI Network Bond Mode is set to '%s'.", value)
 
     @property
     def ip(self):
@@ -59,10 +111,18 @@ class VdiService(KickstartService):
     def process_kickstart(self, data):
         """从 Kickstart 数据中读取配置。"""
         addon_data = data.addons.vdi
+        self.mode = addon_data.mode
+        self.interface = addon_data.interface
+        self.interface2 = addon_data.interface2
+        self.bond_mode = addon_data.bond_mode
         self.ip = addon_data.ip
         self.vip = addon_data.vip
 
     def setup_kickstart(self, data):
         """将当前配置写回 Kickstart 数据。"""
+        data.addons.vdi.mode = self.mode
+        data.addons.vdi.interface = self.interface
+        data.addons.vdi.interface2 = self.interface2
+        data.addons.vdi.bond_mode = self.bond_mode
         data.addons.vdi.ip = self.ip
         data.addons.vdi.vip = self.vip
