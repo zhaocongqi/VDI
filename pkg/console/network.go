@@ -51,7 +51,7 @@ func applyNetworks(network config.Network, hostname string) error {
 	// doInstall 永不执行 → ks-include 不生成 → anaconda 无装机指令 → 盘空）。ramdisk 配置不持久，
 	// anaconda 用 ks network 指令配目标系统，故跳过。
 	if isKickstartPre() {
-		logrus.Info("applyNetworks: kickstart %pre ramdisk, skip (anaconda 接管网络配置)")
+		logrus.Info("applyNetworks: kickstart pre ramdisk, skip (anaconda 接管网络配置)")
 		return nil
 	}
 	if err := config.RestoreOriginalNetworkConfig(); err != nil {

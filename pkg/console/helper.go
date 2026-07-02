@@ -1,20 +1,10 @@
 package console
 
 import (
-	"fmt"
-	"os"
-	"os/exec"
-
 	"github.com/jroimartin/gocui"
-	yipSchema "github.com/rancher/yip/pkg/schema"
-	"github.com/sirupsen/logrus"
-	"gopkg.in/yaml.v3"
 
-	"vdi-installer/pkg/util"
 	"vdi-installer/pkg/widgets"
 )
-
-const loginUser = "rancher"
 
 type passwordWrapper struct {
 	c                *Console
@@ -76,16 +66,12 @@ func (p *passwordWrapper) passwordConfirmVKeyEnter(_ *gocui.Gui, _ *gocui.View) 
 	if err = p.passwordConfirmV.Close(); err != nil {
 		return err
 	}
-	encrypted, err := util.GetEncryptedPasswd(userInputData.Password)
-	if err != nil {
-		return err
-	}
-	p.c.config.OS.Password = encrypted
-	out, err := applyPassword(loginUser, encrypted)
-	if err != nil {
-		return fmt.Errorf("%w: %s", err, out)
-	}
-	logrus.Infof("Default user password updated: %s", out)
+	// 统一存明文：cfg.OS.Password 在自动模式（auto_install.go）、cloud-init 合并、
+	// kickstart 渲染间保持明文约定，加密只在 KickstartRender 内做一次（openssl passwd -6
+	// 写 shadow + rootpw --iscrypted）。历史此处调 GetEncryptedPasswd 把明文加密成 $6$ hash
+	// 存入 config，kickstart.go 又对该 hash 跑 openssl passwd -6 二次加密，致 shadow 里的
+	// hash 与明文不匹配，SSH 永远 Permission denied。
+	p.c.config.OS.Password = userInputData.Password
 	return showDiskPage(p.c)
 }
 
@@ -102,44 +88,4 @@ func (p *passwordWrapper) passwordConfirmVKeyEscape(_ *gocui.Gui, _ *gocui.View)
 	}
 	// VDI 角色已在 askCreatePanel 选定，ESC 统一回退到安装模式选择
 	return showNext(p.c, askCreatePanel)
-}
-
-func applyPassword(username, passwordHash string) ([]byte, error) {
-	user := yipSchema.User{
-		Name:         username,
-		PasswordHash: passwordHash,
-	}
-	if !user.Exists() {
-		return []byte(fmt.Sprintf("user %s doesn't exist.. skip password configuration", user.Name)), nil
-	}
-
-	conf := &yipSchema.YipConfig{
-		Name: "User Password Configuration",
-		Stages: map[string][]yipSchema.Stage{
-			"live": {
-				yipSchema.Stage{
-					Users: map[string]yipSchema.User{
-						username: user,
-					},
-				},
-			},
-		},
-	}
-	bytes, err := yaml.Marshal(conf)
-	if err != nil {
-		return nil, err
-	}
-
-	liveFile, err := os.CreateTemp("/tmp", "live.XXXXXXXX")
-	if err != nil {
-		return nil, err
-	}
-	defer os.Remove(liveFile.Name()) //nolint:errcheck
-	if _, err := liveFile.Write(bytes); err != nil {
-		return nil, err
-	}
-
-	cmd := exec.Command("/usr/bin/yip", "-s", "live", liveFile.Name())
-	cmd.Env = os.Environ()
-	return cmd.CombinedOutput()
 }

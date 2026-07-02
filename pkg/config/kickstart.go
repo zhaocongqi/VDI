@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"vdi-installer/pkg/util"
 )
 
 // KickstartRender 把 VDIConfig 渲染成完整 kickstart ks.cfg，替代手写静态模板。
@@ -42,8 +44,20 @@ func KickstartRender(cfg *VDIConfig) (string, error) {
 	b.WriteString("autopart --type=lvm --fstype=ext4\n")
 	b.WriteString("bootloader --append=\"console=ttyS0,115200 console=tty1\"\n")
 
-	// root 密码：明文兜底（%post chpasswd 再设一次，anaconda 36 rootpw 偶发不生效）
-	b.WriteString(fmt.Sprintf("rootpw %s\n", cfg.OS.Password))
+	// root 密码：cfg.OS.Password 统一存明文（交互 TUI/自动模式/cloud-init 均明文）。
+	// 渲染时用 Go 生成一次 sha512 crypt hash，rootpw --iscrypted 与 %post sed 共用同一 hash，
+	// 避免 anaconda 与 %post 各自加密致 hash 不一致。anaconda 36 rootpw 偶发不生效，%post 兜底。
+	rootHash := ""
+	if cfg.OS.Password != "" {
+		h, err := util.GetEncryptedPasswd(cfg.OS.Password)
+		if err != nil {
+			return "", fmt.Errorf("encrypt root password: %w", err)
+		}
+		rootHash = h
+		b.WriteString(fmt.Sprintf("rootpw --iscrypted %s\n", rootHash))
+	} else {
+		b.WriteString("rootpw --lock\n")
+	}
 
 	// 包
 	b.WriteString(kickstartPackages())
@@ -57,7 +71,7 @@ func KickstartRender(cfg *VDIConfig) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("render rke2 manifests: %w", err)
 	}
-	chrootBody := kickstartPostChroot(cfg, rke2Cfg, manifests, dataDev)
+	chrootBody := kickstartPostChroot(cfg, rke2Cfg, manifests, dataDev, rootHash)
 	b.WriteString(kickstartPostNochroot(chrootBody))
 
 	return b.String(), nil
@@ -200,28 +214,21 @@ echo ">>> [vdi] %post 全部完成 sync" > /dev/ttyS0
 // 不稳定（首段写入保留，后续段写入偶发丢失，致 rke2/config/manifests 落盘失败但诊断
 // 显示成功）。故本函数不再独立成 section，由 kickstartPostNochroot 在同一 %post --nochroot
 // section 内 %end 前拼接本函数 body，确保所有写盘操作在一个 section 内原子完成。
-func kickstartPostChroot(cfg *VDIConfig, rke2Cfg string, manifests map[string]string, dataDev string) string {
+func kickstartPostChroot(cfg *VDIConfig, rke2Cfg string, manifests map[string]string, dataDev string, rootHash string) string {
 	var b strings.Builder
 	b.WriteString("echo \">>> [vdi] %post sysroot START\" > /dev/ttyS0\n")
 	// root 密码（anaconda rootpw 偶发不生效，%post 兜底）。
-	// BCLinux PAM pwquality 强制密码复杂度（大写字母/长度），纯数字/短密码经 chpasswd 会被
-	// pam_chauthtok() 拒绝；且 %post --nochroot 下 chroot $SYSROOT 跑 chpasswd 时 /proc 未挂
-	// PAM 依赖 /proc 易失败。故用 ramdisk openssl 生成 SHA-512 hash，直接 sed 替换 sysroot
-	// 的 /etc/shadow root 行，完全绕过 chpasswd/PAM/chroot。
-	b.WriteString("_ROOTPW='" + cfg.OS.Password + "'\n")
-	b.WriteString("_HASH=$(openssl passwd -6 \"$_ROOTPW\" 2>/dev/null)\n")
-	b.WriteString("if [ -n \"$_HASH\" ]; then\n")
-	b.WriteString("  sed -i -e \"s|^root:[^:]*:|root:${_HASH}:|\" $SYSROOT/etc/shadow\n")
-	b.WriteString("  echo \">>> [vdi] %post rootpw set via openssl+sed\" > /dev/ttyS0\n")
-	b.WriteString("else\n")
-	b.WriteString("  # openssl 缺失回退：临时清空 pwquality 再 chpasswd\n")
-	b.WriteString("  _PWQ=$SYSROOT/etc/security/pwquality.conf\n")
-	b.WriteString("  [ -f $_PWQ ] && cp $_PWQ ${_PWQ}.vdi.bak\n")
-	b.WriteString("  echo > $_PWQ 2>/dev/null || true\n")
-	b.WriteString("  chroot $SYSROOT bash -c 'echo \"root:'\"$_ROOTPW\"'\" | chpasswd' 2>/dev/null || true\n")
-	b.WriteString("  [ -f ${_PWQ}.vdi.bak ] && mv ${_PWQ}.vdi.bak $_PWQ || rm -f $_PWQ\n")
-	b.WriteString("fi\n")
-	b.WriteString("chroot $SYSROOT passwd -u root 2>/dev/null || true\n")
+	// rootHash 由 KickstartRender 渲染时用 Go sha512_crypt 生成（对 cfg.OS.Password 明文加密一次），
+	// 直接 sed 替换 sysroot /etc/shadow root 行。完全绕过 chpasswd/PAM/pwquality（纯数字/短密码
+	// 经 chpasswd 会被 pam_chauthtok 拒）与 chroot（%post --nochroot 下 /proc 未挂 PAM 易失败）。
+	if rootHash != "" {
+		// hash 含 $（如 $6$salt$hash），%post 在 shell 双引号下执行，$ 会被当变量展开致 hash 残缺。
+		// 转义 $ 为 \$ 后嵌入 sed 替换串。
+		escHash := strings.ReplaceAll(rootHash, "$", `\$`)
+		b.WriteString(fmt.Sprintf("sed -i -e \"s|^root:[^:]*:|root:%s:|\" $SYSROOT/etc/shadow\n", escHash))
+		b.WriteString("echo \">>> [vdi] %post rootpw set via sed (sha512 from renderer)\" > /dev/ttyS0\n")
+		b.WriteString("chroot $SYSROOT passwd -u root 2>/dev/null || true\n")
+	}
 	// sshd：允许 root + 密码登录，关 UseDNS/GSSAPI（避免 qemu user 网下 reverse DNS 致 SSH banner 超时）
 	b.WriteString("mkdir -p $SYSROOT/etc/ssh/sshd_config.d\n")
 	b.WriteString("cat > $SYSROOT/etc/ssh/sshd_config.d/00-vdi-root-login.conf <<'SSHD'\nPermitRootLogin yes\nPasswordAuthentication yes\nUseDNS no\nGSSAPIAuthentication no\nSSHD\n")
