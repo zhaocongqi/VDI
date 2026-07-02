@@ -1,11 +1,21 @@
-"""VDI 平台系统引导安装 Addon 入口（继承 AnacondaAddon 实现磁盘持久化）"""
+"""VDI 平台系统引导安装 Addon 入口（采用环境隔离的防御性导入）"""
 import os
 import uuid
 import logging
-from pyanaconda.addons import AnacondaAddon
 from vdi.constants import VDI
 
 log = logging.getLogger(__name__)
+
+# ----------------- 环境安全性防御 -----------------
+# D-Bus 后台服务环境并不包含 pyanaconda.addons 等前端 GUI 库，
+# 通过 conditional import 确保后台总线服务加载本包时不会发生 ModuleNotFoundError。
+try:
+    from pyanaconda.addons import AnacondaAddon
+    _has_anaconda_gui = True
+except ImportError:
+    _has_anaconda_gui = False
+    class AnacondaAddon(object):
+        pass
 
 __all__ = ["VdiAddon"]
 
@@ -18,6 +28,10 @@ class VdiAddon(AnacondaAddon):
 
     def execute(self, storage, ksdata, instClass):
         """Anaconda 在写入目标系统配置的最后阶段自动调用此方法。"""
+        if not _has_anaconda_gui:
+            log.warning("在非 GUI 环境下调用了 VdiAddon.execute，直接跳过")
+            return
+
         log.info(">>> VDI Addon execute 阶段启动")
         sysroot = storage.config.sysroot
         
