@@ -19,7 +19,7 @@ PACKAGE_VDI_OS_DIR="${TOP_DIR}/package/vdi-os"
 ARTIFACTS_DIR="${TOP_DIR}/dist/artifacts"
 CACHE_DIR="${TOP_DIR}/cache"
 
-source ${SCRIPTS_DIR}/version
+source "${SCRIPTS_DIR}/version"
 
 # BCLinux DVD ISO 卷标（inst.ks / inst.stage2 据此寻址，不可改）
 ISO_LABEL="BCLinux.x86_64"
@@ -50,13 +50,15 @@ if [ ! -s "${BCLINUX_ISO}" ]; then
     exit 1
 fi
 command -v xorriso >/dev/null 2>&1 || { echo "ERROR: 缺少 xorriso"; exit 1; }
+command -v unsquashfs >/dev/null 2>&1 || { echo "ERROR: 缺少 unsquashfs，无法解压 Anaconda 镜像" >&2; exit 1; }
+command -v mksquashfs >/dev/null 2>&1 || { echo "ERROR: 缺少 mksquashfs，无法重构 Anaconda 镜像" >&2; exit 1; }
 if [ ! -s "${ISOHDPFX_BIN}" ]; then
     echo "ERROR: 缺少 syslinux isohdpfx.bin: ${ISOHDPFX_BIN}" >&2
     echo "       Debian/Ubuntu: apt install isolinux syslinux-common" >&2
     exit 1
 fi
 
-mkdir -p ${ARTIFACTS_DIR}
+mkdir -p "${ARTIFACTS_DIR}"
 
 # ============================================================
 # 步骤 1: 解出 DVD ISO 到临时目录
@@ -69,8 +71,8 @@ if [ -d "${ISO_ROOTFS}" ]; then
     chmod -R u+w "${ISO_ROOTFS}" 2>/dev/null || true
     rm -rf "${ISO_ROOTFS}"
 fi
-mkdir -p ${ISO_ROOTFS}
-xorriso -osirrox on -indev "${BCLINUX_ISO}" -extract / ${ISO_ROOTFS}
+mkdir -p "${ISO_ROOTFS}"
+xorriso -osirrox on -indev "${BCLINUX_ISO}" -extract / "${ISO_ROOTFS}"
 # 解包后全树放开写权限（改写 isolinux.cfg/grub.cfg、清理 ks/ 等需要）
 chmod -R u+w "${ISO_ROOTFS}" 2>/dev/null || true
 
@@ -80,33 +82,31 @@ for f in isolinux/isolinux.cfg isolinux/isolinux.bin images/pxeboot/vmlinuz \
          EFI/BOOT/BOOTX64.EFI .discinfo .treeinfo; do
     [ -e "${ISO_ROOTFS}/${f}" ] || { echo "ERROR: 解包缺失 ${f}"; exit 1; }
 done
-echo "  解包完成: $(du -sh ${ISO_ROOTFS} | cut -f1)"
+echo "  解包完成: $(du -sh "${ISO_ROOTFS}" | cut -f1)"
 
 # ============================================================
-# 步骤 2: 注入 ks.cfg 与 vdi-installer
+# 步骤 2: 注入 ks.cfg 与重构 Anaconda 镜像
 # 1. 复制带有 %pre 交互的主引导 Kickstart 模板到 ISO 根目录
-# 2. 将编译好的 vdi-installer 复制至 ISO 的 vdi/ 目录下，供 %pre 引导调起
+# 2. 解压并重构 install.img，注入 VDI Anaconda 插件
 # ============================================================
-echo ">>> 注入 ks.cfg 与 vdi-installer"
+echo ">>> 注入 ks.cfg 与重构 Anaconda 镜像"
 KS_OUT="${ISO_ROOTFS}/ks.cfg"
 # 主引导 ks 模板（%pre 调 vdi-installer 收集配置后 %include /tmp/ks-include.cfg）。
 # rootpw/network/分区等动态段由 vdi-installer 在 %pre 渲染进 ks-include，主模板无需占位符替换。
 cp -f "${KS_TEMPLATE}" "${KS_OUT}"
 echo "  ks.cfg -> /ks.cfg ($(wc -l < ${KS_OUT}) 行)"
 
-VDI_INSTALLER_BIN="${VDI_INSTALLER_BIN:-${TOP_DIR}/bin/vdi-installer}"
-if [ -x "${VDI_INSTALLER_BIN}" ]; then
-    echo "  打包 vdi-installer 进 ISO"
-    mkdir -p "${ISO_ROOTFS}/vdi"
-    cp -f "${VDI_INSTALLER_BIN}" "${ISO_ROOTFS}/vdi/vdi-installer"
-    chmod +x "${ISO_ROOTFS}/vdi/vdi-installer"
-else
-    echo "ERROR: 找不到 vdi-installer 二进制: ${VDI_INSTALLER_BIN}，请先编译。" >&2
-    exit 1
-fi
+echo ">>> 解压并重构 install.img (注入 VDI Addon)"
+rm -rf "${CACHE_DIR}/install-rootfs"
+unsquashfs -d "${CACHE_DIR}/install-rootfs" "${ISO_ROOTFS}/images/install.img"
+mkdir -p "${CACHE_DIR}/install-rootfs/usr/share/anaconda/addons"
+cp -r "${TOP_DIR}/package/vdi-os/anaconda/addons/vdi" "${CACHE_DIR}/install-rootfs/usr/share/anaconda/addons/"
+rm -f "${ISO_ROOTFS}/images/install.img"
+mksquashfs "${CACHE_DIR}/install-rootfs" "${ISO_ROOTFS}/images/install.img" -comp xz
+rm -rf "${CACHE_DIR}/install-rootfs"
 
 # 清理 BCLinux ISO 原装自带的 ks 示例目录（/ks/ks.cfg），避免与根目录 /ks.cfg 混淆
-rm -rf ${ISO_ROOTFS}/ks
+rm -rf "${ISO_ROOTFS}/ks"
 
 # ============================================================
 # 步骤 2b: 打包离线 bundle（RKE2 二进制/镜像/组件镜像/charts）进 ISO
@@ -115,22 +115,22 @@ rm -rf ${ISO_ROOTFS}/ks
 BUNDLE_SRC="${PACKAGE_VDI_OS_DIR}/iso/bundle"
 if [ -d "${BUNDLE_SRC}/vdi" ]; then
     echo ">>> 打包离线 bundle 进 ISO"
-    mkdir -p ${ISO_ROOTFS}/bundle
-    cp -a ${BUNDLE_SRC}/. ${ISO_ROOTFS}/bundle/
-    echo "  bundle: $(du -sh ${ISO_ROOTFS}/bundle | cut -f1)"
+    mkdir -p "${ISO_ROOTFS}/bundle"
+    cp -a "${BUNDLE_SRC}/." "${ISO_ROOTFS}/bundle/"
+    echo "  bundle: $(du -sh "${ISO_ROOTFS}/bundle" | cut -f1)"
 else
     echo "WARN: 无离线 bundle（${BUNDLE_SRC}），%post 装 RKE2 将失败。先跑 make build-bundle"
 fi
 
 # xorriso 解包保留 ISO 9660 权限（0444 只读），改写前放开写权限
-chmod u+w ${ISO_ROOTFS}/isolinux/isolinux.cfg \
-           ${ISO_ROOTFS}/EFI/BOOT/grub.cfg
+chmod u+w "${ISO_ROOTFS}/isolinux/isolinux.cfg" \
+           "${ISO_ROOTFS}/EFI/BOOT/grub.cfg"
 
 # ============================================================
 # 步骤 3: 改 isolinux.cfg (BIOS) — 默认装机 + inst.ks + 缩短 timeout
 # ============================================================
 echo ">>> 改写 isolinux.cfg (BIOS)"
-cat > ${ISO_ROOTFS}/isolinux/isolinux.cfg <<'ISO_CFG'
+cat > "${ISO_ROOTFS}/isolinux/isolinux.cfg" <<'ISO_CFG'
 default vdi
 timeout 30
 prompt 0
@@ -155,7 +155,7 @@ ISO_CFG
 # 步骤 4: 改 EFI/BOOT/grub.cfg (UEFI) — 默认装机 + inst.ks + 缩短 timeout
 # ============================================================
 echo ">>> 改写 EFI/BOOT/grub.cfg (UEFI)"
-cat > ${ISO_ROOTFS}/EFI/BOOT/grub.cfg <<'GRUB_CFG'
+cat > "${ISO_ROOTFS}/EFI/BOOT/grub.cfg" <<'GRUB_CFG'
 set default="0"
 set timeout=5
 
@@ -204,7 +204,7 @@ fi
 # -volid 必须与 inst.ks/inst.stage2 的 LABEL 一致
 # ============================================================
 echo ">>> xorriso 重建 ISO"
-rm -f ${ISO_FILE}
+rm -f "${ISO_FILE}"
 
 EFI_BOOT_IMG="images/efiboot.img"
 xorriso -as mkisofs \
@@ -214,11 +214,11 @@ xorriso -as mkisofs \
     -b isolinux/isolinux.bin \
     -c isolinux/boot.cat \
     -no-emul-boot -boot-load-size 4 -boot-info-table \
-    -isohybrid-mbr ${ISOHDPFX_BIN} \
+    -isohybrid-mbr "${ISOHDPFX_BIN}" \
     -eltorito-alt-boot \
-    -e ${EFI_BOOT_IMG} \
+    -e "${EFI_BOOT_IMG}" \
     -no-emul-boot -isohybrid-gpt-basdat \
-    ${ISO_ROOTFS}
+    "${ISO_ROOTFS}"
 
 # ============================================================
 # 步骤 6: 验证
@@ -236,12 +236,12 @@ isoinfo -d -i "${ISO_FILE}" 2>/dev/null | grep -iA1 "Eltorito" | head -6 || true
 echo "--- 关键文件 ---"
 7z l "${ISO_FILE}" 2>/dev/null | grep -iE "ks.cfg|isolinux.cfg|pxeboot/(vmlinuz|initrd)|install.img|grub.cfg" | head -10 || true
 
-cd ${ARTIFACTS_DIR}
-sha512sum ${ISO_PREFIX}.iso > ${ISO_PREFIX}.sha512
+cd "${ARTIFACTS_DIR}"
+sha512sum "${ISO_PREFIX}.iso" > "${ISO_PREFIX}.sha512"
 
 echo "============================================"
 echo "  构建完成!"
 echo "  ISO:   ${ISO_FILE}"
-echo "  大小:  $(du -sh ${ISO_FILE} | cut -f1)"
+echo "  大小:  $(du -sh "${ISO_FILE}" | cut -f1)"
 echo "  SHA512:${ISO_PREFIX}.sha512"
 echo "============================================"
