@@ -104,8 +104,33 @@ echo "  ks.cfg -> /ks.cfg ($(wc -l < ${KS_OUT}) 行)"
 echo ">>> 解压并重构 install.img (注入 VDI Addon)"
 rm -rf "${CACHE_DIR}/install-rootfs"
 unsquashfs -d "${CACHE_DIR}/install-rootfs" "${ISO_ROOTFS}/images/install.img"
-mkdir -p "${CACHE_DIR}/install-rootfs/usr/share/anaconda/addons"
-cp -r "${TOP_DIR}/package/vdi-os/anaconda/addons/vdi" "${CACHE_DIR}/install-rootfs/usr/share/anaconda/addons/"
+
+ROOTFS_IMG="${CACHE_DIR}/install-rootfs/LiveOS/rootfs.img"
+if [ ! -f "${ROOTFS_IMG}" ]; then
+    echo "ERROR: 未找到 LiveOS/rootfs.img，install.img 结构不符合预期" >&2
+    exit 1
+fi
+
+ANACONDA_MNT="${CACHE_DIR}/anaconda-mnt"
+echo ">>> 挂载 rootfs.img (ext4) 并注入 VDI Addon 及 DBus 配置"
+mkdir -p "${ANACONDA_MNT}"
+mount -o loop "${ROOTFS_IMG}" "${ANACONDA_MNT}"
+
+# 注入 Python Addon 代码
+mkdir -p "${ANACONDA_MNT}/usr/share/anaconda/addons"
+cp -r "${TOP_DIR}/package/vdi-os/anaconda/addons/vdi" "${ANACONDA_MNT}/usr/share/anaconda/addons/"
+
+# 注入 DBus 服务与权限配置文件
+VDI_DBUS_DIR="${TOP_DIR}/package/vdi-os/anaconda/addons/vdi/dbus"
+cp "${VDI_DBUS_DIR}/org.fedoraproject.Anaconda.Addons.Vdi.service" \
+   "${ANACONDA_MNT}/usr/share/anaconda/dbus/services/"
+cp "${VDI_DBUS_DIR}/org.fedoraproject.Anaconda.Addons.Vdi.conf" \
+   "${ANACONDA_MNT}/usr/share/anaconda/dbus/confs/"
+
+sync
+umount "${ANACONDA_MNT}"
+rmdir "${ANACONDA_MNT}" 2>/dev/null || true
+
 rm -f "${ISO_ROOTFS}/images/install.img"
 mksquashfs "${CACHE_DIR}/install-rootfs" "${ISO_ROOTFS}/images/install.img" -comp xz
 rm -rf "${CACHE_DIR}/install-rootfs"
