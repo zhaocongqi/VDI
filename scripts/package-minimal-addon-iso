@@ -1,0 +1,167 @@
+#!/bin/bash -e
+# 从原始官方 BCLinux ISO 一步步构建极简 Addon 验证 ISO
+# 目的：排除任何现有工程 Go/RKE2 的配置干扰，专注于验证 Anaconda GUI 能够成功加载 VDI Addon 插件。
+
+TOP_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )/.." &> /dev/null && pwd )"
+ARTIFACTS_DIR="${TOP_DIR}/dist/artifacts"
+CACHE_DIR="${TOP_DIR}/cache"
+
+BCLINUX_ISO="${TOP_DIR}/dist/iso/BCLinux-21.10U5-dvd-x86_64-260610.iso"
+ISOHDPFX_BIN="/usr/lib/ISOLINUX/isohdpfx.bin"
+
+MINI_ISO_ROOTFS="${CACHE_DIR}/minimal-iso-rootfs"
+MINI_INSTALL_ROOTFS="${CACHE_DIR}/minimal-install-rootfs"
+ISO_LABEL="BCLinux.x86_64"
+ISO_FILE="${ARTIFACTS_DIR}/vdi-minimal-test.iso"
+
+echo "============================================"
+# 1. 前置命令与依赖自检
+# ============================================================
+if [ ! -s "${BCLINUX_ISO}" ]; then
+    echo "ERROR: 缺少 BCLinux 原生 ISO: ${BCLINUX_ISO}" >&2
+    exit 1
+fi
+command -v xorriso >/dev/null 2>&1 || { echo "ERROR: 缺少 xorriso" >&2; exit 1; }
+command -v unsquashfs >/dev/null 2>&1 || { echo "ERROR: 缺少 unsquashfs" >&2; exit 1; }
+command -v mksquashfs >/dev/null 2>&1 || { echo "ERROR: 缺少 mksquashfs" >&2; exit 1; }
+if [ ! -s "${ISOHDPFX_BIN}" ]; then
+    echo "ERROR: 缺少 syslinux isohdpfx.bin: ${ISOHDPFX_BIN}" >&2
+    exit 1
+fi
+
+mkdir -p "${ARTIFACTS_DIR}"
+
+# 2. 清理旧产物，防止磁盘撑爆
+# ============================================================
+echo ">>> 清理旧的极简验证 ISO"
+rm -f "${ISO_FILE}" "${ISO_FILE}.sha512"
+
+# 3. 解包官方原生 DVD ISO
+# ============================================================
+echo ">>> 解包官方原生 BCLinux ISO"
+if [ -d "${MINI_ISO_ROOTFS}" ]; then
+    chmod -R u+w "${MINI_ISO_ROOTFS}" 2>/dev/null || true
+    rm -rf "${MINI_ISO_ROOTFS}"
+fi
+mkdir -p "${MINI_ISO_ROOTFS}"
+xorriso -osirrox on -indev "${BCLINUX_ISO}" -extract / "${MINI_ISO_ROOTFS}"
+chmod -R u+w "${MINI_ISO_ROOTFS}" 2>/dev/null || true
+
+# 4. 解包并重构 install.img (注入 Python VDI Addon)
+# ============================================================
+echo ">>> 解压并重构 install.img (注入 VDI Addon)"
+if [ -d "${MINI_INSTALL_ROOTFS}" ]; then
+    chmod -R u+w "${MINI_INSTALL_ROOTFS}" 2>/dev/null || true
+    rm -rf "${MINI_INSTALL_ROOTFS}"
+fi
+unsquashfs -d "${MINI_INSTALL_ROOTFS}" "${MINI_ISO_ROOTFS}/images/install.img"
+
+# 创建插件目录并将之前写的 Addon 代码拷贝过去
+mkdir -p "${MINI_INSTALL_ROOTFS}/usr/share/anaconda/addons"
+cp -r "${TOP_DIR}/package/vdi-os/anaconda/addons/vdi" "${MINI_INSTALL_ROOTFS}/usr/share/anaconda/addons/"
+
+# 重新压制 install.img 并清理临时目录
+rm -f "${MINI_ISO_ROOTFS}/images/install.img"
+mksquashfs "${MINI_INSTALL_ROOTFS}" "${MINI_ISO_ROOTFS}/images/install.img" -comp xz
+rm -rf "${MINI_INSTALL_ROOTFS}"
+
+# 5. 注入极其纯净的极简验证用 ks.cfg
+# ============================================================
+echo ">>> 注入极简测试 ks.cfg"
+cat > "${MINI_ISO_ROOTFS}/ks.cfg" <<'KS_CFG'
+# 极简测试 Kickstart (验证 GUI Addon 弹出)
+graphical
+cdrom
+keyboard --vckeymap=us --xlayouts='us'
+lang zh_CN.UTF-8
+timezone Asia/Shanghai --isUtc
+
+# 告诉 Anaconda 启用我们的自定义 GUI 插件
+%addon vdi
+%end
+KS_CFG
+
+# 清理原有示例 ks，避免混淆
+rm -rf "${MINI_ISO_ROOTFS}/ks"
+
+# 6. 改写引导菜单强开图形 GUI (inst.graphical) 并指向新 ks
+# ============================================================
+echo ">>> 改写引导配置文件"
+chmod u+w "${MINI_ISO_ROOTFS}/isolinux/isolinux.cfg" "${MINI_ISO_ROOTFS}/EFI/BOOT/grub.cfg"
+
+# 修改 BIOS isolinux 菜单
+cat > "${MINI_ISO_ROOTFS}/isolinux/isolinux.cfg" <<'ISO_MENU'
+default vdi
+timeout 30
+prompt 0
+
+label vdi
+  menu label ^Install VDI Addon Test (graphical)
+  menu default
+  kernel vmlinuz
+  append initrd=initrd.img inst.stage2=hd:LABEL=BCLinux.x86_64 inst.ks=hd:LABEL=BCLinux.x86_64:/ks.cfg console=ttyS0,115200 console=tty1 quiet fpi_to_tail=off inst.graphical
+ISO_MENU
+
+# 修改 UEFI grub 菜单
+cat > "${MINI_ISO_ROOTFS}/EFI/BOOT/grub.cfg" <<'GRUB_MENU'
+set default="0"
+set timeout=5
+
+function load_video {
+  insmod efi_gop
+  insmod efi_uga
+  insmod all_video
+}
+load_video
+set gfxpayload=keep
+insmod gzio
+insmod part_gpt
+insmod ext2
+search --no-floppy --set=root -l 'BCLinux.x86_64'
+
+menuentry 'Install VDI Addon Test (graphical)' --class gnu-linux --class os {
+  set linux=linuxefi
+  set initrd=initrdefi
+  if [ "${grub_platform}" != "efi" ]; then
+    set linux=linux
+    set initrd=initrd
+  fi
+  $linux /images/pxeboot/vmlinuz inst.stage2=hd:LABEL=BCLinux.x86_64 inst.ks=hd:LABEL=BCLinux.x86_64:/ks.cfg console=ttyS0,115200 console=tty1 quiet fpi_to_tail=off inst.graphical
+  $initrd /images/pxeboot/initrd.img
+}
+GRUB_MENU
+
+# 同步 efiboot.img 内的 grub.cfg
+EFIIMG="${MINI_ISO_ROOTFS}/images/efiboot.img"
+if [ -f "${EFIIMG}" ] && command -v mtools >/dev/null 2>&1; then
+    mcopy -o -i "${EFIIMG}" "${MINI_ISO_ROOTFS}/EFI/BOOT/grub.cfg" ::EFI/BOOT/grub.cfg 2>/dev/null || true
+fi
+
+# 7. xorriso 封包生成测试 ISO
+# ============================================================
+echo ">>> xorriso 封装测试 ISO"
+xorriso -as mkisofs \
+    -o "${ISO_FILE}" \
+    -V "${ISO_LABEL}" \
+    -J -R -joliet-long \
+    -b isolinux/isolinux.bin \
+    -c isolinux/boot.cat \
+    -no-emul-boot -boot-load-size 4 -boot-info-table \
+    -isohybrid-mbr "${ISOHDPFX_BIN}" \
+    -eltorito-alt-boot \
+    -e "images/efiboot.img" \
+    -no-emul-boot -isohybrid-gpt-basdat \
+    "${MINI_ISO_ROOTFS}"
+
+# 清理解包出来的临时 ISO rootfs 目录
+rm -rf "${MINI_ISO_ROOTFS}"
+
+cd "${ARTIFACTS_DIR}"
+sha512sum "vdi-minimal-test.iso" > "vdi-minimal-test.sha512"
+
+echo "============================================"
+echo "  极简验证 ISO 构建完成!"
+echo "  ISO:   ${ISO_FILE}"
+echo "  大小:  $(du -sh "${ISO_FILE}" | cut -f1)"
+echo "  SHA512:vdi-minimal-test.sha512"
+echo "============================================"
