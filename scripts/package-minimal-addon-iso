@@ -130,7 +130,7 @@ label vdi
   menu label ^Install VDI Addon Test (graphical)
   menu default
   kernel vmlinuz
-  append initrd=initrd.img inst.stage2=hd:LABEL=BCLinux.x86_64 inst.ks=hd:LABEL=BCLinux.x86_64:/ks.cfg console=ttyS0,115200 console=tty1 quiet fpi_to_tail=off inst.graphical
+  append initrd=initrd.img inst.stage2=hd:LABEL=BCLinux.x86_64 inst.ks=hd:LABEL=BCLinux.x86_64:/ks.cfg console=ttyS0,115200 console=tty1 quiet fpi_to_tail=off inst.graphical inst.sshd
 ISO_MENU
 
 cat > "${MINI_ISO_ROOTFS}/EFI/BOOT/grub.cfg" <<'GRUB_MENU'
@@ -156,7 +156,7 @@ menuentry 'Install VDI Addon Test (graphical)' --class gnu-linux --class os {
     set linux=linux
     set initrd=initrd
   fi
-  $linux /images/pxeboot/vmlinuz inst.stage2=hd:LABEL=BCLinux.x86_64 inst.ks=hd:LABEL=BCLinux.x86_64:/ks.cfg console=ttyS0,115200 console=tty1 quiet fpi_to_tail=off inst.graphical
+  $linux /images/pxeboot/vmlinuz inst.stage2=hd:LABEL=BCLinux.x86_64 inst.ks=hd:LABEL=BCLinux.x86_64:/ks.cfg console=ttyS0,115200 console=tty1 quiet fpi_to_tail=off inst.graphical inst.sshd
   $initrd /images/pxeboot/initrd.img
 }
 GRUB_MENU
