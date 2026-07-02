@@ -101,7 +101,9 @@ kickstart 链路下 TUI 在 anaconda `%pre` 阶段跑（`ks.cfg` 交互分支 `e
   3. `KickstartRender` 输出**完整 ks**（text/network/clearpart/autopart/%packages/%post --nochroot×2），经 %include 文本展开等价内联。
 - **磁盘探测在 %pre 用 Go 读 `/sys/block/*`**：`pkg/config/kickstart.go` 的 `detectInstallAndDataDisk` 在 `%pre`（vdi-installer 运行时）探测主盘/数据盘，结果作字面量嵌入 ks（`ignoredisk --only-use=<主盘>` 单条——数据盘因不在 only-use 内对 anaconda 不可见，由 %post 单独 mkfs，避免 clearpart --all 误清）和 `%post` 数据盘格式化段。无盘返回 error 中止。**不依赖 lsblk**（历史踩坑：Ramdisk 环境缺 lsblk 崩溃）。
 - **RKE2 离线**：`rke2.linux-amd64.tar.gz` 解压 `$SYSROOT/usr/local`（二进制内嵌 containerd，删 wharfie）；镜像 `*.tar.zst` 放 `agent/images/`，RKE2 首启自动导入（删 chroot ctr import）。`%post --nochroot` 从 `/run/install/repo/bundle/vdi` 复制 bundle 到 `$SYSROOT`，再 `$SYSROOT` 前缀写 `config.yaml`/manifests + `ln -sf` enable `rke2-server`/`rke2-agent`。sshd drop-in 加 `UseDNS no`/`GSSAPIAuthentication no`（否则 qemu user 网 reverse DNS 致 SSH banner 超时）。
-- **内存**：kickstart 装机无 squashfs/active.img，4G 够（elemental 时代需 ≥16G）。
+- **内存**：kickstart 装机无 squashfs/active.img，4G 够 (elemental 时代需 ≥16G)。
+- **Anaconda 33+ Addon 兼容性与 GtkBox 限制（致命红线）**：系统在 SummaryHub 渲染和 Spoke 进入阶段，会强制调用 `spoke.window.set_beta`、`set_property("distribution")` 并绑定 `help-button-clicked` 信号。若使用常规 `GtkBox` 作 Spoke 顶层窗口会触发 C 语言层和 GTK 底层崩溃。必须通过继承 `Gtk.Box` 的 `WindowWrapper` 并在 Python 层对属性和信号进行静默代理（通过 `GUIObject.window.fget(self)` 显式读取父类懒加载 Widget 并 pack_start 作为子树），同时在 D-Bus 私有总线上发布服务。
+- **`install.img` 嵌套 ext4 注入**：BCLinux 的 `install.img` 包含嵌套 ext4 分区，必须通过 loop 挂载 `LiveOS/rootfs.img` 内部目录，才能成功注入 Python 插件和 D-Bus 激活配置文件，直接在外层写入将失效。
 
 ## 关键配置
 
