@@ -72,6 +72,13 @@ if [ ! -f "${ROOTFS_IMG}" ]; then
 fi
 
 echo ">>> 挂载 rootfs.img (ext4) 并注入 VDI Addon"
+# 动态创建 loop 块设备节点，以保证特权 Docker 容器内能正常建立 loop 挂载绑定
+for i in {0..7}; do
+    if [ ! -b "/dev/loop$i" ]; then
+        mknod "/dev/loop$i" b 7 $i 2>/dev/null || true
+    fi
+done
+
 mkdir -p "${MINI_ANACONDA_MNT}"
 mount -o loop "${ROOTFS_IMG}" "${MINI_ANACONDA_MNT}"
 
