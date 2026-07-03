@@ -31,11 +31,9 @@ VDI/
 │   ├── build            # 校验 Go 环境
 │   ├── build-bundle     # 下载离线资源（RKE2 二进制/镜像/组件镜像/charts）
 │   ├── package-vdi-iso  # xorriso 重建 BCLinux DVD ISO（注入 ks + addon + bundle）
-│   ├── package-vdi-installer # 构建安装器二进制镜像
 │   └── package-vdi-repo # 构建 Helm Chart 仓库镜像
 ├── package/             # Docker 镜像定义 + ISO 输入
 │   ├── vdi-os/          # BCLinux 21.10 U5 + VDI 安装器文件（ks/ + iso/bundle/ + anaconda/addons/vdi/）
-│   ├── vdi-installer/   # 安装器二进制镜像
 │   └── vdi-cluster-repo/# Helm Chart 仓库
 └── docs/                # 设计文档 + 实施计划
 ```
