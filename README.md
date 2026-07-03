@@ -1,6 +1,6 @@
 # VDI 离线安装器
 
-基于 [Harvester Installer](https://github.com/harvester/harvester-installer) 架构改造的 VDI (Virtual Desktop Infrastructure) 离线安装器，使用 RKE2 + HelmChart CRD 声明式部署 KubeVirt/Longhorn/Kube-OVN/kagent 组件栈。
+基于 BCLinux + Anaconda Addon 架构的 VDI (Virtual Desktop Infrastructure) 离线安装器，使用 RKE2 + HelmChart CRD 声明式部署 KubeVirt/Longhorn/Kube-OVN/kagent 组件栈。
 
 ## 技术栈
 
@@ -12,7 +12,7 @@
 | 存储 | Longhorn |
 | 虚拟化 | KubeVirt |
 | AI Agent | kagent |
-| 安装器 | Go + gocui |
+| 安装 GUI | Anaconda Addon (Python + Gtk3 + D-Bus) |
 | ISO 构建 | kickstart + xorriso（BCLinux DVD + anaconda） |
 | 基础 OS | BCLinux 21.10 U5 |
 
@@ -21,9 +21,7 @@
 ### 前置条件
 
 - Docker
-- Git
-- Go 1.26+
-- Helm
+- BCLinux ISO（客户提供）：放至 `dist/iso/BCLinux-21.10U5-dvd-x86_64-260610.iso`
 
 ### 构建 ISO
 
@@ -32,7 +30,7 @@
 make default
 
 # 或分步执行
-make build              # 编译 Go 安装器
+make build              # 编译 Go 版本 CLI
 make build-bundle       # 下载离线资源（RKE2 二进制/镜像/charts）
 make package-vdi-iso    # 构建安装型 ISO（BCLinux DVD + kickstart + xorriso）
 ```
@@ -43,47 +41,41 @@ ISO 产物位于 `dist/artifacts/vdi-$VERSION-$ARCH.iso`。
 
 ### 测试 ISO
 
-当前 ISO 仅支持 UEFI 引导（通过字节级注入 grubx64.efi 到 EFI 引导镜像）。
-
 ```bash
 # UEFI 模式（需 OVMF 固件）
-qemu-system-x86_64 -m 4096 -smp 2 \
-    -cdrom dist/artifacts/vdi-*.iso \
-    -boot d -bios /usr/share/ovmf/OVMF.fd -nographic
+./scripts/qemu-test-ks dist/artifacts/vdi-*.iso uefi
+
+# BIOS 模式
+./scripts/qemu-test-ks dist/artifacts/vdi-*.iso bios
 ```
 
 ## 安装流程
 
 1. **ISO 引导** — BCLinux DVD ISO 引导，`inst.ks` 加载 kickstart 模板
-2. **`%pre` 配置收集** — ks `%pre` 调 vdi-installer：交互模式弹 gocui TUI（模式/网络/磁盘/VIP/密码/role）；自动模式用预置配置。渲染 ks 写 `/tmp/ks-include.cfg`
-3. **anaconda 装机** — `%include` 展开：LVM 分区 + 装包 + `%post` 解压 RKE2、写 config/manifests、enable rke2-server/agent
+2. **Anaconda Addon 图形化安装** — 加载 VDI Addon，提供网卡/Bond/IP/VIP 配置 GUI
+3. **`execute` 阶段全量写盘** — Anaconda 生命周期钩子自动完成：网络持久化、RKE2 离线部署、数据盘格式化挂载
 4. **首次启动** — RKE2 首启自动导入离线镜像，HelmChart 控制器部署 KubeVirt/Longhorn/Kube-OVN/kagent
 
 ## 目录结构
 
 ```
 VDI/
-├── main.go              # 安装器入口
+├── main.go              # Go 版本输出 CLI
 ├── Makefile             # Dapper 构建系统
-├── Dockerfile.dapper    # 构建宿主机环境（Go + 工具链）
-├── go.mod / go.sum      # Go module (vdi-installer)
-├── pkg/                 # Go 代码
-│   ├── config/          # VDIConfig 结构体 + RKE2 模板
-│   ├── console/         # gocui TUI 安装器
-│   ├── preflight/       # 硬件预检
-│   ├── util/            # 工具函数
-│   └── widgets/         # gocui 控件
-├── scripts/             # 构建脚本
+├── Dockerfile.dapper    # 构建容器环境
+├── pkg/version/         # 版本信息（ldflags 注入）
+├── scripts/             # 构建脚本（Makefile 自动生成同名 target）
 │   ├── version-*        # 组件版本
-│   ├── build            # 编译 Go 安装器
-│   ├── build-bundle     # 下载离线资源（RKE2 二进制/镜像/charts）
-│   ├── package-vdi-iso  # xorriso 重建 BCLinux DVD ISO（注入 ks + bundle）
-│   └── package-vdi-repo # 构建 Helm Chart 仓库镜像
-├── package/             # Docker 镜像定义
-│   ├── vdi-os/          # BCLinux 21.10 U5 + VDI 安装器文件
-│   ├── vdi-installer/   # 安装器二进制镜像
-│   └── vdi-cluster-repo/# Helm Chart 仓库
-└── docs/                # 设计文档 + 实施计划
+│   ├── build            # 编译 Go CLI
+│   ├── build-bundle     # 下载离线资源
+│   ├── package-vdi-iso  # 构建 ISO
+│   ├── hot-reload-addon # Addon 热重载
+│   └── qemu-test-ks    # QEMU 装机验证
+├── package/vdi-os/
+│   ├── ks/ks.cfg        # 静态 kickstart 模板
+│   ├── iso/bundle/      # 离线资源（.gitignore 忽略）
+│   └── anaconda/addons/vdi/  # Anaconda Addon Python 插件
+└── docs/                # 设计文档
 ```
 
 ## 版本管理
