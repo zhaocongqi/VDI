@@ -152,4 +152,5 @@ scripts/version-kagent    # KAGENT_VERSION="0.9.6"
 
 - [构建流程](file:///home/zcq/Github/VDI/docs/build-pipeline.md)
 - [构建环境前置条件](file:///home/zcq/Github/VDI/docs/build-env.md)
-- [本地包缓存设计说明书](file:///home/zcq/Github/VDI/docs/superpowers/specs/2026-06-23-local-pkg-cache-design.md)
+- [Anaconda Addon 设计规范](file:///home/zcq/Github/VDI/docs/superpowers/specs/2026-07-02-anaconda-addon-design.md)
+- [Anaconda Addon 实施计划](file:///home/zcq/Github/VDI/docs/superpowers/plans/2026-07-02-anaconda-addon.md)
