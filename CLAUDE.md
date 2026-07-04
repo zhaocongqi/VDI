@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 本仓库是 VDI (Virtual Desktop Infrastructure) 离线安装器，使用 RKE2 + HelmChart CRD 声明式部署 KubeVirt/Longhorn/Kube-OVN/kagent 组件栈。安装交互由 Anaconda Addon (Python + Gtk3 + D-Bus) 驱动，ISO 通过 BCLinux DVD + kickstart + xorriso 构建。
 
 **技术栈**：
-- **语言**：Go 1.26（版本 CLI）+ Python 3（Anaconda Addon）
+- **语言**：Python 3（Anaconda Addon）+ Shell（构建脚本）
 - **K8s 运行时**：RKE2
 - **addon 管理**：HelmChart CRD (helm.cattle.io/v1)
 - **ISO 构建**：kickstart + xorriso（复用 BCLinux DVD anaconda stage2）
@@ -18,18 +18,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```
 VDI/
-├── main.go              # Go 版本输出 CLI（ldflags 注入 Version + GitCommit）
 ├── Makefile             # 构建系统（宿主机直接执行，前置工具检查）
-├── go.mod / go.sum      # Go module (vdi-installer，无外部依赖)
-├── pkg/
-│   └── version/         # FriendlyVersion（ldflags 注入）
 ├── scripts/             # 构建脚本
 │   ├── version          # VERSION=git-commit[-dirty]
 │   ├── version-*        # 组件版本（RKE2/KubeVirt/Longhorn/Kube-OVN/kagent）
-│   ├── build            # 编译 Go 版本 CLI（ldflags 注入）
+│   ├── version          # VERSION=git-commit[-dirty]
+│   ├── version-*        # 组件版本（RKE2/KubeVirt/Longhorn/Kube-OVN/kagent）
 │   ├── build-bundle     # 下载离线资源（RKE2 二进制/镜像/charts）
 │   ├── package-vdi-iso  # xorriso 重建 BCLinux DVD ISO（注入 ks + addon + bundle）
-│   ├── default          # build + build-bundle + package-vdi-iso（Makefile target）
+│   ├── default          # build-bundle + package-vdi-iso（Makefile target）
 │   ├── hot-reload-addon # 开发期热重载 Anaconda Addon 到运行中的安装器
 │   ├── qemu-test-ks     # qemu 无人值守装机验证
 │   ├── package-minimal-addon-iso  # 极简 Addon 验证 ISO
@@ -53,25 +50,22 @@ VDI/
 ## 构建命令
 
 ```bash
-make build              # 编译 Go 版本 CLI
 make build-bundle       # 下载离线资源（RKE2 二进制/镜像/charts）
 make package-vdi-iso    # 构建 VDI 安装型 ISO（BCLinux DVD + kickstart + xorriso）
-make shell              # 进入构建容器调试
-make default            # build + build-bundle + package-vdi-iso 全链路
+make default            # build-bundle + package-vdi-iso 全链路
 ```
 
 ### 宿主机工具要求
 
 构建直接在宿主机执行，所需工具：
-- **go** — 编译版本 CLI
 - **xorriso** — ISO 解包/重建
 - **squashfs-tools** — install.img 解压/重构（unsquashfs/mksquashfs）
 - **mtools** — efiboot.img 内 grub.cfg 改写（mcopy）
-- **skopeo** — 组件镜像拉取打包（替代 docker pull/save）
+- **skopeo** — 组件镜像拉取打包
 - **zstd** — 镜像压缩
 - **curl** — 下载离线资源
 
-安装：`apt install golang xorriso squashfs-tools mtools skopeo zstd curl`（Debian/Ubuntu）
+安装：`apt install xorriso squashfs-tools mtools skopeo zstd curl`（Debian/Ubuntu）
 
 `make` 会自动检查工具是否存在，缺失时给出安装提示。
 
@@ -136,7 +130,7 @@ BCLinux 的 `install.img` 包含嵌套 ext4 分区，必须通过 loop 挂载 `L
 
 ## 版本管理
 
-版本号通过 `scripts/version-*` 脚本管理，Go 二进制通过 ldflags 注入到 `pkg/version/version.go`：
+版本号通过 `scripts/version` 生成（`VERSION=<git-commit>[-dirty]`），组件版本由 `scripts/version-*` 定义：
 
 ```bash
 scripts/version-rke2      # RKE2_VERSION="v1.31.4+rke2r1"
