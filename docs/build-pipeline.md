@@ -1,177 +1,131 @@
 # VDI 构建流程
 
-> ⚠️ **状态说明（2026-06-30）**：本文档描述的是 `main` 分支基于 SUSE elemental 的 Live ISO 构建链。`feat/kickstart-xorriso` 分支已弃 elemental，改用 **kickstart + xorriso** 构建"安装型"ISO（复用 BCLinux DVD 自带 anaconda stage2），构建脚本为 `scripts/package-vdi-iso`。kickstart 链路的现状以 [`CLAUDE.md`](../CLAUDE.md) 和 [迁移计划](superpowers/plans/2026-06-29-kickstart-xorriso.md) 为准。本文档待重写。
-
-VDI 离线安装器从源码到可引导 ISO 的完整构建链路。面向接手构建/运维的同事。
+VDI 离线安装器从源码到可引导 ISO 的完整构建链路。
 
 ## 总览
 
-构建用 **Dapper + Docker** 模式：`make <target>` 在容器内执行 `scripts/<target>`，外部依赖全挂载、纯离线。最终产物是 UEFI 可引导的 Live ISO。
+构建用 **Dapper + Docker** 模式：`make <target>` 在容器内执行 `scripts/<target>`，外部依赖全挂载、纯离线。最终产物是 BIOS+UEFI 双引导的安装型 ISO。
 
 ```
 make default
-  ├─ scripts/build              编译 Go 安装器
-  ├─ scripts/build-bundle       下载离线镜像 + Helm chart
-  └─ scripts/package-vdi-os     构建 OS 镜像 + elemental build-iso + 注入 grubx64.efi
-       └─ (自动) scripts/build-bclinux-base   若 bclinux:21.10U5 不存在
+  ├─ scripts/build              编译 Go 版本输出 CLI
+  ├─ scripts/build-bundle       下载离线镜像 + Helm chart + RKE2 二进制
+  └─ scripts/package-vdi-iso    xorriso 解包 BCLinux DVD → 注入 ks/addon/bundle → 重建 ISO
 ```
 
-产物：`dist/artifacts/vdi-$VERSION-$ARCH.iso`（~3.3GB）
+产物：`dist/artifacts/vdi-$VERSION-$ARCH.iso`
 
 ## 一、Makefile + Dapper 编排
 
 `Makefile` 把 `scripts/*` 全部注册为 target：
 
 ```makefile
-TARGETS := $(shell ls scripts)
+TARGETS := $(shell find scripts -maxdepth 1 -type f -executable -printf '%f\n')
 $(TARGETS): .dapper
 	./.dapper $@
 ```
 
 - `./.dapper` 首次运行时从 `releases.rancher.com` 下载（带 SHA512 校验）
-- 容器镜像由 `Dockerfile.dapper` 构建（基于 `golang:1.26-bookworm`，预装 xorriso/mtools/squashfs-tools/grub-efi-amd64-bin/rpm2cpio 等，并 curl 安装 helm/yq）
+- 容器镜像由 `Dockerfile.dapper` 构建（基于 `golang:1.26-bookworm`，预装 xorriso/squashfs-tools/helm/yq 等）
 - **构建者只需宿主机装 docker**，其余工具容器内自行安装/下载：
-  - docker CLI + buildx：宿主机挂载（DinD，Makefile 探测路径通过 build-arg 注入，不硬编码用户目录）
+  - docker CLI + buildx：宿主机挂载（DinD，Makefile 探测路径通过 build-arg 注入）
   - helm、yq：Dockerfile.dapper 内 curl 安装
   - Go 模块：容器内 `go build` 自动下载（需网络）
-  - `cache/`、`dist/`：bind 挂载（项目根下，dist/ 含 BCLinux ISO 输入）
+  - `cache/`、`dist/`：bind 挂载
   - containerd socket + `--privileged`
-- docker/buildx 探测失败时 `make` 明确报错，而非静默挂载空路径
-- `DAPPER_OUTPUT` 声明容器→宿主机回传：`./bin ./dist ./cache ./package/vdi-os/files/usr/bin ./package/vdi-os/iso ./package/vdi-installer`。dapper 实际跑 **cp 模式**（`--debug` 确认 `Mode: cp`），只回传声明的目录——新增构建产物目录必须同步加到 DAPPER_OUTPUT，否则不回传（`package/vdi-os/iso` 含 build-bundle 下载的 bundle，缺失则 `--overlay-iso` 找不到 bundle）
+- `DAPPER_OUTPUT` 声明容器→宿主机回传：`./bin ./dist ./cache ./package/vdi-os/iso`
 
 ## 二、scripts 脚本职责
 
 | 脚本 | 职责 | 产物 |
 |------|------|------|
 | `version` / `version-*` | 定义 VERSION + RKE2/KubeVirt/Longhorn/Kube-OVN/kagent 版本号 | shell 变量 |
-| `build` | `go build` 编译安装器，ldflags 注入版本号 | `bin/vdi-installer` → `package/vdi-os/files/usr/bin/` |
-| `build-bundle` | 下载组件镜像 tar + Helm chart | `package/vdi-os/iso/bundle/`、`package/vdi-cluster-repo/charts/` |
-| `build-bclinux-base` | 从 BCLinux ISO 用 `dnf --installroot` 造基础镜像 | `bclinux:21.10U5` |
-| `package-vdi-os` | 构建 OS 镜像 + elemental build-iso + 注入 grubx64.efi | `dist/artifacts/vdi-$VERSION-$ARCH.iso` |
-| `package-vdi-installer` | 安装器二进制镜像（**当前跳过**，无 Dockerfile） | — |
-| `package-vdi-repo` | Helm Chart 仓库镜像（**当前跳过**，需 nginx:alpine） | — |
-| `test` / `validate` / `ci` | 测试 / golangci-lint / CI | — |
+| `build` | `go build` 编译版本输出 CLI，ldflags 注入版本号 | `bin/vdi-installer` |
+| `build-bundle` | 下载组件镜像 tar.zst + Helm chart + RKE2 二进制 | `package/vdi-os/iso/bundle/` |
+| `package-vdi-iso` | xorriso 解包 BCLinux DVD → 注入 ks.cfg + Addon + bundle → 重建 ISO | `dist/artifacts/vdi-$VERSION-$ARCH.iso` |
+| `hot-reload-addon` | 开发期热重载 Anaconda Addon 到运行中的安装器 | — |
+| `qemu-test-ks` | QEMU 无人值守装机验证 | — |
+| `package-minimal-addon-iso` | 构建极简 Addon 验证 ISO | — |
 
 ### build
-`CGO_ENABLED=0 GOPROXY=off GOTOOLCHAIN=local go build`，通过 `-ldflags` 把 `version-*` 的版本号注入 `pkg/config` 和 `pkg/version` 的变量。编译后复制到 `package/vdi-os/files/usr/bin/vdi-installer`。
+
+`CGO_ENABLED=0 go build`，通过 `-ldflags` 把版本号注入 `pkg/version.Version` + `pkg/version.GitCommit`。
 
 ### build-bundle
-为每个组件拉取镜像 tar + Helm chart，落盘到 `package/vdi-os/iso/bundle/vdi/images/`（镜像）和 `package/vdi-cluster-repo/charts/`（chart）。公共函数在 `scripts/lib/http`（`get_url`/`save_image_list`）和 `scripts/lib/image`（`save_image`/`pull_images`）。
 
-额外下载 `rancherd-bootstrap-images`（`system-agent-installer-rke2:$RKE2_VERSION`）到 `bundle/rancherd/images/`——vdi-install 用 wharfie 从中提取 rke2 二进制+containerd（对齐 harvester）。kagent chart 拉取失败改为 warn 不中断构建。
+为每个组件拉取镜像 tar.zst + Helm chart + RKE2 二进制，落盘到 `package/vdi-os/iso/bundle/vdi/`：
 
-支持 `LOCAL_PKG_DIR` 环境变量指定本地离线包检索路径（命中则本地拷贝，否则无代理 curl 下载）；未设置时默认检索 `cache/downloads`。
+| 组件 | 下载内容 |
+|------|---------|
+| RKE2 | rke2-images.linux-amd64.tar.zst + rke2-images-multus tar.zst + rke2.linux-amd64.tar.gz（二进制） |
+| Longhorn | longhorn chart tgz + 镜像 tar.zst |
+| KubeVirt | kubevirt-operator.yaml manifest + 镜像 tar.zst |
+| Kube-OVN | kube-ovn chart tgz + 镜像 tar.zst |
+| kagent | 暂不部署（chart 无 release 资产 + ghcr 需认证） |
 
-### build-bclinux-base
-1. `7z` 从 BCLinux ISO 提取 `Packages/` + `repodata/` 到 `cache/bclinux-repo/`
-2. 用 `almalinux:8` 辅助容器跑 `dnf --installroot` 装最小系统（@core/kernel/dracut/systemd/NetworkManager/openssh 等）
-3. 打包为 `bclinux:21.10U5` 镜像
+公共函数：`scripts/lib/http`（`get_url` — 支持本地缓存 + curl 下载）、`scripts/lib/image`（`save_image`/`pull_images`/`save_image_list` — 镜像白名单过滤 + docker pull + save + zst 压缩）。
 
-### package-vdi-os（8 步）
+Helm chart 中转目录：`cache/charts/`（下载后 copy 到 `bundle/vdi/charts/`）。
 
-| 步骤 | 动作 |
-|------|------|
-| 0 | 生成 `vdi-release.yaml`（版本元数据） |
-| 1 | 确保 `bclinux:21.10U5` 存在，否则调 `build-bclinux-base` |
-| 2 | 准备本地 BCLinux RPM 仓库（7z 解包 ISO 的 Packages/repodata） |
-| 3 | `docker buildx build` 构建 `rancher/vdi-os:$VERSION`（`--build-context bclinux-repo=<dir>` 挂载 RPM 仓库给 Dockerfile dnf 用） |
-| 4 | 从镜像提取 `elemental` 二进制到宿主机 `/usr/bin/elemental` |
-| 5 | 提取 kernel/initrd 到 `dist/artifacts/`（供 PXE/调试） |
-| 6 | `elemental build-iso` 打包 Live ISO（`--overlay-iso` 叠加 `package/vdi-os/iso` 的 bundle+grub.cfg+isolinux.cfg） |
-| 7 | **字节级注入 grubx64.efi**（Python 定位 EFI 镜像偏移 → mtools 注入 → `dd conv=notrunc` 原位写回） |
-| 8 | 验证 ISO + 生成 SHA512 |
+### package-vdi-iso
 
-> 步骤 7 的背景：elemental build-iso 默认只把 `grub.efi` 放进 EFI 引导镜像，但 BCLinux shim 硬编码找 `grubx64.efi`，缺失则 UEFI 引导失败。此前用 xorriso 全量重建 ISO 注入，但 3.3GB ISO 重建后体积超 xorriso stdio 媒体容量上限（~3174MB）导致重建失败，改为字节级注入绕过。
+1. 校验 BCLinux ISO + xorriso
+2. xorriso 解包 DVD ISO 到临时目录（osirrox，保留 Rock Ridge + Eltorito + EFI）
+3. `chmod -R u+w` 解除 ISO 9660 只读
+4. 注入 `ks.cfg` 到 ISO 根（`inst.ks=hd:LABEL=BCLinux.x86_64:/ks.cfg` 寻址）
+5. 注入 Anaconda Addon（`package/vdi-os/anaconda/addons/vdi/`）到 `install.img` 内部 ext4
+6. 改写 `install.img` 内 `bclinux.conf` 隐藏原生 NetworkSpoke
+7. 改 `isolinux.cfg`(BIOS) + `grub.cfg`(UEFI) 加 `inst.ks` + 设默认装机项 + 缩短 timeout
+8. 复制 `bundle/vdi/` 离线资源到 ISO 内 `/bundle/vdi/`
+9. xorriso 重建 ISO（`-isohybrid-mbr` 保留双引导，卷标 `BCLinux.x86_64`）
+10. 验证 + SHA512
 
-## 三、Go 代码侧的构建参与
+## 三、版本注入
 
-### 版本注入（`pkg/version/version.go`）
+`pkg/version/version.go`：
 ```go
 var (
     Version   = "dev"   // ldflags 注入
     GitCommit = "HEAD"  // ldflags 注入
 )
 ```
-`scripts/build` 的 LINKFLAGS 把 `version-*` 版本号注入 `pkg/config` 的版本变量 + `pkg/version.Version/GitCommit`。
 
-### VDI OS Dockerfile（`package/vdi-os/Dockerfile`）
-FROM `bclinux:21.10U5`，依次：
-1. dnf 安装 dracut/squashfs-tools/NetworkManager/openssh/iscsi/ebtables/ipvsadm/dosfstools/lvm2/grub2-pc/grub2-pc-modules 等
-2. `rpm2cpio` 从 RPM 提取 EFI 文件（shim/grubx64/MokManager/fbx64）到 `/usr/share/efi/x86_64/`
-3. 多阶段从 `debian:bookworm-slim` 的 `grub-efi-amd64-bin` 提取 x86_64-efi 模块到 `/usr/lib/grub/x86_64-efi/`（BCLinux 仓库无 `grub2-efi-x64-modules`，elemental install 生成 UEFI core.img 需要）
-4. `COPY files/` 注入安装器二进制 + systemd service + manifests + dracut 模块（含自写的 `90cos-img`，BCLinux 无 cos dracut 模块）+ `/etc/cos/grub.cfg`+`bootargs.cfg`（elemental install 复制 grub.cfg 到目标盘）
-5. 配置 systemd（禁 Anaconda，启 vdi-setup-installer/NetworkManager/sshd）
-6. getty drop-in 不在构建时创建——由 `setup-installer.sh` 运行时根据 `/sys/class/tty/console/active` 只为第一个 VGA tty 创建（对齐 harvester，避免多 vdi-installer 实例）
-7. `dracut` 重建 initrd（`--add dmsquash-live --add cos-img`，`--no-hostonly` 避免读宿主内核；cos-img 模块需 `installkernel instmods loop` 否则 initrd 无 loop 设备）
-8. 设默认密码 root/vdi123、生成 SSH host key
-
-> grub2-pc-modules（BIOS grub）在步骤 1 dnf install 安装，elemental install 在 BIOS 模式下用 `grub2-install --target=i386-pc` 安装 BIOS grub。vdi-installer `--auto-install` 参数跳过 TUI 直接安装（用于 qemu 自动化测试）。
-
-### ISO 启动后的安装落地（`pkg/console/util.go:doInstall`）
-ISO 引导（`console=tty1` 单 VGA console，`selinux=0` 禁 selinux）→ `start-installer.sh` → `vdi-installer` TUI 收集配置 → `doInstall()`：
-1. `roleSetup` 设置节点角色 label
-2. `generateEnvAndConfig` 生成 elemental 配置（分区大小见 `pkg/config/constants.go`：COS_STATE 20G 容纳 active.img+passive.img、COS_RECOVERY 12G、`Install.System.Size`=8G active.img ext2 大小）
-3. `CreateRootPartitioningLayout*` 创建分区布局（含 Longhorn 数据分区，显式设 `Install.System.Size`）
-4. `saveElementalConfig` + 调用 `elemental install` 把 OS 写入目标盘（需 `/etc/cos/grub.cfg` 模板 + x86_64-efi 模块）
-5. `vdi-install` 预加载镜像：复制 `bundle/rancherd/images/`（system-agent-installer-rke2）到 target → wharfie 提取 rke2+containerd → 启动临时 RKE2/containerd → `ctr import --no-unpack` 导入镜像 tar（导入后删原 tar.zst 释放 active.img 空间）
-6. `vdi-install` 引导链修复：`fix_efi_grubx64`（grub.efi→grubx64.efi 到目标盘 EFI 分区，BCLinux shim 硬编码找 grubx64.efi）+ `copy_kernel_to_state`（kernel/initrd 从 active.img 复制到 COS_STATE/boot，避开 grub loopback 加载大 active.img OOM）
-7. 重启后引导：dracut `cos-img` 模块（pre-pivot hook）loop 挂 active.img + bind 覆盖 /sysroot（COS_STATE 分区无 os-release，不覆盖则 switch-root 失败）→ switch-root → RKE2 启动 → 自动 apply `manifests/10-kube-ovn.yaml` 等 HelmChart → 部署 Kube-OVN/Longhorn/KubeVirt/kagent
-
-> 引导链四环节（grubx64.efi / kernel 复制 / cos-img 模块 / grub.cfg 变量）缺一不可，均因 BCLinux 缺 harvester SUSE MicroOS 自带的环节。详见 CLAUDE.md「安装后引导链红线」。**RKE2 安装尚未实现**：harvester 用 rancherd 首启装 RKE2，VDI 无 rancherd，需后续 vdi-install 持久化 RKE2 二进制 + systemd 服务。
+`scripts/build` 的 LINKFLAGS 注入 `version.Version` + `version.GitCommit`。
 
 ## 四、构建产物依赖关系
 
 ```
-Go 源码 ──build──→ bin/vdi-installer ──┐
-                                       ├─→ package-vdi-os/files/usr/bin/
-BCLinux ISO ──build-bclinux-base──→ bclinux:21.10U5 ──┐
-        │                                              ├─→ Dockerfile ──→ rancher/vdi-os:$VER
-        └─→ 7z 解包 RPM 仓库 ──────────────────────────┘            │
-                                                                     ↓
-网络镜像 ──build-bundle──→ bundle/ + charts/ ──→ package/vdi-os/iso/ (overlay)
-                                                                     │
-                                          elemental build-iso ←──────┘
-                                                  │
-                                          字节级注入 grubx64.efi
-                                                  │
-                                          dist/artifacts/vdi-$VER-$ARCH.iso
+Go 源码 ──build──→ bin/vdi-installer
+                         ↓ (仅版本输出，不参与 ISO 构建)
+
+BCLinux ISO ──package-vdi-iso──→ xorriso 解包 ──┐
+                                                 ├─→ 注入 ks.cfg + Addon + bundle
+离线资源 ──build-bundle──→ bundle/vdi/ ──────────┘    │
+                                                       ↓
+                                                xorriso 重建 ISO
+                                                       │
+                                                dist/artifacts/vdi-$VER-$ARCH.iso
 ```
 
-## 五、外部输入契约
-
-构建前宿主机必须具备：
-
-1. **BCLinux ISO**（客户提供）：`dist/iso/BCLinux-21.10U5-dvd-x86_64-260610.iso`
-2. **elemental / wharfie 二进制**：`make fetch-deps` 自动下载到 `package/vdi-os/files/usr/bin/`
-3. **挂载的二进制**：docker、buildx、helm、yq（见 `DAPPER_RUN_ARGS`）
-4. **Go 模块缓存**：`~/go/pkg/mod`（`GOPROXY=off` 纯离线）
-5. **内存 ≥16G**：elemental + mksquashfs xz 压缩峰值 ~9.7GB，不足会 OOM（exit 137）
-6. **磁盘 ≥20G**：Docker 层 + squashfs + ISO 临时空间
-
-外部输入前置检查：`make check-deps`（已接入 `make default`/`make package-vdi-os`，依赖缺失会在构建前明确报错而非中途晦涩失败）。
-
-## 六、构建命令速查
+## 五、构建命令速查
 
 ```bash
-make default            # 完整构建（build + build-bundle + package-vdi-os）
-make build              # 仅编译 Go 安装器
+make default            # 完整构建（build + build-bundle + package-vdi-iso）
+make build              # 仅编译 Go 版本 CLI
 make build-bundle       # 仅下载离线资源
-make package-vdi-os     # 仅构建 OS 镜像 + ISO
+make package-vdi-iso    # 仅构建 ISO
 make shell              # 进入构建容器调试
-make test               # 运行测试
-make validate           # golangci-lint 检查
 ```
 
-验证 ISO（UEFI）：
+验证 ISO：
 ```bash
-qemu-system-x86_64 -m 4096 -smp 2 \
-    -cdrom dist/artifacts/vdi-*.iso \
-    -boot d -bios /usr/share/ovmf/OVMF.fd -nographic
+# UEFI 模式（需 OVMF 固件）
+./scripts/qemu-test-ks dist/artifacts/vdi-*.iso uefi
+
+# BIOS 模式
+./scripts/qemu-test-ks dist/artifacts/vdi-*.iso bios
 ```
 
-## 七、已知缺口
+## 六、已知缺口
 
-1. `package-vdi-installer` / `package-vdi-repo` 在 `default` 中被跳过（离线环境限制）
-2. kagent 组件无法部署：镜像未打包（ghcr.io 需认证，`build-bundle` 跳过）；chart 拉取失败改为 **warn 不中断构建**（kagent 是可选组件）；manifest `40-kagent.yaml` 引用的 chart/镜像在 ISO 里缺失。启用需配 GHCR 认证。
-3. 当前 ISO 是 UEFI-only（无 BIOS/isolinux 引导记录）
-4. 安装落地分区/镜像约束详见 `CLAUDE.md` 的「安装落地分区/镜像红线」——`pkg/config/constants.go` 三常量配套 + `Install.System.Size` + selinux=0 + grub EFI 模块 + rancherd bootstrap
+1. kagent 组件无法部署：镜像未打包（ghcr.io 需认证）；chart 拉取 404；manifest 引用的 chart/镜像在 ISO 里缺失。启用需配 GHCR 认证 + 确认 chart 来源。

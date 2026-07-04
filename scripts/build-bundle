@@ -4,7 +4,6 @@ set -e
 TOP_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )/.." &> /dev/null && pwd )"
 SCRIPTS_DIR="${TOP_DIR}/scripts"
 PACKAGE_VDI_OS_DIR="${TOP_DIR}/package/vdi-os"
-PACKAGE_VDI_REPO_DIR="${TOP_DIR}/package/vdi-cluster-repo"
 : ${RKE2_IMAGE_REPO:=https://github.com/rancher/rke2/releases/download/}
 
 cd ${TOP_DIR}
@@ -19,7 +18,7 @@ source ${SCRIPTS_DIR}/lib/http
 source ${SCRIPTS_DIR}/lib/image
 
 BUNDLE_DIR="${PACKAGE_VDI_OS_DIR}/iso/bundle"
-CHARTS_DIR="${PACKAGE_VDI_REPO_DIR}/charts"
+CHARTS_DIR="${TOP_DIR}/cache/charts"
 IMAGES_DIR="${BUNDLE_DIR}/vdi/images"
 IMAGES_LISTS_DIR="${BUNDLE_DIR}/vdi/images-lists"
 mkdir -p ${CHARTS_DIR}

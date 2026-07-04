@@ -80,8 +80,6 @@ __pycache__/
 tmp/
 bin/
 dist
-package/vdi-os/files/usr/bin/vdi-installer
-
 # 离线资源（由 build-bundle 脚本下载，不提交到 git）
 package/vdi-os/iso/bundle/
 cache
