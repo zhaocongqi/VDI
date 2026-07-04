@@ -1,61 +1,12 @@
 #!/bin/bash
 
-# Prefix registry to images
-# rancher -> docker.io/library/rancher
-# rancher/rancher -> docker.io/rancher/rancher
-# test.com/rancher/rancher -> test.com/rancher/rancher
-normalize_image()
-{
-  echo $1 | awk -F '/' '{if(NF>=3){print $0} else if(NF==2){print "docker.io/"$0}else if(NF==1){print "docker.io/library/"$0}}'
-}
-
-save_image_list()
-{
-  local app=$1
-  local in_file=$2
-  local out_file=$3
-  local images
-  local image
-
-  if [ -f "$out_file" ]; then
-    echo "File already exists: ${out_file}"
-    return 0
-  fi
-
-  case $in_file in
-    http*)
-      images=$(curl -sfL $in_file)
-      ;;
-    *)
-      images=$(<$in_file)
-      ;;
-  esac
-
-  local repository
-  local want
-
-  for image in $images; do
-    repository=${image%:*}
-
-    # Add docker.io prefix if there is no prefixed registry URL
-    repository=$(normalize_image $repository)
-
-    if yq -e e ".${app}[] | select(. == \"${repository}\")" ${SCRIPTS_DIR}/images/allow.yaml &>/dev/null; then
-      want+="$(normalize_image $image)"$'\n'
-    fi
-  done
-
-  echo -n "$want" | sort | uniq > $out_file
-}
-
 # 使用 skopeo 将镜像列表中的所有镜像打包为 docker-archive 格式的 tar，再 zst 压缩。
-# 替代原 docker pull + docker save 方案，无需 Docker daemon。
+# 镜像列表文件每行一个镜像（完整 registry/repo:tag 格式）。
+
 save_image()
 {
-  local image_type=$1
-  local bundle_dir=$2
-  local image_list=$3
-  local save_dir=$4
+  local image_list=$1
+  local save_dir=$2
 
   local archive_name="$(basename ${image_list%.txt}).tar"
   local archive_file="${save_dir}/${archive_name}"
@@ -63,7 +14,6 @@ save_image()
 
   if [ -f "$zst_file" ]; then
     echo "Archive already exists: ${zst_file}"
-    add_image_list_to_metadata $image_type $bundle_dir $image_list "$zst_file"
     return 0
   fi
 
@@ -87,44 +37,4 @@ save_image()
   done
 
   zstd --rm $archive_file
-
-  add_image_list_to_metadata $image_type $bundle_dir $image_list "$zst_file"
-}
-
-# Add image list to bundle metadata
-add_image_list_to_metadata() {
-  local image_type=$1
-  local bundle_dir=$2
-  local image_list=$3
-  local image_archive=$4
-
-  local metadata="$bundle_dir/metadata.yaml"
-  local rel_image_list
-  local rel_image_archive
-
-  rel_image_list="${image_list#"$bundle_dir"}"
-
-  if [ "$rel_image_list" = "$image_list" ]; then
-    echo "Image list file $image_list is not in $bundle_dir"
-    exit 1
-  fi
-
-  rel_image_archive="${image_archive#"$bundle_dir"}"
-  if [ "$rel_image_archive" = "$image_archive" ]; then
-    echo "Image archive $image_archive is not in $bundle_dir"
-    exit 1
-  fi
-
-  if [ ! -e  $metadata ]; then
-    cat > $metadata <<'EOF'
-images:
-  common: []
-  rke2: []
-  agent: []
-EOF
-  fi
-
-  IMAGE_LIST="$rel_image_list" \
-    IMAGE_ARCHIVE="$rel_image_archive" \
-    yq -e --prettyPrint e ".images.$image_type += [{\"list\": strenv(IMAGE_LIST), \"archive\": strenv(IMAGE_ARCHIVE)}]" $metadata -i
 }

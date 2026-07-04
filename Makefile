@@ -1,35 +1,29 @@
 PROJECT_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
-IMAGE ?= vdi-builder
 
-DOCKER_RUN = docker run --rm \
-    -v $(PROJECT_DIR):/work \
-    -e LOCAL_PKG_DIR=$(LOCAL_PKG_DIR) \
-    -w /work \
-    $(IMAGE)
+# 构建所需工具前置检查
+REQUIRED_TOOLS := go xorriso unsquashfs mksquashfs mtools skopeo zstd curl
+check-deps:
+	@for tool in $(REQUIRED_TOOLS); do \
+		if ! command -v $$tool >/dev/null 2>&1; then \
+			echo "ERROR: 缺少 $$tool"; \
+			echo "  Debian/Ubuntu: apt install golang xorriso squashfs-tools mtools skopeo zstd curl"; \
+			echo "  RHEL/CentOS:   yum install golang xorriso squashfs-tools mtools skopeo zstd curl"; \
+			exit 1; \
+		fi; \
+	done
 
-DOCKER_RUN_PRIV = docker run --rm \
-    --privileged \
-    -v $(PROJECT_DIR):/work \
-    -e LOCAL_PKG_DIR=$(LOCAL_PKG_DIR) \
-    -w /work \
-    $(IMAGE)
+build: check-deps
+	./scripts/build
 
-$(IMAGE):
-	docker build -t $(IMAGE) -f Dockerfile --build-arg DAPPER_HOST_ARCH=$(shell uname -m) .
+build-bundle: check-deps
+	./scripts/build-bundle
 
-build: $(IMAGE)
-	$(DOCKER_RUN) ./scripts/build
+package-vdi-iso: check-deps
+	./scripts/package-vdi-iso
 
-build-bundle: $(IMAGE)
-	$(DOCKER_RUN) ./scripts/build-bundle
+shell:
+	@echo "无需构建容器，直接在宿主机执行脚本即可"
 
-package-vdi-iso: $(IMAGE)
-	$(DOCKER_RUN_PRIV) ./scripts/package-vdi-iso
+default: build build-bundle package-vdi-iso
 
-shell: $(IMAGE)
-	docker run --rm -it -v $(PROJECT_DIR):/work -w /work $(IMAGE) bash
-
-default: $(IMAGE)
-	$(DOCKER_RUN_PRIV) bash -c "./scripts/build && ./scripts/build-bundle && ./scripts/package-vdi-iso"
-
-.PHONY: build build-bundle package-vdi-iso shell default $(IMAGE)
+.PHONY: build build-bundle package-vdi-iso shell default check-deps

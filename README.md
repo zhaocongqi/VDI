@@ -20,10 +20,12 @@
 
 ### 前置条件
 
-- Docker
+- 宿主机工具：go、xorriso、squashfs-tools、mtools、skopeo、zstd、curl
 - BCLinux ISO（客户提供）：放至 `dist/iso/BCLinux-21.10U5-dvd-x86_64-260610.iso`
 
-首次 `make` 会自动构建 `vdi-builder` 容器镜像（Go + helm + yq + xorriso + skopeo），后续直接复用。
+安装工具：`apt install golang xorriso squashfs-tools mtools skopeo zstd curl`
+
+`make` 会自动检查工具是否存在，缺失时给出安装提示。
 
 ### 构建 ISO
 
@@ -63,8 +65,7 @@ ISO 产物位于 `dist/artifacts/vdi-$VERSION-$ARCH.iso`。
 ```
 VDI/
 ├── main.go              # Go 版本输出 CLI
-├── Makefile             # 构建系统（docker run 驱动）
-├── Dockerfile           # 构建容器环境
+├── Makefile             # 构建系统（宿主机直接执行，前置工具检查）
 ├── pkg/version/         # 版本信息（ldflags 注入）
 ├── scripts/             # 构建脚本（Makefile 自动生成同名 target）
 │   ├── version-*        # 组件版本

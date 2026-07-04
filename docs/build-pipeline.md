@@ -4,7 +4,7 @@ VDI 离线安装器从源码到可引导 ISO 的完整构建链路。
 
 ## 总览
 
-构建用 **Dapper + Docker** 模式：`make <target>` 在容器内执行 `scripts/<target>`，外部依赖全挂载、纯离线。最终产物是 BIOS+UEFI 双引导的安装型 ISO。
+构建直接在宿主机执行，`make <target>` 调用 `scripts/<target>`，前置工具自动检查。最终产物是 BIOS+UEFI 双引导的安装型 ISO。
 
 ```
 make default
@@ -17,19 +17,15 @@ make default
 
 ## 一、Makefile 编排
 
-`Makefile` 显式声明构建 target，通过 `docker run --rm` 在容器内执行 `scripts/<target>`：
+`Makefile` 显式声明构建 target，`check-deps` 自动检查工具依赖：
 
 ```makefile
-IMAGE ?= vdi-builder
-DOCKER_RUN = docker run --rm -v $(PROJECT_DIR):/work -w /work $(IMAGE)
-
-build: $(IMAGE)
-	$(DOCKER_RUN) ./scripts/build
+REQUIRED_TOOLS := go xorriso unsquashfs mksquashfs mtools skopeo zstd curl
+build: check-deps
+	./scripts/build
 ```
 
-- 首次 `make` 自动构建 `vdi-builder` 镜像（基于 `Dockerfile`，`golang:1.26-bookworm` + xorriso/squashfs-tools/helm/yq/skopeo）
-- **构建者只需宿主机装 docker**，其余工具容器内自行安装/下载
-- 项目目录 volume mount 到容器 `/work`，产物直写宿主机，无需回传
+构建者需安装宿主机工具：`apt install golang xorriso squashfs-tools mtools skopeo zstd curl`
 
 ## 二、scripts 脚本职责
 
@@ -59,7 +55,7 @@ build: $(IMAGE)
 | Kube-OVN | kube-ovn chart tgz + 镜像 tar.zst |
 | kagent | 暂不部署（chart 无 release 资产 + ghcr 需认证） |
 
-公共函数：`scripts/lib/http`（`get_url` — 支持本地缓存 + curl 下载）、`scripts/lib/image`（`save_image`/`save_image_list` — 镜像白名单过滤 + skopeo copy + zst 压缩，无需 Docker daemon）。
+公共函数：`scripts/lib/http`（`get_url` — 支持本地缓存 + curl 下载）、`scripts/lib/image`（`save_image` — skopeo copy + zst 压缩，无需 Docker daemon）。
 
 Helm chart 中转目录：`cache/charts/`（下载后 copy 到 `bundle/vdi/charts/`）。
 
@@ -110,7 +106,6 @@ make default            # 完整构建（build + build-bundle + package-vdi-iso�
 make build              # 仅编译 Go 版本 CLI
 make build-bundle       # 仅下载离线资源
 make package-vdi-iso    # 仅构建 ISO
-make shell              # 进入构建容器调试
 ```
 
 验证 ISO：

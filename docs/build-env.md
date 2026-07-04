@@ -15,9 +15,15 @@ dist/iso/BCLinux-21.10U5-dvd-x86_64-260610.iso
 
 ### 宿主机工具
 
-- **docker**：构建容器运行环境。首次 `make` 自动构建 `vdi-builder` 镜像，后续复用。
+```bash
+# Debian/Ubuntu
+apt install golang xorriso squashfs-tools mtools skopeo zstd curl
 
-其余工具（helm、yq、xorriso、skopeo、Go 模块）由 `Dockerfile` 容器内安装/下载，宿主机无需预装。
+# RHEL/CentOS
+yum install golang xorriso squashfs-tools mtools skopeo zstd curl
+```
+
+`make` 会自动检查工具是否存在，缺失时给出安装提示。
 
 ## 二、网络访问要求
 
@@ -25,17 +31,17 @@ dist/iso/BCLinux-21.10U5-dvd-x86_64-260610.iso
 
 | 站点 | 用途 |
 |------|------|
-| `docker.io` | `golang:1.26-bookworm`（构建容器基础镜像）、组件镜像（build-bundle `skopeo copy`） |
 | `proxy.golang.org` | Go 模块下载（无 vendor 目录，`go build` 联网拉取） |
-| `github.com` / `raw.githubusercontent.com` | RKE2 二进制/镜像列表、KubeVirt operator manifest |
-| `charts.longhorn.io` | Longhorn Helm chart（build-bundle `helm pull`） |
+| `github.com` / `raw.githubusercontent.com` | RKE2 二进制/镜像列表、Longhorn chart、KubeVirt manifest |
+| `charts.longhorn.io` | Longhorn Helm chart（`helm pull`） |
+| 各容器 registry | skopeo 拉取组件镜像（docker.io、quay.io、ghcr.io 等） |
 
 ## 三、资源要求
 
 | 资源 | 要求 | 原因 |
 |------|------|------|
 | 内存 | ≥4G | kickstart 装机无 squashfs/active.img，4G 足够 |
-| 磁盘 | ≥30G | Docker 层 + BCLinux ISO 输入 + 离线镜像 + ISO 产物临时空间 |
+| 磁盘 | ≥30G | BCLinux ISO 输入 + 离线镜像 + ISO 产物临时空间 |
 
 ## 四、本地包缓存
 
@@ -60,6 +66,5 @@ make package-vdi-iso    # 构建 VDI 安装型 ISO（BCLinux DVD + kickstart + x
 
 ## 六、常见问题
 
-- **docker.io TLS handshake timeout**：网络受限，配 registry mirror 或 skopeo 代理。
-- **产物文件属主为 root**：容器默认 root 运行，volume mount 写入的文件属 root。不影响构建，清理时需 `sudo rm`。
+- **skopeo 拉取镜像超时**：网络受限环境需配 registry mirror 或 HTTP 代理（`export http_proxy=...`）。
 - **QEMU 端到端验证**：`./scripts/qemu-test-ks dist/artifacts/vdi-*.iso [uefi|bios]`。KVM 需 `/dev/kvm` 权限。

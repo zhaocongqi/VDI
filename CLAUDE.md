@@ -19,8 +19,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```
 VDI/
 ├── main.go              # Go 版本输出 CLI（ldflags 注入 Version + GitCommit）
-├── Makefile             # 构建系统（docker run 驱动，宿主机仅需 docker）
-├── Dockerfile           # 构建容器（Go + helm + yq + xorriso + skopeo）
+├── Makefile             # 构建系统（宿主机直接执行，前置工具检查）
 ├── go.mod / go.sum      # Go module (vdi-installer，无外部依赖)
 ├── pkg/
 │   └── version/         # FriendlyVersion（ldflags 注入）
@@ -30,7 +29,7 @@ VDI/
 │   ├── build            # 编译 Go 版本 CLI（ldflags 注入）
 │   ├── build-bundle     # 下载离线资源（RKE2 二进制/镜像/charts）
 │   ├── package-vdi-iso  # xorriso 重建 BCLinux DVD ISO（注入 ks + addon + bundle）
-│   ├── default          # Makefile default target，单容器内顺序执行三个脚本
+│   ├── default          # build + build-bundle + package-vdi-iso（Makefile target）
 │   ├── hot-reload-addon # 开发期热重载 Anaconda Addon 到运行中的安装器
 │   ├── qemu-test-ks     # qemu 无人值守装机验证
 │   ├── package-minimal-addon-iso  # 极简 Addon 验证 ISO
@@ -61,13 +60,20 @@ make shell              # 进入构建容器调试
 make default            # build + build-bundle + package-vdi-iso 全链路
 ```
 
-### 构建容器
+### 宿主机工具要求
 
-构建在 Docker 容器内执行（`docker run --rm`），构建者**只需宿主机装 docker**：
-- **Dockerfile** 定义构建环境（Go + helm + yq + xorriso + skopeo + squashfs-tools）
-- **volume mount**：项目目录挂载到容器 `/work`，产物直写宿主机
-- **skopeo**：替代 docker pull/save 下载组件镜像，无需 Docker daemon
-- **Go 模块**：容器内 `go build` 自动下载（需网络）
+构建直接在宿主机执行，所需工具：
+- **go** — 编译版本 CLI
+- **xorriso** — ISO 解包/重建
+- **squashfs-tools** — install.img 解压/重构（unsquashfs/mksquashfs）
+- **mtools** — efiboot.img 内 grub.cfg 改写（mcopy）
+- **skopeo** — 组件镜像拉取打包（替代 docker pull/save）
+- **zstd** — 镜像压缩
+- **curl** — 下载离线资源
+
+安装：`apt install golang xorriso squashfs-tools mtools skopeo zstd curl`（Debian/Ubuntu）
+
+`make` 会自动检查工具是否存在，缺失时给出安装提示。
 
 #### 外部输入
 

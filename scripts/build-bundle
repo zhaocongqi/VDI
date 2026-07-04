@@ -41,16 +41,14 @@ image_list_file="${IMAGES_LISTS_DIR}/rke2-images.linux-${ARCH}-${RKE2_VERSION_NO
 image_archive="${IMAGES_DIR}/rke2-images.linux-${ARCH}-${RKE2_VERSION_NORMALIZED}.tar.zst"
 get_url "${RKE2_IMAGES_URL}/rke2-images.linux-${ARCH}.txt" $image_list_file
 get_url "${RKE2_IMAGES_URL}/rke2-images.linux-${ARCH}.tar.zst" $image_archive
-add_image_list_to_metadata "rke2" $BUNDLE_DIR $image_list_file $image_archive
 
 # RKE2 multus images (exclude SR-IOV)
 image_list_file="${IMAGES_LISTS_DIR}/rke2-images-multus.linux-amd64-${RKE2_VERSION_NORMALIZED}.txt"
-save_image_list "kubernetes" "${RKE2_IMAGES_URL}/rke2-images-multus.linux-amd64.txt" $image_list_file
-save_image "rke2" $BUNDLE_DIR $image_list_file ${IMAGES_DIR}
+get_url "${RKE2_IMAGES_URL}/rke2-images-multus.linux-amd64.txt" $image_list_file
+save_image $image_list_file ${IMAGES_DIR}
 
 # ============================================================
 # RKE2 二进制（rke2 + containerd + chart-templates + systemd unit）
-# kickstart %post 解压到 /usr/local，替代 elemental 链的 wharfie 提取
 # ============================================================
 BINARIES_DIR="${BUNDLE_DIR}/vdi/binaries"
 mkdir -p ${BINARIES_DIR}
@@ -62,32 +60,22 @@ echo "==> RKE2 binary: $(ls -lh ${rke2_binary} 2>/dev/null | awk '{print $5}')"
 # Longhorn chart + images
 # ============================================================
 echo "==> Pulling Longhorn chart (v${LONGHORN_VERSION})"
-if [ -f "${CHARTS_DIR}/longhorn-${LONGHORN_VERSION#v}.tgz" ]; then
-    echo "Chart already exists: longhorn-${LONGHORN_VERSION#v}.tgz"
-else
-    helm repo add longhorn https://charts.longhorn.io 2>/dev/null || true
-    helm pull longhorn/longhorn --version ${LONGHORN_VERSION#v} -d ${CHARTS_DIR}
-fi
+LONGHORN_CHART_URL="https://github.com/longhorn/longhorn/releases/download/${LONGHORN_VERSION}/longhorn-${LONGHORN_VERSION#v}.tgz"
+get_url "${LONGHORN_CHART_URL}" "${CHARTS_DIR}/longhorn-${LONGHORN_VERSION#v}.tgz"
 
 echo "==> Pulling Longhorn image list"
 longhorn_image_list="${IMAGES_LISTS_DIR}/longhorn-images-${LONGHORN_VERSION}.txt"
 get_url "https://raw.githubusercontent.com/longhorn/longhorn/${LONGHORN_VERSION}/deploy/longhorn-images.txt" ${longhorn_image_list}
 # Remove unsupported image
 sed -i '/longhornio\/openshift-origin-oauth-proxy/d' ${longhorn_image_list}
-save_image "longhorn" $BUNDLE_DIR ${longhorn_image_list} ${IMAGES_DIR}
+save_image ${longhorn_image_list} ${IMAGES_DIR}
 
 # ============================================================
 # KubeVirt operator manifest + images
-# kubevirt 用 operator.yaml（多文档 manifest）放 server/manifests/ 让 RKE2 自动 apply，
-# 再由 helmchart-kubevirt.yaml（KubeVirt CR）触发 operator 部署 kubevirt 组件。
 # ============================================================
 echo "==> Pulling KubeVirt operator manifest (v${KUBEVIRT_VERSION})"
-if [ -f "${CHARTS_DIR}/kubevirt-operator.yaml" ]; then
-    echo "Manifest already exists: kubevirt-operator.yaml"
-else
-    get_url "https://github.com/kubevirt/kubevirt/releases/download/${KUBEVIRT_VERSION}/kubevirt-operator.yaml" \
-      "${CHARTS_DIR}/kubevirt-operator.yaml"
-fi
+get_url "https://github.com/kubevirt/kubevirt/releases/download/${KUBEVIRT_VERSION}/kubevirt-operator.yaml" \
+  "${CHARTS_DIR}/kubevirt-operator.yaml"
 
 echo "==> Pulling KubeVirt image list"
 kubevirt_image_list="${IMAGES_LISTS_DIR}/kubevirt-images-${KUBEVIRT_VERSION}.txt"
@@ -109,18 +97,14 @@ quay.io/kubevirt/virt-exportproxy:${KUBEVIRT_VERSION}
 quay.io/kubevirt/virt-exportserver:${KUBEVIRT_VERSION}
 EOF
 fi
-save_image "kubevirt" $BUNDLE_DIR ${kubevirt_image_list} ${IMAGES_DIR}
+save_image ${kubevirt_image_list} ${IMAGES_DIR}
 
 # ============================================================
 # Kube-OVN chart + images
 # ============================================================
 echo "==> Pulling Kube-OVN chart (v${KUBEOVN_VERSION})"
-if [ -f "${CHARTS_DIR}/kube-ovn-${KUBEOVN_VERSION}.tgz" ]; then
-    echo "Chart already exists: kube-ovn-${KUBEOVN_VERSION}.tgz"
-else
-    get_url "https://github.com/kubeovn/kube-ovn/releases/download/${KUBEOVN_VERSION}/kube-ovn-${KUBEOVN_VERSION}.tgz" \
-      "${CHARTS_DIR}/kube-ovn-${KUBEOVN_VERSION}.tgz"
-fi
+get_url "https://github.com/kubeovn/kube-ovn/releases/download/${KUBEOVN_VERSION}/kube-ovn-${KUBEOVN_VERSION}.tgz" \
+  "${CHARTS_DIR}/kube-ovn-${KUBEOVN_VERSION}.tgz"
 
 echo "==> Pulling Kube-OVN image list"
 kubeovn_image_list="${IMAGES_LISTS_DIR}/kubeovn-images-${KUBEOVN_VERSION}.txt"
@@ -131,23 +115,15 @@ if [ ! -s ${kubeovn_image_list} ]; then
 docker.io/kubeovn/kube-ovn:${KUBEOVN_VERSION}
 EOF
 fi
-save_image "kubeovn" $BUNDLE_DIR ${kubeovn_image_list} ${IMAGES_DIR}
+save_image ${kubeovn_image_list} ${IMAGES_DIR}
 
 # ============================================================
-# kagent 暂不部署：chart 无 release 资产（v0.9.6 仅二进制，tgz 404）+
-# 镜像需 ghcr 认证。manifest 已从 genBootstrapResources 移除，此处跳过下载。
-# 启用步骤：确认 chart 来源（helm repo/ghcr OCI）+ 配 ghcr 认证拉镜像 + 恢复 manifest。
+# kagent 暂不部署
 # ============================================================
 echo "==> Skipping kagent (chart 404 + ghcr auth TODO)"
 
-
 # ============================================================
-# 把 Helm chart tgz 复制到 ISO bundle，供 vdi-install 复制到目标盘
-# server/charts/（RKE2 HelmChart CRD spec.chart 引用这些路径）
-# 重命名为 manifest 期望的名字（不带版本号）。
-# kubevirt 用 operator.yaml（多文档 manifest）放 server/manifests/ 让 RKE2 自动 apply，
-# 再由 helmchart-kubevirt.yaml（KubeVirt CR）触发 operator 部署 kubevirt 组件。
-# kagent 暂不部署（chart 无 release 资产 404 + 镜像需 ghcr 认证），从构建链移除。
+# 复制 charts/manifests 到 ISO bundle
 # ============================================================
 CHARTS_BUNDLE_DIR="${BUNDLE_DIR}/vdi/charts"
 MANIFESTS_BUNDLE_DIR="${BUNDLE_DIR}/vdi/manifests"
@@ -155,19 +131,12 @@ mkdir -p ${CHARTS_BUNDLE_DIR} ${MANIFESTS_BUNDLE_DIR}
 echo "==> Copying Helm charts to bundle (renamed to manifest names)"
 cp -f "${CHARTS_DIR}/kube-ovn-${KUBEOVN_VERSION}.tgz" "${CHARTS_BUNDLE_DIR}/kube-ovn.tgz"
 cp -f "${CHARTS_DIR}/longhorn-${LONGHORN_VERSION#v}.tgz" "${CHARTS_BUNDLE_DIR}/longhorn.tgz"
-# kubevirt operator manifest（fallback 拉的是 operator.yaml，非 tgz）
 if [ -f "${CHARTS_DIR}/kubevirt-operator.yaml" ]; then
     cp -f "${CHARTS_DIR}/kubevirt-operator.yaml" "${MANIFESTS_BUNDLE_DIR}/kubevirt-operator.yaml"
 else
     echo "WARN: kubevirt-operator.yaml 缺失，kubevirt 将无法部署" >&2
 fi
 ls -la ${CHARTS_BUNDLE_DIR}/ ${MANIFESTS_BUNDLE_DIR}/
-
-# ============================================================
-# Create Helm repo index
-# ============================================================
-echo "==> Creating Helm repo index"
-helm repo index ${CHARTS_DIR}
 
 echo "==> Build bundle completed"
 ls -la ${BUNDLE_DIR}/vdi/images/
