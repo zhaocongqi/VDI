@@ -1,36 +1,34 @@
-TARGETS := $(shell find scripts -maxdepth 1 -type f -executable -printf '%f\n')
-SHA512SUM_Linux_aarch64 := 781951b31e5ff018a04e755c6da7163b31a81edda61f1bed4def8d0e24229865c58a3d26aa0cc4184058d91ebcae300ead2cad16d3c46ccb1098419e3e41a016
-SHA512SUM_Linux_x86_64 := d2ec27ecf9362e2fafd27d76d85a5c5b92b53aefe07cffa76bf9887db6bee07b1023cca8fc32a2c9bdd2ecfadaee71397066b41bd37c9ebbbbce09913f0884d4
-SHA512SUM_Darwin_arm64 := 8a356c89ad32af1698ae8615a6e303773a8ac58b114368454d59965ec2aa8282e780d1e228d37c301ce6f87596f68bfe7f204eb5f4c019c386a58dd94153ddcf
-SHA512SUM_Darwin_x86_64 := dbab05de04dda26793f4ae7875d0fba96ee54b0228e192fd40c0b2116ed345b5444047fc2e0c90cb481f28cbe0e0452bcecb268c8d074cd8615eb2f5463c30b6
-SHA512SUM_Windows_x86_64 := 807aee2f68b6da35cb0885558f5cbc9a6c8747a56c7a200f0e1fcac9e2fd0da570cbb39e48b3192bd1a71805f2ab38fd19d77faebba97a89e5d9a8b430ee429e
-
-.dapper:
-	@echo Downloading dapper
-	@curl -sL https://releases.rancher.com/dapper/v0.6.0/dapper-`uname -s`-`uname -m` > .dapper.tmp
-	@CHECKSUM=$$(shasum -a 512 .dapper.tmp | awk '{print $$1}'); \
-	if [ "$$CHECKSUM" != "$(SHA512SUM_$(shell uname -s)_$(shell uname -m))" ]; then \
-		echo "Checksum verification failed!"; \
-		exit 1; \
-	fi
-	@@chmod +x .dapper.tmp
-	@./.dapper.tmp -v
-	@mv .dapper.tmp .dapper
-
-# 探测宿主机路径，通过 build-arg 注入 Dockerfile.dapper 的 ARG（消除硬编码 /home/zcq）
-# 仅 docker/buildx/项目路径需挂载（DinD）；helm/yq/go mod 已改为容器内安装，无需宿主机预装
 PROJECT_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
-DOCKER_BIN := $(shell which docker 2>/dev/null)
-BUILDX_BIN := $(shell find /usr/libexec/docker /usr/lib/docker -name docker-buildx 2>/dev/null | head -1)
+IMAGE ?= vdi-builder
 
-$(TARGETS): .dapper
-	@if [ -z "$(DOCKER_BIN)" ]; then echo "ERROR: docker not found in PATH"; exit 1; fi
-	@if [ -z "$(BUILDX_BIN)" ]; then echo "ERROR: docker-buildx not found under /usr/libexec/docker or /usr/lib/docker"; exit 1; fi
-	PROJECT_DIR="$(PROJECT_DIR)" \
-	DOCKER_BIN="$(DOCKER_BIN)" \
-	BUILDX_BIN="$(BUILDX_BIN)" \
-	./.dapper $@
+DOCKER_RUN = docker run --rm \
+    -v $(PROJECT_DIR):/work \
+    -e LOCAL_PKG_DIR=$(LOCAL_PKG_DIR) \
+    -w /work \
+    $(IMAGE)
 
-.DEFAULT_GOAL := default
+DOCKER_RUN_PRIV = docker run --rm \
+    --privileged \
+    -v $(PROJECT_DIR):/work \
+    -e LOCAL_PKG_DIR=$(LOCAL_PKG_DIR) \
+    -w /work \
+    $(IMAGE)
 
-.PHONY: $(TARGETS)
+$(IMAGE):
+	docker build -t $(IMAGE) -f Dockerfile --build-arg DAPPER_HOST_ARCH=$(shell uname -m) .
+
+build: $(IMAGE)
+	$(DOCKER_RUN) ./scripts/build
+
+build-bundle: $(IMAGE)
+	$(DOCKER_RUN) ./scripts/build-bundle
+
+package-vdi-iso: $(IMAGE)
+	$(DOCKER_RUN_PRIV) ./scripts/package-vdi-iso
+
+shell: $(IMAGE)
+	docker run --rm -it -v $(PROJECT_DIR):/work -w /work $(IMAGE) bash
+
+default: build build-bundle package-vdi-iso
+
+.PHONY: build build-bundle package-vdi-iso shell default $(IMAGE)

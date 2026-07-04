@@ -19,8 +19,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```
 VDI/
 ├── main.go              # Go 版本输出 CLI（ldflags 注入 Version + GitCommit）
-├── Makefile             # Dapper 构建系统（scripts/ 下可执行脚本自动生成同名 make target）
-├── Dockerfile.dapper    # 构建容器（Go + helm + yq + xorriso，宿主机仅需 docker）
+├── Makefile             # 构建系统（docker run 驱动，宿主机仅需 docker）
+├── Dockerfile           # 构建容器（Go + helm + yq + xorriso + skopeo）
 ├── go.mod / go.sum      # Go module (vdi-installer，无外部依赖)
 ├── pkg/
 │   └── version/         # FriendlyVersion（ldflags 注入）
@@ -61,13 +61,13 @@ make shell              # 进入构建容器调试
 make default            # build + build-bundle + package-vdi-iso 全链路
 ```
 
-### 构建容器（Dapper）
+### 构建容器
 
-构建在 Dapper 容器内执行，构建者**只需宿主机装 docker**：
-- **docker + buildx**：宿主机挂载（DinD），路径由 Makefile 探测后 build-arg 注入
-- **helm / yq**：Dockerfile.dapper 内 curl 安装
+构建在 Docker 容器内执行（`docker run --rm`），构建者**只需宿主机装 docker**：
+- **Dockerfile** 定义构建环境（Go + helm + yq + xorriso + skopeo + squashfs-tools）
+- **volume mount**：项目目录挂载到容器 `/work`，产物直写宿主机
+- **skopeo**：替代 docker pull/save 下载组件镜像，无需 Docker daemon
 - **Go 模块**：容器内 `go build` 自动下载（需网络）
-- **cache/ + dist/**：bind 挂载（当前项目为符号链接：`cache → ~/tmp/vdi-cache`，`dist → ~/tmp/vdi-dist`）
 
 #### 外部输入
 

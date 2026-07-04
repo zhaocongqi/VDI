@@ -15,25 +15,21 @@ make default
 
 产物：`dist/artifacts/vdi-$VERSION-$ARCH.iso`
 
-## 一、Makefile + Dapper 编排
+## 一、Makefile 编排
 
-`Makefile` 把 `scripts/*` 全部注册为 target：
+`Makefile` 显式声明构建 target，通过 `docker run --rm` 在容器内执行 `scripts/<target>`：
 
 ```makefile
-TARGETS := $(shell find scripts -maxdepth 1 -type f -executable -printf '%f\n')
-$(TARGETS): .dapper
-	./.dapper $@
+IMAGE ?= vdi-builder
+DOCKER_RUN = docker run --rm -v $(PROJECT_DIR):/work -w /work $(IMAGE)
+
+build: $(IMAGE)
+	$(DOCKER_RUN) ./scripts/build
 ```
 
-- `./.dapper` 首次运行时从 `releases.rancher.com` 下载（带 SHA512 校验）
-- 容器镜像由 `Dockerfile.dapper` 构建（基于 `golang:1.26-bookworm`，预装 xorriso/squashfs-tools/helm/yq 等）
-- **构建者只需宿主机装 docker**，其余工具容器内自行安装/下载：
-  - docker CLI + buildx：宿主机挂载（DinD，Makefile 探测路径通过 build-arg 注入）
-  - helm、yq：Dockerfile.dapper 内 curl 安装
-  - Go 模块：容器内 `go build` 自动下载（需网络）
-  - `cache/`、`dist/`：bind 挂载
-  - containerd socket + `--privileged`
-- `DAPPER_OUTPUT` 声明容器→宿主机回传：`./bin ./dist ./cache ./package/vdi-os/iso`
+- 首次 `make` 自动构建 `vdi-builder` 镜像（基于 `Dockerfile`，`golang:1.26-bookworm` + xorriso/squashfs-tools/helm/yq/skopeo）
+- **构建者只需宿主机装 docker**，其余工具容器内自行安装/下载
+- 项目目录 volume mount 到容器 `/work`，产物直写宿主机，无需回传
 
 ## 二、scripts 脚本职责
 
@@ -63,7 +59,7 @@ $(TARGETS): .dapper
 | Kube-OVN | kube-ovn chart tgz + 镜像 tar.zst |
 | kagent | 暂不部署（chart 无 release 资产 + ghcr 需认证） |
 
-公共函数：`scripts/lib/http`（`get_url` — 支持本地缓存 + curl 下载）、`scripts/lib/image`（`save_image`/`pull_images`/`save_image_list` — 镜像白名单过滤 + docker pull + save + zst 压缩）。
+公共函数：`scripts/lib/http`（`get_url` — 支持本地缓存 + curl 下载）、`scripts/lib/image`（`save_image`/`save_image_list` — 镜像白名单过滤 + skopeo copy + zst 压缩，无需 Docker daemon）。
 
 Helm chart 中转目录：`cache/charts/`（下载后 copy 到 `bundle/vdi/charts/`）。
 

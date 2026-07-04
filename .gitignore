@@ -83,7 +83,6 @@ dist
 # 离线资源（由 build-bundle 脚本下载，不提交到 git）
 package/vdi-os/iso/bundle/
 cache
-Dockerfile.dapper*
 
 # 构建时自动生成的版本文件
 package/vdi-os/vdi-release.yaml

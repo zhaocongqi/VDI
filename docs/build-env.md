@@ -15,9 +15,9 @@ dist/iso/BCLinux-21.10U5-dvd-x86_64-260610.iso
 
 ### 宿主机工具
 
-- **docker + buildx**：DinD 模式（容器内调宿主机 daemon）。Makefile 探测路径（`which docker` + `/usr/libexec/docker/docker-buildx`），探测失败明确报错。CLI 版本需与 daemon 匹配。
+- **docker**：构建容器运行环境。首次 `make` 自动构建 `vdi-builder` 镜像，后续复用。
 
-其余工具（helm、yq、xorriso、Go 模块）由 `Dockerfile.dapper` 容器内安装/下载，宿主机无需预装。
+其余工具（helm、yq、xorriso、skopeo、Go 模块）由 `Dockerfile` 容器内安装/下载，宿主机无需预装。
 
 ## 二、网络访问要求
 
@@ -25,12 +25,10 @@ dist/iso/BCLinux-21.10U5-dvd-x86_64-260610.iso
 
 | 站点 | 用途 |
 |------|------|
-| `docker.io` | `golang:1.26-bookworm`（dapper 容器）、RKE2/组件镜像（build-bundle `docker pull`） |
+| `docker.io` | `golang:1.26-bookworm`（构建容器基础镜像）、组件镜像（build-bundle `skopeo copy`） |
 | `proxy.golang.org` | Go 模块下载（无 vendor 目录，`go build` 联网拉取） |
 | `github.com` / `raw.githubusercontent.com` | RKE2 二进制/镜像列表、KubeVirt operator manifest |
 | `charts.longhorn.io` | Longhorn Helm chart（build-bundle `helm pull`） |
-
-**docker.io 不可达时**：配 `/etc/docker/daemon.json` 的 `registry-mirrors`（如阿里云 `registry.cn-hangzhou.aliyuncs.com`），重启 docker。
 
 ## 三、资源要求
 
@@ -62,7 +60,6 @@ make package-vdi-iso    # 构建 VDI 安装型 ISO（BCLinux DVD + kickstart + x
 
 ## 六、常见问题
 
-- **docker.io TLS handshake timeout**：网络受限，配 registry mirror（见第二节）。
-- **`.docker` permission denied**：dapper cp 模式回传时容器内 root 创建 `.docker`（root:root 700），`.dockerignore` 已加 `.docker` 排除。若残留：`sudo rm -rf .docker`。
-- **dapper 每次重建 vdi:main**：dapper 设计如此（每次 `docker build Dockerfile.dapper`），需网络拉 `golang:1.26-bookworm` metadata。
+- **docker.io TLS handshake timeout**：网络受限，配 registry mirror 或 skopeo 代理。
+- **产物文件属主为 root**：容器默认 root 运行，volume mount 写入的文件属 root。不影响构建，清理时需 `sudo rm`。
 - **QEMU 端到端验证**：`./scripts/qemu-test-ks dist/artifacts/vdi-*.iso [uefi|bios]`。KVM 需 `/dev/kvm` 权限。

@@ -23,6 +23,8 @@
 - Docker
 - BCLinux ISO（客户提供）：放至 `dist/iso/BCLinux-21.10U5-dvd-x86_64-260610.iso`
 
+首次 `make` 会自动构建 `vdi-builder` 容器镜像（Go + helm + yq + xorriso + skopeo），后续直接复用。
+
 ### 构建 ISO
 
 ```bash
@@ -61,8 +63,8 @@ ISO 产物位于 `dist/artifacts/vdi-$VERSION-$ARCH.iso`。
 ```
 VDI/
 ├── main.go              # Go 版本输出 CLI
-├── Makefile             # Dapper 构建系统
-├── Dockerfile.dapper    # 构建容器环境
+├── Makefile             # 构建系统（docker run 驱动）
+├── Dockerfile           # 构建容器环境
 ├── pkg/version/         # 版本信息（ldflags 注入）
 ├── scripts/             # 构建脚本（Makefile 自动生成同名 target）
 │   ├── version-*        # 组件版本
