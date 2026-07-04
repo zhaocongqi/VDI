@@ -29,6 +29,7 @@ package-vdi-iso: $(IMAGE)
 shell: $(IMAGE)
 	docker run --rm -it -v $(PROJECT_DIR):/work -w /work $(IMAGE) bash
 
-default: build build-bundle package-vdi-iso
+default: $(IMAGE)
+	$(DOCKER_RUN_PRIV) bash -c "./scripts/build && ./scripts/build-bundle && ./scripts/package-vdi-iso"
 
 .PHONY: build build-bundle package-vdi-iso shell default $(IMAGE)

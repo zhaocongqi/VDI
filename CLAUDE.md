@@ -30,7 +30,7 @@ VDI/
 │   ├── build            # 编译 Go 版本 CLI（ldflags 注入）
 │   ├── build-bundle     # 下载离线资源（RKE2 二进制/镜像/charts）
 │   ├── package-vdi-iso  # xorriso 重建 BCLinux DVD ISO（注入 ks + addon + bundle）
-│   ├── default          # build + build-bundle + package-vdi-iso 全链路
+│   ├── default          # Makefile default target，单容器内顺序执行三个脚本
 │   ├── hot-reload-addon # 开发期热重载 Anaconda Addon 到运行中的安装器
 │   ├── qemu-test-ks     # qemu 无人值守装机验证
 │   ├── package-minimal-addon-iso  # 极简 Addon 验证 ISO
