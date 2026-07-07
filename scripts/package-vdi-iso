@@ -103,7 +103,9 @@ echo "  ks.cfg -> /ks.cfg ($(wc -l < ${KS_OUT}) 行)"
 
 echo ">>> 解压并重构 install.img (注入 VDI Addon)"
 rm -rf "${CACHE_DIR}/install-rootfs"
-unsquashfs -d "${CACHE_DIR}/install-rootfs" "${ISO_ROOTFS}/images/install.img"
+# -no-xattrs：非 root 构建时跳过 security.selinux 等 xattr 恢复，否则 unsquashfs 因
+# 无写 xattr 权限报错退出。目标系统走 ks.cfg selinux --permissive 自有策略，不依赖这些标签。
+unsquashfs -no-xattrs -d "${CACHE_DIR}/install-rootfs" "${ISO_ROOTFS}/images/install.img"
 
 ROOTFS_IMG="${CACHE_DIR}/install-rootfs/LiveOS/rootfs.img"
 if [ ! -f "${ROOTFS_IMG}" ]; then

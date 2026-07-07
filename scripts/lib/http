@@ -20,9 +20,14 @@ get_url()
   local save_to=$2
 
 
-  if [ -f "$save_to" ]; then
+  if [ -f "$save_to" ] && [ -s "$save_to" ]; then
     echo "File already exists: ${save_to}"
     return 0
+  fi
+
+  # 0 字节占位文件是上次下载失败的残留，清理后重新下载
+  if [ -f "$save_to" ] && [ ! -s "$save_to" ]; then
+    rm -f "$save_to"
   fi
 
   local local_dir="${LOCAL_PKG_DIR:-${TOP_DIR}/cache/downloads}"
@@ -34,16 +39,25 @@ get_url()
       echo "Found local package matching target filename: $local_dir/$pkg_name"
       mkdir -p "$(dirname "$save_to")"
       cp "$local_dir/$pkg_name" "$save_to"
-      return 0
+      [ -s "$save_to" ] && return 0
+      rm -f "$save_to"
     elif [ -f "$local_dir/$url_pkg_name" ]; then
       echo "Found local package matching URL filename: $local_dir/$url_pkg_name"
       mkdir -p "$(dirname "$save_to")"
       cp "$local_dir/$url_pkg_name" "$save_to"
-      return 0
+      [ -s "$save_to" ] && return 0
+      rm -f "$save_to"
     fi
   fi
 
   echo "Download ${from} to ${save_to}..."
   mkdir -p "$(dirname "$save_to")"
-  curl -sfL "$from" -o "$save_to"
+  if ! curl --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 600 -fL "$from" -o "$save_to"; then
+    rm -f "$save_to"
+    return 1
+  fi
+  if [ ! -s "$save_to" ]; then
+    rm -f "$save_to"
+    return 1
+  fi
 }
