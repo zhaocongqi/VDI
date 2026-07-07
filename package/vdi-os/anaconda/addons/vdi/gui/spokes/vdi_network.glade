@@ -26,6 +26,32 @@
         <property name="visible">True</property>
         <property name="row_spacing">10</property>
         <property name="column_spacing">12</property>
+        <!-- 网络模式 -->
+        <child>
+          <object class="GtkLabel" id="network_mode_label">
+            <property name="visible">True</property>
+            <property name="label" translatable="yes">网络模式:</property>
+            <property name="xalign">1</property>
+          </object>
+          <packing>
+            <property name="left_attach">0</property>
+            <property name="top_attach">0</property>
+          </packing>
+        </child>
+        <child>
+          <object class="GtkComboBoxText" id="network_mode_combo">
+            <property name="visible">True</property>
+            <property name="can_focus">False</property>
+            <items>
+              <item id="dhcp" translatable="yes">DHCP (自动获取 IP)</item>
+              <item id="static" translatable="yes">静态 IP (手动配置)</item>
+            </items>
+          </object>
+          <packing>
+            <property name="left_attach">1</property>
+            <property name="top_attach">0</property>
+          </packing>
+        </child>
         <!-- 配置模式 -->
         <child>
           <object class="GtkLabel" id="mode_label">
@@ -35,7 +61,7 @@
           </object>
           <packing>
             <property name="left_attach">0</property>
-            <property name="top_attach">0</property>
+            <property name="top_attach">1</property>
           </packing>
         </child>
         <child>
@@ -49,7 +75,7 @@
           </object>
           <packing>
             <property name="left_attach">1</property>
-            <property name="top_attach">0</property>
+            <property name="top_attach">1</property>
           </packing>
         </child>
         <!-- 主网卡 -->
@@ -61,7 +87,7 @@
           </object>
           <packing>
             <property name="left_attach">0</property>
-            <property name="top_attach">1</property>
+            <property name="top_attach">2</property>
           </packing>
         </child>
         <child>
@@ -71,37 +97,16 @@
           </object>
           <packing>
             <property name="left_attach">1</property>
-            <property name="top_attach">1</property>
+            <property name="top_attach">2</property>
           </packing>
         </child>
-        <!-- 备网卡 -->
+        <!-- 备网卡（默认隐藏，bond 模式时由代码显示） -->
         <child>
           <object class="GtkLabel" id="interface2_label">
             <property name="visible">False</property>
             <property name="label" translatable="yes">备物理网卡:</property>
             <property name="xalign">1</property>
-          </object>
-          <packing>
-            <property name="left_attach">0</property>
-            <property name="top_attach">2</property>
-          </packing>
-        </child>
-        <child>
-          <object class="GtkComboBoxText" id="interface2_combo">
-            <property name="visible">False</property>
-            <property name="can_focus">False</property>
-          </object>
-          <packing>
-            <property name="left_attach">1</property>
-            <property name="top_attach">2</property>
-          </packing>
-        </child>
-        <!-- Bond 模式 -->
-        <child>
-          <object class="GtkLabel" id="bond_mode_label">
-            <property name="visible">False</property>
-            <property name="label" translatable="yes">Bond 绑定模式:</property>
-            <property name="xalign">1</property>
+            <property name="no_show_all">True</property>
           </object>
           <packing>
             <property name="left_attach">0</property>
@@ -109,9 +114,34 @@
           </packing>
         </child>
         <child>
+          <object class="GtkComboBoxText" id="interface2_combo">
+            <property name="visible">False</property>
+            <property name="can_focus">False</property>
+            <property name="no_show_all">True</property>
+          </object>
+          <packing>
+            <property name="left_attach">1</property>
+            <property name="top_attach">3</property>
+          </packing>
+        </child>
+        <!-- Bond 模式（默认隐藏，bond 模式时由代码显示） -->
+        <child>
+          <object class="GtkLabel" id="bond_mode_label">
+            <property name="visible">False</property>
+            <property name="label" translatable="yes">Bond 绑定模式:</property>
+            <property name="xalign">1</property>
+            <property name="no_show_all">True</property>
+          </object>
+          <packing>
+            <property name="left_attach">0</property>
+            <property name="top_attach">4</property>
+          </packing>
+        </child>
+        <child>
           <object class="GtkComboBoxText" id="bond_mode_combo">
             <property name="visible">False</property>
             <property name="can_focus">False</property>
+            <property name="no_show_all">True</property>
             <items>
               <item id="active-backup" translatable="yes">active-backup (主备容灾)</item>
               <item id="802.3ad" translatable="yes">802.3ad (LACP 链路聚合)</item>
@@ -119,55 +149,59 @@
           </object>
           <packing>
             <property name="left_attach">1</property>
-            <property name="top_attach">3</property>
+            <property name="top_attach">4</property>
           </packing>
         </child>
-        <!-- 管理 IP -->
+        <!-- 管理 IP（默认隐藏，静态模式时由代码显示） -->
         <child>
           <object class="GtkLabel" id="ip_label">
-            <property name="visible">True</property>
+            <property name="visible">False</property>
             <property name="label" translatable="yes">管理 IPv4 地址:</property>
             <property name="xalign">1</property>
+            <property name="no_show_all">True</property>
           </object>
           <packing>
             <property name="left_attach">0</property>
-            <property name="top_attach">4</property>
+            <property name="top_attach">5</property>
           </packing>
         </child>
         <child>
           <object class="GtkEntry" id="ip_entry">
-            <property name="visible">True</property>
+            <property name="visible">False</property>
             <property name="can_focus">True</property>
             <property name="text">192.168.10.10</property>
             <property name="width_chars">20</property>
+            <property name="no_show_all">True</property>
           </object>
           <packing>
             <property name="left_attach">1</property>
-            <property name="top_attach">4</property>
+            <property name="top_attach">5</property>
           </packing>
         </child>
-        <!-- 集群虚拟 IP -->
+        <!-- 集群虚拟 IP（默认隐藏，静态模式时由代码显示） -->
         <child>
           <object class="GtkLabel" id="vip_label">
-            <property name="visible">True</property>
+            <property name="visible">False</property>
             <property name="label" translatable="yes">集群虚拟 IP (VIP):</property>
             <property name="xalign">1</property>
+            <property name="no_show_all">True</property>
           </object>
           <packing>
             <property name="left_attach">0</property>
-            <property name="top_attach">5</property>
+            <property name="top_attach">6</property>
           </packing>
         </child>
         <child>
           <object class="GtkEntry" id="vip_entry">
-            <property name="visible">True</property>
+            <property name="visible">False</property>
             <property name="can_focus">True</property>
             <property name="text">192.168.10.100</property>
             <property name="width_chars">20</property>
+            <property name="no_show_all">True</property>
           </object>
           <packing>
             <property name="left_attach">1</property>
-            <property name="top_attach">5</property>
+            <property name="top_attach">6</property>
           </packing>
         </child>
       </object>

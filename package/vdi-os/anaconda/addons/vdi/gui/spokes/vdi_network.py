@@ -94,13 +94,16 @@ class VdiNetworkSpoke(NormalSpoke):
 
     builderObjects = [
         "vdi_network_box",
+        "network_mode_combo",
         "mode_combo",
         "interface_combo",
         "interface2_label",
         "interface2_combo",
         "bond_mode_label",
         "bond_mode_combo",
+        "ip_label",
         "ip_entry",
+        "vip_label",
         "vip_entry"
     ]
     mainWidgetName = "vdi_network_box"
@@ -126,9 +129,22 @@ class VdiNetworkSpoke(NormalSpoke):
 
     def __init__(self, data, storage, payload):
         self._wrapped_window = None
+        # 必须在 NormalSpoke.__init__ 之前初始化控件占位，因为父类 __init__
+        # 可能访问 self.window property，触发 show_all 后的显隐同步代码。
+        self._network_mode_combo = None
+        self._mode_combo = None
+        self._interface_combo = None
+        self._interface2_label = None
+        self._interface2_combo = None
+        self._bond_mode_label = None
+        self._bond_mode_combo = None
+        self._ip_label = None
+        self._ip_entry = None
+        self._vip_label = None
+        self._vip_entry = None
         NormalSpoke.__init__(self, data, storage, payload)
         self._proxy = VDI.get_proxy()
-        
+
         # 获取 Anaconda 官方网络服务代理，用于获取可用网卡
         from pyanaconda.modules.common.constants.services import NETWORK
         try:
@@ -137,41 +153,71 @@ class VdiNetworkSpoke(NormalSpoke):
             log.error("无法获取 NetworkManager D-Bus 代理: %s", e)
             self.network_proxy = None
 
-        # 界面控件占位
-        self._mode_combo = None
-        self._interface_combo = None
-        self._interface2_label = None
-        self._interface2_combo = None
-        self._bond_mode_label = None
-        self._bond_mode_combo = None
-        self._ip_entry = None
-        self._vip_entry = None
+        # 用户是否已在 Spoke 内确认配置（点完成触发 apply）。
+        # 驱动 completed：未确认前 Hub 视为未完成，强制用户进 Spoke 配置后才允许开装。
+        self._configured = False
         log.debug("VdiNetworkSpoke 已初始化, proxy=%s", self._proxy)
 
     def initialize(self):
         """初始化 GTK 控件引用并绑定交互信号。"""
         NormalSpoke.initialize(self)
+        self._network_mode_combo = self.builder.get_object("network_mode_combo")
         self._mode_combo = self.builder.get_object("mode_combo")
         self._interface_combo = self.builder.get_object("interface_combo")
         self._interface2_label = self.builder.get_object("interface2_label")
         self._interface2_combo = self.builder.get_object("interface2_combo")
         self._bond_mode_label = self.builder.get_object("bond_mode_label")
         self._bond_mode_combo = self.builder.get_object("bond_mode_combo")
+        self._ip_label = self.builder.get_object("ip_label")
         self._ip_entry = self.builder.get_object("ip_entry")
+        self._vip_label = self.builder.get_object("vip_label")
         self._vip_entry = self.builder.get_object("vip_entry")
 
+        # 监听网络模式下拉框改变事件，以动态启用/禁用 IP/VIP 输入框
+        self._network_mode_combo.connect("changed", self._on_network_mode_changed)
         # 监听模式下拉框改变事件，以动态展示/隐藏备网卡及 Bond 模式选项
         self._mode_combo.connect("changed", self._on_mode_changed)
+
+        # initialize 时控件已全部绑定，执行一次显隐同步，覆盖 glade 默认值 + show_all 副作用
+        self._sync_visibility()
+
         log.debug("VdiNetworkSpoke 控件初始化完成")
 
-    def _on_mode_changed(self, combo):
-        """当网络配置模式在单网卡与网卡绑定之间切换时的响应。"""
-        active_id = combo.get_active_id()
-        is_bond = (active_id == "bond")
+    def _sync_visibility(self):
+        """根据 D-Bus proxy 的实际值同步控件显隐。不依赖 combo 的 get_active_id。"""
+        network_mode = self._proxy.NetworkMode or "dhcp"
+        mode = self._proxy.Mode or "single"
+
+        is_static = (network_mode == "static")
+        self._ip_label.set_visible(is_static)
+        self._ip_entry.set_visible(is_static)
+        self._vip_label.set_visible(is_static)
+        self._vip_entry.set_visible(is_static)
+        if not is_static:
+            self._ip_entry.set_text("")
+            self._vip_entry.set_text("")
+
+        is_bond = (mode == "bond")
         self._interface2_label.set_visible(is_bond)
         self._interface2_combo.set_visible(is_bond)
         self._bond_mode_label.set_visible(is_bond)
         self._bond_mode_combo.set_visible(is_bond)
+
+    def _on_network_mode_changed(self, combo):
+        """当网络模式在 DHCP 与静态之间切换时的响应。"""
+        active_id = combo.get_active_id()
+        if active_id is None:
+            active_id = "dhcp"
+        self._proxy.NetworkMode = active_id
+        self._sync_visibility()
+
+    def _on_mode_changed(self, combo):
+        """当网络配置模式在单网卡与网卡绑定之间切换时的响应。"""
+        active_id = combo.get_active_id()
+        if active_id is None:
+            active_id = "single"
+        self._proxy.Mode = active_id
+        self._sync_visibility()
 
     def _fill_network_interfaces(self):
         """扫描系统的物理网卡列表并填充到界面下拉栏中。"""
@@ -200,9 +246,12 @@ class VdiNetworkSpoke(NormalSpoke):
         self._fill_network_interfaces()
 
         # 2. 从 DBus 回显数据状态
+        network_mode_val = self._proxy.NetworkMode or "dhcp"
+        self._network_mode_combo.set_active_id(network_mode_val)
+
         mode_val = self._proxy.Mode or "single"
         self._mode_combo.set_active_id(mode_val)
-        
+
         if self._proxy.Interface:
             self._interface_combo.set_active_id(self._proxy.Interface)
         else:
@@ -220,13 +269,14 @@ class VdiNetworkSpoke(NormalSpoke):
         self._vip_entry.set_text(self._proxy.Vip)
 
         # 3. 强制触发显隐同步
-        self._on_mode_changed(self._mode_combo)
+        self._sync_visibility()
 
     def apply(self):
         """将界面数据写回 DBus 代理。"""
+        self._proxy.NetworkMode = self._network_mode_combo.get_active_id() or "dhcp"
         self._proxy.Mode = self._mode_combo.get_active_id() or "single"
         self._proxy.Interface = self._interface_combo.get_active_id() or ""
-        
+
         # 若是 Bonding 模式，对主/备网卡重合执行防御性校验
         if self._proxy.Mode == "bond":
             dev1 = self._interface_combo.get_active_id()
@@ -242,8 +292,16 @@ class VdiNetworkSpoke(NormalSpoke):
             self._proxy.Interface2 = ""
             self._proxy.BondMode = "active-backup"
 
-        self._proxy.Ip = self._ip_entry.get_text()
-        self._proxy.Vip = self._vip_entry.get_text()
+        # 静态模式下写 IP/VIP，DHCP 模式下写空串
+        if self._proxy.NetworkMode == "static":
+            self._proxy.Ip = self._ip_entry.get_text()
+            self._proxy.Vip = self._vip_entry.get_text()
+        else:
+            self._proxy.Ip = ""
+            self._proxy.Vip = ""
+
+        # 用户点完成触发 apply，标记配置已确认，驱动 completed 让 Hub 放行开装。
+        self._configured = True
 
     @property
     def ready(self):
@@ -252,22 +310,31 @@ class VdiNetworkSpoke(NormalSpoke):
 
     @property
     def completed(self):
-        """配置是否已完成。"""
-        return True
+        """配置是否已完成。DHCP 模式只需选网卡，静态模式需要网卡 + IP。"""
+        if not self._configured:
+            return False
+        if self._proxy.NetworkMode == "dhcp":
+            return bool(self._proxy.Interface)
+        else:
+            return bool(self._proxy.Interface and self._proxy.Ip)
 
     @property
     def mandatory(self):
-        """该 Spoke 是否为强制必填。"""
-        return False
+        """该 Spoke 是否为强制必填。mandatory=True 使 Hub 在未完成时不自动开装。"""
+        return True
 
     @property
     def status(self):
         """在 Hub 主界面上显示的一行状态摘要文字。"""
+        if not self._configured:
+            return "未配置，请点击进入配置管理网络"
+        if self._proxy.NetworkMode == "dhcp":
+            return "DHCP: %s" % self._proxy.Interface
         if self._proxy.Mode == "bond":
-            return "Bonding[%s]: %s,%s  IP: %s" % (
+            return "Static Bonding[%s]: %s,%s  IP: %s" % (
                 self._proxy.BondMode,
                 self._proxy.Interface,
                 self._proxy.Interface2 or "未配置",
                 self._proxy.Ip
             )
-        return "Single: %s  IP: %s" % (self._proxy.Interface, self._proxy.Ip)
+        return "Static: %s  IP: %s" % (self._proxy.Interface, self._proxy.Ip)
