@@ -1,6 +1,7 @@
 """VDI Addon 服务实现（参考 com_redhat_kdump/service/kdump.py）"""
 import logging
 
+from pyanaconda.core.configuration.anaconda import conf
 from pyanaconda.core.dbus import DBus
 from pyanaconda.core.signal import Signal
 from pyanaconda.modules.common.base import KickstartService
@@ -9,6 +10,7 @@ from pyanaconda.modules.common.containers import TaskContainer
 from vdi.constants import VDI
 from vdi.service.vdi_interface import VdiInterface
 from vdi.service.kickstart import VdiKickstartSpecification
+from vdi.service.installation import VdiInstallationTask
 
 log = logging.getLogger(__name__)
 
@@ -141,3 +143,24 @@ class VdiService(KickstartService):
         data.addons.vdi.ip = self.ip
         data.addons.vdi.vip = self.vip
         data.addons.vdi.network_mode = self.network_mode
+
+    def install_with_tasks(self):
+        """返回安装任务列表。
+
+        Anaconda 36 使用 task queue 机制驱动安装流程，
+        addon 必须通过此方法注册 Task 对象，否则 task queue 为空，execute() 不会被调用。
+
+        :return: 安装任务列表
+        """
+        return [
+            VdiInstallationTask(
+                sysroot=conf.target.system_root,
+                mode=self.mode,
+                interface=self.interface,
+                interface2=self.interface2,
+                bond_mode=self.bond_mode,
+                ip=self.ip,
+                vip=self.vip,
+                network_mode=self.network_mode,
+            )
+        ]
