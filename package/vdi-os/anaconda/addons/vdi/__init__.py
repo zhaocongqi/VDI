@@ -46,6 +46,7 @@ class VdiAddon(AnacondaAddon):
             bond_mode = proxy.BondMode or "active-backup"
             ip = proxy.Ip or ""
             vip = proxy.Vip or ""
+            network_mode = proxy.NetworkMode or "dhcp"
         except Exception as e:
             log.error("[VDI] 获取 D-Bus 属性失败，无法下发网络配置: %s", e)
             return
@@ -53,7 +54,7 @@ class VdiAddon(AnacondaAddon):
         # ============================================================
         # 2. 网卡与 Bond 持久化写入
         # ============================================================
-        if ip and interface:
+        if interface:
             conn_dir = os.path.join(sysroot, "etc/NetworkManager/system-connections")
             if not os.path.exists(conn_dir):
                 try:
@@ -70,13 +71,19 @@ class VdiAddon(AnacondaAddon):
                     except Exception:
                         pass
 
-            gateway = ip.rsplit(".", 1)[0] + ".1"
+            is_dhcp = (network_mode == "dhcp")
 
             if mode == "bond" and interface2:
                 # ----------------- 绑定模式 (Bonding) -----------------
                 bond_uuid = str(uuid.uuid4())
                 port1_uuid = str(uuid.uuid4())
                 port2_uuid = str(uuid.uuid4())
+
+                if is_dhcp:
+                    ipv4_section = "method=auto"
+                else:
+                    gateway = ip.rsplit(".", 1)[0] + ".1"
+                    ipv4_section = f"method=manual\naddresses={ip}/24,{gateway}"
 
                 bond_path = os.path.join(conn_dir, "bond0.nmconnection")
                 with open(bond_path, "w") as f:
@@ -91,8 +98,7 @@ autoconnect=true
 options=mode={bond_mode},miimon=100
 
 [ipv4]
-method=manual
-addresses={ip}/24,{gateway}
+{ipv4_section}
 """)
                 os.chmod(bond_path, 0o600)
 
@@ -121,10 +127,16 @@ slave-type=bond
 autoconnect=true
 """)
                 os.chmod(port2_path, 0o600)
-                log.info("[VDI] 成功写入 Bond0 网卡绑定配置 (%s + %s)", interface, interface2)
+                log.info("[VDI] 成功写入 Bond0 网卡绑定配置 (%s + %s, %s)", interface, interface2, network_mode)
             else:
                 # ----------------- 单网卡模式 (Single) -----------------
                 single_uuid = str(uuid.uuid4())
+                if is_dhcp:
+                    ipv4_section = "method=auto"
+                else:
+                    gateway = ip.rsplit(".", 1)[0] + ".1"
+                    ipv4_section = f"method=manual\naddresses={ip}/24,{gateway}"
+
                 single_path = os.path.join(conn_dir, f"{interface}.nmconnection")
                 with open(single_path, "w") as f:
                     f.write(f"""[connection]
@@ -135,11 +147,10 @@ interface-name={interface}
 autoconnect=true
 
 [ipv4]
-method=manual
-addresses={ip}/24,{gateway}
+{ipv4_section}
 """)
                 os.chmod(single_path, 0o600)
-                log.info("[VDI] 成功写入单网卡配置 %s", interface)
+                log.info("[VDI] 成功写入单网卡配置 %s (%s)", interface, network_mode)
 
             # 写入 VDI 内部网络配置文件
             vdi_conf_dir = os.path.join(sysroot, "etc/vdi")
@@ -147,6 +158,7 @@ addresses={ip}/24,{gateway}
                 os.makedirs(vdi_conf_dir, mode=0o755)
             with open(os.path.join(vdi_conf_dir, "network.conf"), "w") as f:
                 f.write(f"""# VDI Management Network Config
+NETWORK_MODE={network_mode}
 MODE={mode}
 INTERFACE={interface}
 INTERFACE2={interface2}
@@ -155,35 +167,13 @@ IP={ip}
 VIP={vip}
 """)
         else:
-            log.warning("[VDI] 未配置有效的 IP 或主网卡，跳过网络配置写入。")
+            log.warning("[VDI] 未配置有效的主网卡，跳过网络配置写入。")
 
         # ============================================================
-        # 3. 影子密码 (shadow) 强行覆写与 SSH Root 登录配置 (防强密码强度机制)
+        # 3. SSH Root 登录配置（BCLinux 默认禁止 root 密码登录，必须放行）
         # ============================================================
-        if ksdata.rootpw and ksdata.rootpw.password:
-            try:
-                import crypt
-                plain_pass = ksdata.rootpw.password
-                hash_val = crypt.crypt(plain_pass, crypt.mksalt(crypt.METHOD_SHA512))
-                
-                shadow_path = os.path.join(sysroot, "etc/shadow")
-                if os.path.exists(shadow_path):
-                    with open(shadow_path, "r") as f:
-                        lines = f.readlines()
-                    new_lines = []
-                    for line in lines:
-                        if line.startswith("root:"):
-                            parts = line.split(":")
-                            parts[1] = hash_val
-                            line = ":".join(parts)
-                        new_lines.append(line)
-                    with open(shadow_path, "w") as f:
-                        f.writelines(new_lines)
-                    log.info("[VDI] 成功通过 shadow 覆写完成 root 密码强制写入")
-            except Exception as e:
-                log.error("[VDI] 影子密码强行覆写发生错误: %s", e)
-
-        # 配置允许 root + 密码登录，并激活 sshd 服务
+        # root 密码由 anaconda 原生 Root 密码 Spoke 处理（ks.cfg 不声明 rootpw → Hub 强制用户设置）
+        # execute 只需确保 sshd 允许 root 密码登录
         try:
             sshd_conf_dir = os.path.join(sysroot, "etc/ssh/sshd_config.d")
             if not os.path.exists(sshd_conf_dir):
@@ -220,8 +210,14 @@ VIP={vip}
                     os.makedirs(longhorn_dir, mode=0o755)
 
                 fstab_path = os.path.join(sysroot, "etc/fstab")
-                with open(fstab_path, "a") as f:
-                    f.write("\nLABEL=VDI_LH_DEFAULT /var/lib/longhorn ext4 defaults,noatime,nofail 0 2\n")
+                longhorn_entry = "LABEL=VDI_LH_DEFAULT /var/lib/longhorn ext4 defaults,noatime,nofail 0 2"
+                already_mounted = False
+                if os.path.exists(fstab_path):
+                    with open(fstab_path, "r") as f:
+                        already_mounted = "VDI_LH_DEFAULT" in f.read()
+                if not already_mounted:
+                    with open(fstab_path, "a") as f:
+                        f.write("\n" + longhorn_entry + "\n")
                 log.info("[VDI] 数据盘格式化并成功挂载至 /var/lib/longhorn")
             else:
                 log.warning("[VDI] 未探测到其它物理数据盘，跳过数据盘处理")
@@ -245,7 +241,11 @@ VIP={vip}
             if os.path.exists(src_images_dir):
                 for f in os.listdir(src_images_dir):
                     if f.endswith(".tar.zst"):
-                        shutil.copy(os.path.join(src_images_dir, f), target_images_dir)
+                        src_img = os.path.join(src_images_dir, f)
+                        if not os.path.exists(src_img) or os.path.getsize(src_img) == 0:
+                            log.warning("[VDI] 跳过空镜像文件: %s", f)
+                            continue
+                        shutil.copy(src_img, target_images_dir)
             log.info("[VDI] 离线 RKE2 镜像拷贝完成")
 
             # 5.2 拷贝 Helm Charts 和 Manifests (KubeVirt, Longhorn 等)
@@ -280,12 +280,30 @@ VIP={vip}
             if rke2_tar:
                 tmp_tar_path = os.path.join(sysroot, "tmp", rke2_tar)
                 shutil.copy(os.path.join(src_binaries_dir, rke2_tar), tmp_tar_path)
-                
+
+                # 完整性校验：0 字节或非合法 tar 一律中止，避免半成品二进制落地
+                if os.path.getsize(tmp_tar_path) == 0:
+                    log.error("[VDI] RKE2 二进制包 %s 为 0 字节，中止 RKE2 安装", rke2_tar)
+                    os.remove(tmp_tar_path)
+                    return
+
+                verify = subprocess.run(
+                    ["tar", "tzf", tmp_tar_path],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.PIPE,
+                    check=False,
+                )
+                if verify.returncode != 0:
+                    log.error("[VDI] RKE2 二进制包 %s 校验失败（非合法 tar）: %s",
+                              rke2_tar, verify.stderr.decode(errors="replace").strip())
+                    os.remove(tmp_tar_path)
+                    return
+
                 # 创建解压目标目录并解压
                 usr_local = os.path.join(sysroot, "usr/local")
                 if not os.path.exists(usr_local):
                     os.makedirs(usr_local, mode=0o755)
-                
+
                 try:
                     subprocess.run(["tar", "xzf", tmp_tar_path, "-C", usr_local], check=True)
                     log.info("[VDI] RKE2 运行二进制解压释放完成")
