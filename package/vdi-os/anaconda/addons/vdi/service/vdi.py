@@ -38,6 +38,9 @@ class VdiService(KickstartService):
         self._vip = "192.168.10.100"
         self.vip_changed = Signal()
 
+        self._network_mode = "dhcp"
+        self.network_mode_changed = Signal()
+
     def publish(self):
         """发布 DBus 对象。"""
         TaskContainer.set_namespace(VDI.namespace)
@@ -105,6 +108,16 @@ class VdiService(KickstartService):
         log.debug("VDI VIP is set to '%s'.", value)
 
     @property
+    def network_mode(self):
+        return self._network_mode
+
+    @network_mode.setter
+    def network_mode(self, value):
+        self._network_mode = value
+        self.network_mode_changed.emit()
+        log.debug("VDI Network Mode is set to '%s'.", value)
+
+    @property
     def kickstart_specification(self):
         return VdiKickstartSpecification
 
@@ -117,6 +130,7 @@ class VdiService(KickstartService):
         self.bond_mode = addon_data.bond_mode
         self.ip = addon_data.ip
         self.vip = addon_data.vip
+        self.network_mode = addon_data.network_mode
 
     def setup_kickstart(self, data):
         """将当前配置写回 Kickstart 数据。"""
@@ -126,3 +140,4 @@ class VdiService(KickstartService):
         data.addons.vdi.bond_mode = self.bond_mode
         data.addons.vdi.ip = self.ip
         data.addons.vdi.vip = self.vip
+        data.addons.vdi.network_mode = self.network_mode

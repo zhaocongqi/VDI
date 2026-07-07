@@ -19,6 +19,7 @@ class VdiInterface(KickstartModuleInterface):
         self.watch_property("BondMode", self.implementation.bond_mode_changed)
         self.watch_property("Ip", self.implementation.ip_changed)
         self.watch_property("Vip", self.implementation.vip_changed)
+        self.watch_property("NetworkMode", self.implementation.network_mode_changed)
 
     @property
     def Mode(self) -> Str:
@@ -75,4 +76,14 @@ class VdiInterface(KickstartModuleInterface):
     @emits_properties_changed
     def Vip(self, value: Str):
         self.implementation.vip = value
+
+    @property
+    def NetworkMode(self) -> Str:
+        """网络配置模式 (dhcp / static)。"""
+        return self.implementation.network_mode
+
+    @NetworkMode.setter
+    @emits_properties_changed
+    def NetworkMode(self, value: Str):
+        self.implementation.network_mode = value
 

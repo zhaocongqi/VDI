@@ -26,6 +26,7 @@ class VdiKickstartData(AddonData):
         self.gateway = "192.168.10.1"
         self.dns = "8.8.8.8"
         self.vip = "192.168.10.100"
+        self.network_mode = "dhcp"
 
     def __str__(self):
         """生成 Kickstart 文本表示。"""
@@ -40,6 +41,7 @@ class VdiKickstartData(AddonData):
         addon_str += " --gateway='%s'" % self.gateway
         addon_str += " --dns='%s'" % self.dns
         addon_str += " --vip='%s'" % self.vip
+        addon_str += " --network-mode='%s'" % self.network_mode
         addon_str += "\n\n%end\n"
         return addon_str
 
@@ -56,7 +58,8 @@ class VdiKickstartData(AddonData):
         parser.add_argument("--gateway", default="192.168.10.1")
         parser.add_argument("--dns", default="8.8.8.8")
         parser.add_argument("--vip", default="192.168.10.100")
-        
+        parser.add_argument("--network-mode", default="dhcp")
+
         parsed, _ = parser.parse_known_args(args)
         self.mode = parsed.mode
         self.interface = parsed.interface
@@ -67,6 +70,7 @@ class VdiKickstartData(AddonData):
         self.gateway = parsed.gateway
         self.dns = parsed.dns
         self.vip = parsed.vip
+        self.network_mode = parsed.network_mode
 
     def handle_line(self, line, line_number=None):
         """处理 %addon 段内部的行。"""
