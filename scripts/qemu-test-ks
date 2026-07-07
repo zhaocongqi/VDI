@@ -292,6 +292,21 @@ info "=== 阶段2: 从硬盘引导进系统 ==="
 # 保留装机阶段串口日志（含 %pre/%post 探针），阶段2 清空前先备份供诊断
 cp -f "$SERIAL_LOG" "${SERIAL_LOG}.install" 2>/dev/null || true
 : > "$SERIAL_LOG"
+
+# 阶段2 显示/串口策略：交互模式用 VNC + TCP 串口（可 nc 连入），自动模式用文件串口
+P2_DISPLAY="-display none"
+P2_SERIAL="-serial file:${SERIAL_LOG}"
+P2_MONITOR=""
+if [ "${INTERACTIVE:-0}" = "1" ]; then
+    P2_DISPLAY="-vnc :$((VNC_PORT-5900))"
+    # TCP 串口：nc 127.0.0.1 <SERIAL_TCP_PORT> 可交互登录
+    P2_SERIAL_PORT="${P2_SERIAL_PORT:-4444}"
+    P2_SERIAL="-serial tcp:${P2_SERIAL_PORT},server,nowait"
+    MON_SOCK="/tmp/qemu-ks-mon"
+    rm -f "$MON_SOCK"
+    P2_MONITOR="-monitor unix:${MON_SOCK},server,nowait"
+fi
+
 qemu-system-x86_64 \
     -machine q35 \
     $ACCEL \
@@ -302,11 +317,16 @@ qemu-system-x86_64 \
     -drive file="$QEMU_DATA_DISK",format=qcow2,if=virtio \
     -netdev user,id=net0,hostfwd=tcp::$SSH_PORT-:22 \
     -device virtio-net-pci,netdev=net0 \
-    -serial file:"$SERIAL_LOG" \
-    -display none \
+    $P2_SERIAL \
+    $P2_DISPLAY \
+    $P2_MONITOR \
     -daemonize \
     -pidfile "$QEMU_PID_FILE" \
     || { error "硬盘引导启动失败"; exit 1; }
+
+if [ "${INTERACTIVE:-0}" = "1" ]; then
+    info "VNC: vnc://127.0.0.1:${VNC_PORT:-5900}  串口: nc 127.0.0.1 ${P2_SERIAL_PORT:-4444}  monitor=${MON_SOCK}"
+fi
 
 info "等待系统启动（SSH 可达，超时 ${BOOT_TIMEOUT}s）..."
 SSH_OK=0
