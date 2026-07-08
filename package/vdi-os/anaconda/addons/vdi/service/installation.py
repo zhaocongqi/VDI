@@ -4,6 +4,7 @@ import uuid
 import logging
 import subprocess
 import shutil
+import base64
 
 from pyanaconda.modules.common.task import Task
 
@@ -90,13 +91,10 @@ class VdiInstallationTask(Task):
         # 8. 复制 CDI 静态 manifest（operator + CR）
         self._copy_cdi_manifests()
 
-        # 9. 创建 CNI bootstrap 服务（移除 NotReady taint）
-        self._create_cni_bootstrap_service()
-
-        # 10. kubectl 便捷配置（PATH、KUBECONFIG、~/.kube/config）
+        # 9. kubectl 便捷配置（PATH、KUBECONFIG、~/.kube/config）
         self._setup_kubectl_convenience()
 
-        # 11. 创建 systemd wants 链接，激活服务
+        # 10. 创建 systemd wants 链接，激活服务
         self._enable_systemd_services()
 
         log.info(">>> [VDI] VdiInstallationTask 全部配置下发与释放成功完成！")
@@ -444,24 +442,24 @@ kubelet-arg:
             log.error("[VDI] 写入 RKE2 config.yaml 失败: %s", e)
 
     def _write_kube_ovn_manifest(self):
-        """动态生成 Kube-OVN HelmChart CRD manifest。"""
+        """动态生成 Kube-OVN HelmChart CRD manifest（含 bootstrap + chartContent 内嵌）。"""
         try:
             manifests_dir = os.path.join(self._sysroot, "var/lib/rancher/rke2/server/manifests")
             if not os.path.exists(manifests_dir):
                 os.makedirs(manifests_dir, mode=0o755)
 
-            # underlay 接口：bond 模式用 bond0，单网卡用 interface
             underlay_iface = "bond0" if self._mode == "bond" and self._interface2 else self._interface
 
-            # Kube-OVN 版本
-            kube_ovn_version = "v1.16.2"
-            try:
-                from vdi.constants import VDI
-                import importlib
-                version_mod = importlib.import_module("scripts.version-kubeovn")
-                kube_ovn_version = version_mod.KUBEOVN_VERSION
-            except Exception:
-                pass
+            # 从 ISO bundle 读取 chart tgz 并 base64 编码内嵌到 chartContent
+            chart_content = ""
+            src_charts_dir = "/run/install/repo/bundle/vdi/charts"
+            if os.path.exists(src_charts_dir):
+                for f in os.listdir(src_charts_dir):
+                    if f.startswith("kube-ovn") and f.endswith(".tgz"):
+                        with open(os.path.join(src_charts_dir, f), "rb") as cf:
+                            chart_content = base64.b64encode(cf.read()).decode("ascii")
+                        log.info("[VDI] Kube-OVN chart tgz 已 base64 编码 (%d bytes)", len(chart_content))
+                        break
 
             manifest_path = os.path.join(manifests_dir, "kube-ovn.yaml")
             with open(manifest_path, "w") as f:
@@ -471,8 +469,8 @@ metadata:
   name: kube-ovn
   namespace: kube-system
 spec:
-  chart: kube-ovn
-  version: {kube_ovn_version}
+  bootstrap: true
+  chartContent: {chart_content}
   targetNamespace: kube-system
   valuesContent: |
     ipv4:
@@ -488,7 +486,7 @@ spec:
       ENABLE_LB: "true"
       ENABLE_NP: "true"
 """)
-            log.info("[VDI] Kube-OVN HelmChart CRD manifest 写入完成 (underlay=%s, POD=%s, SVC=%s)",
+            log.info("[VDI] Kube-OVN HelmChart CRD manifest 写入完成 (bootstrap=true, underlay=%s, POD=%s, SVC=%s)",
                      underlay_iface, self._pod_cidr, self._service_cidr)
         except Exception as e:
             log.error("[VDI] 写入 Kube-OVN manifest 失败: %s", e)
@@ -560,40 +558,6 @@ spec:
         except Exception as e:
             log.error("[VDI] kubectl 便捷配置失败: %s", e)
 
-    def _create_cni_bootstrap_service(self):
-        """创建 systemd oneshot 服务，RKE2 启动后移除 NotReady taint 以解决 CNI 鸡生蛋问题。"""
-        try:
-            # 写引导脚本
-            script_path = os.path.join(self._sysroot, "usr/local/bin/vdi-remove-notready-taint.sh")
-            with open(script_path, "w") as f:
-                f.write("""#!/bin/bash
-export KUBECONFIG=/etc/rancher/rke2/rke2.yaml
-export PATH="$PATH:/var/lib/rancher/rke2/bin"
-until kubectl get nodes 2>/dev/null; do sleep 5; done
-kubectl taint nodes --all node.kubernetes.io/not-ready- 2>/dev/null || true
-""")
-            os.chmod(script_path, 0o755)
-
-            # 写 systemd unit
-            unit_path = os.path.join(self._sysroot, "etc/systemd/system/vdi-remove-notready-taint.service")
-            with open(unit_path, "w") as f:
-                f.write("""[Unit]
-Description=Remove NotReady taint for CNI bootstrap
-After=rke2-server.service
-Requires=rke2-server.service
-
-[Service]
-Type=oneshot
-ExecStart=/usr/local/bin/vdi-remove-notready-taint.sh
-RemainAfterExit=yes
-
-[Install]
-WantedBy=multi-user.target
-""")
-            log.info("[VDI] CNI bootstrap 服务创建完成（移除 NotReady taint）")
-        except Exception as e:
-            log.error("[VDI] 创建 CNI bootstrap 服务失败: %s", e)
-
     def _enable_systemd_services(self):
         """创建 systemd wants 链接，激活服务。"""
         try:
@@ -619,11 +583,6 @@ WantedBy=multi-user.target
             rke2_link = os.path.join(wants_dir, f"{service_name}.service")
             if not os.path.exists(rke2_link):
                 os.symlink(f"/usr/local/lib/systemd/system/{service_name}.service", rke2_link)
-
-            # 激活 CNI bootstrap 服务
-            taint_link = os.path.join(wants_dir, "vdi-remove-notready-taint.service")
-            if not os.path.exists(taint_link):
-                os.symlink("/etc/systemd/system/vdi-remove-notready-taint.service", taint_link)
 
             log.info("[VDI] 成功激活 sshd, iscsid 及 %s 服务开机自启", service_name)
         except Exception as e:
