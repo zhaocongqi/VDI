@@ -33,15 +33,17 @@ VDI/
 │   └── lib/             # 脚本公共库（http 下载/镜像处理）
 ├── package/
 │   └── vdi-os/
-│       ├── ks/ks.cfg                    # 静态 kickstart 模板（装机入口）
+│       ├── ks/ks.cfg                    # 生产 kickstart 模板（交互式，无 rootpw）
+│       ├── ks/ks-auto.cfg               # 自动测试 kickstart（cmdline + rootpw，无人值守）
 │       ├── iso/bundle/                  # 离线资源（binaries/images/charts/manifests，.gitignore 忽略）
 │       └── anaconda/addons/vdi/         # Anaconda Addon Python 插件
-│           ├── __init__.py              # VdiAddon（execute 生命周期：全量写盘持久化）
+│           ├── __init__.py              # 空模块（Anaconda 36 task queue 机制，不再用 execute()）
 │           ├── constants.py             # D-Bus 常量
 │           ├── gui/spokes/vdi_network.py # VdiNetworkSpoke + WindowWrapper
 │           ├── gui/spokes/vdi_network.glade
-│           ├── service/vdi.py           # VdiService（D-Bus 服务，管理配置状态）
+│           ├── service/vdi.py           # VdiService（D-Bus 服务 + install_with_tasks）
 │           ├── service/vdi_interface.py # D-Bus 接口声明
+│           ├── service/installation.py  # VdiInstallationTask（安装逻辑：网络/SSH/数据盘/RKE2）
 │           ├── service/kickstart.py     # VdiKickstartData + VdiKickstartSpecification
 │           └── dbus/                    # D-Bus .service/.conf 文件
 └── docs/                # 设计文档 + 实施计划
@@ -54,6 +56,18 @@ make build-bundle       # 下载离线资源（RKE2 二进制/镜像/charts）
 make package-vdi-iso    # 构建 VDI 安装型 ISO（BCLinux DVD + kickstart + xorriso）
 make default            # build-bundle + package-vdi-iso 全链路
 ```
+
+### 测试场景（三层分离）
+
+| 场景 | 命令 | 用途 |
+|------|------|------|
+| Addon GUI 测试 | `./scripts/dev-cycle start` | 极简 ISO + VNC 观察 Spoke 界面，约 3 分钟 |
+| 装机后验证 | `./scripts/qemu-test-ks <iso> uefi` | 全自动无 GUI（ks-auto.cfg），约 5 分钟 |
+| 生产 ISO | `INTERACTIVE=1 ./scripts/qemu-test-ks <iso> uefi` | 完整交互装机（ks.cfg），手动配置网络/密码 |
+
+- **自动模式**：内核参数 `vdi.install.automatic=true` → `VdiNetworkSpoke` 自动标记 `completed=True` + `mandatory=False`，跳过 GUI 交互
+- **热重载**（GUI 测试）：`./scripts/dev-cycle reload` 通过 SSH 注入代码到运行中的安装器（需 anaconda 环境 SSH 可用）
+- **验证**：`./scripts/dev-cycle verify` SSH 进装机后系统检查 RKE2/SSH/网络配置文件
 
 ### 宿主机工具要求
 
@@ -84,7 +98,7 @@ make default            # build-bundle + package-vdi-iso 全链路
    - `VdiNetworkSpoke` 在安装器 Hub 的 SYSTEM 分类下提供网卡/Bond/IP/VIP 配置 GUI
    - `VdiService` 通过 D-Bus 私有总线管理配置状态
    - `VdiKickstartData` 解析/回写 `%addon vdi` 段
-3. **`execute` 阶段全量写盘**（`__init__.py` → `VdiAddon.execute`）— Anaconda 在写入目标系统配置的最后阶段自动调用，依次完成：
+3. **`install_with_tasks` 阶段**（`service/vdi.py` → `VdiInstallationTask.run()`）— Anaconda 36 通过 task queue 调度，在安装流程的 "Anaconda addon configuration" 阶段自动执行：
    - 从 D-Bus 代理读取网络配置 → 写 NetworkManager `.nmconnection` 文件
    - shadow 密码覆写 + SSH root 登录配置
    - 数据盘自动探测/格式化/fstab 挂载（`mkfs.ext4 -L VDI_LH_DEFAULT`）
@@ -101,11 +115,11 @@ VDI Addon 遵循 Anaconda Addon 规范（参考 `com_redhat_kdump`），三层�
 | 层 | 文件 | 职责 |
 |---|---|---|
 | **GUI Spoke** | `gui/spokes/vdi_network.py` | Gtk3 图形界面，`VdiNetworkSpoke` 继承 `NormalSpoke`，通过 `.glade` 布局 |
-| **D-Bus Service** | `service/vdi.py` + `service/vdi_interface.py` | 配置状态管理 + D-Bus 属性/信号发布 |
+| **D-Bus Service** | `service/vdi.py` + `service/vdi_interface.py` | 配置状态管理 + D-Bus 属性/信号发布 + `install_with_tasks()` 注册安装任务 |
+| **安装任务** | `service/installation.py` | `VdiInstallationTask(Task)` 子类，`run()` 包含全部安装逻辑 |
 | **Kickstart Data** | `service/kickstart.py` | `%addon vdi` 段的解析与序列化 |
-| **执行入口** | `__init__.py` | `VdiAddon.execute()` — anaconda 生命周期钩子，全量写盘 |
 
-**D-Bus 通信**：Spoke GUI → D-Bus 属性读写 → Service 状态 → execute 读取 D-Bus 代理写入目标盘。所有组件间通过 `org.fedoraproject.Anaconda.Addons.Vdi` 私有总线通信。
+**D-Bus 通信**：Spoke GUI → D-Bus 属性读写 → Service 状态 → `install_with_tasks()` 返回 `VdiInstallationTask` → Anaconda task queue 调度执行。所有组件间通过 `org.fedoraproject.Anaconda.Addons.Vdi` 私有总线通信。
 
 ### Anaconda 33+ Addon 兼容性与 GtkBox 限制（致命红线）
 
@@ -120,11 +134,11 @@ BCLinux 的 `install.img` 包含嵌套 ext4 分区，必须通过 loop 挂载 `L
 构建链 `scripts/package-vdi-iso`：xorriso 解包 BCLinux DVD → 注入 `ks.cfg` + Addon + `bundle/` → 改 `isolinux.cfg`/`grub.cfg` 加 `inst.ks=hd:LABEL=BCLinux.x86_64:/ks.cfg` → xorriso 重建（`-isohybrid-mbr` 保留 BIOS+UEFI 双引导，卷标必须 `BCLinux.x86_64`）。
 
 - **ISO 9660 文件 0444 只读**：xorriso 解包后 `chmod -R u+w`，改写 `isolinux.cfg`/`grub.cfg` 前再 `chmod u+w`，否则写失败。
-- **BCLinux anaconda 36 兼容性**：`install`/`autostep` 指令已移除（报错）→ 删除；`%packages` 缺包即失败 → 只列仓库内有的包；`rootpw --iscrypted` 偶发不生效 → Addon execute 兜底。
+- **BCLinux anaconda 36 兼容性**：`install`/`autostep` 指令已移除（报错）→ 删除；`%packages` 缺包即失败 → 只列仓库内有的包；`rootpw --iscrypted` 偶发不生效 → Addon Task 兜底。
 - **`%pre` → `%include` 时序（极度重要）**：
   1. **`%include` 必须在 ks 最顶部（%pre 之前）**。ks-include 含全局指令，落到 %pre 之后违反 kickstart "全局指令必须在所有 section 之前"语法，导致 anaconda 解析异常，且 `%post` 全段不执行。
-  2. **BCLinux anaconda 36 的 `%post` 不 chroot**。kickstart 标准 `%post`（不带 --nochroot）本应 chroot 到 /mnt/sysroot，但实测**不 chroot**。Python 侧 `execute` 通过 `storage.config.sysroot` 获取目标根路径。
-  3. **多 %post section 不稳定**：BCLinux anaconda 36 对多个 `%post --nochroot` section 执行不稳定。Python 侧 `execute` 天然在单次调用中完成。
+  2. **BCLinux anaconda 36 的 `%post` 不 chroot**。kickstart 标准 `%post`（不带 --nochroot）本应 chroot 到 /mnt/sysroot，但实测**不 chroot**。当前已用 `VdiInstallationTask` 绕开，通过 `conf.target.system_root` 获取 sysroot。
+  3. **多 %post section 不稳定**：BCLinux anaconda 36 对多个 `%post --nochroot` section 执行不稳定。`VdiInstallationTask.run()` 在单次调用中完成所有逻辑。
 - **RKE2 离线**：`rke2.linux-amd64.tar.gz` 解压 `$SYSROOT/usr/local`（二进制内嵌 containerd）；镜像 `*.tar.zst` 放 `agent/images/`，RKE2 首启自动导入。
 - **内存**：kickstart 装机无 squashfs/active.img，4G 够。
 
@@ -146,7 +160,7 @@ scripts/version-kagent    # KAGENT_VERSION="0.9.6"
 2. 在 `scripts/build-bundle` 中添加下载逻辑
 3. 在 `package/vdi-os/iso/bundle/vdi/charts/` 中放置 chart tgz
 4. 在 `package/vdi-os/iso/bundle/vdi/manifests/` 中放置 manifest YAML
-5. 若 Addon execute 需要处理新资源，在 `package/vdi-os/anaconda/addons/vdi/__init__.py` 的 `execute` 方法中补充
+5. 若 Addon Task 需要处理新资源，在 `package/vdi-os/anaconda/addons/vdi/service/installation.py` 的 `VdiInstallationTask.run()` 中补充
 
 ## 深入文档指针
 
