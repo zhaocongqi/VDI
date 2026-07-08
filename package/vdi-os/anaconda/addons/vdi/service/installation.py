@@ -24,7 +24,7 @@ class VdiInstallationTask(Task):
     - 激活 systemd 服务
     """
 
-    def __init__(self, sysroot, mode, interface, interface2, bond_mode, ip, vip, network_mode):
+    def __init__(self, sysroot, mode, interface, interface2, bond_mode, ip, netmask, gateway, dns, vip, network_mode):
         """创建安装任务。
 
         :param sysroot: 目标系统根路径
@@ -33,6 +33,9 @@ class VdiInstallationTask(Task):
         :param interface2: 备网卡名（bond 模式）
         :param bond_mode: Bond 模式 (active-backup/802.3ad)
         :param ip: 管理 IP（静态模式）
+        :param netmask: 子网掩码（如 255.255.255.0）
+        :param gateway: 默认网关
+        :param dns: DNS 服务器地址
         :param vip: 集群虚拟 IP（静态模式）
         :param network_mode: 网络模式 (dhcp/static)
         """
@@ -43,6 +46,9 @@ class VdiInstallationTask(Task):
         self._interface2 = interface2 or ""
         self._bond_mode = bond_mode or "active-backup"
         self._ip = ip or ""
+        self._netmask = netmask or "255.255.255.0"
+        self._gateway = gateway or ""
+        self._dns = dns or "8.8.8.8"
         self._vip = vip or ""
         self._network_mode = network_mode or "dhcp"
 
@@ -77,6 +83,25 @@ class VdiInstallationTask(Task):
 
         log.info(">>> [VDI] VdiInstallationTask 全部配置下发与释放成功完成！")
 
+    def _netmask_to_cidr(self, netmask):
+        """将子网掩码转换为 CIDR 前缀长度（如 255.255.255.0 → 24）。"""
+        import ipaddress
+        try:
+            return ipaddress.IPv4Network(f"0.0.0.0/{netmask}").prefixlen
+        except ValueError:
+            log.warning("[VDI] 无效子网掩码 '%s'，回退 /24", netmask)
+            return 24
+
+    def _build_ipv4_section(self, is_dhcp):
+        """构建 [ipv4] 配置段。"""
+        if is_dhcp:
+            return "[ipv4]\nmethod=auto"
+        cidr = self._netmask_to_cidr(self._netmask)
+        lines = f"[ipv4]\nmethod=manual\naddresses={self._ip}/{cidr},{self._gateway}"
+        if self._dns:
+            lines += f"\ndns={self._dns};"
+        return lines
+
     def _write_network_config(self):
         """写入 NetworkManager 网卡配置。"""
         if not self._interface:
@@ -100,18 +125,14 @@ class VdiInstallationTask(Task):
                     pass
 
         is_dhcp = (self._network_mode == "dhcp")
+        ipv4_section = self._build_ipv4_section(is_dhcp)
+        ipv6_section = "[ipv6]\nmethod=disabled"
 
         if self._mode == "bond" and self._interface2:
             # ----------------- 绑定模式 (Bonding) -----------------
             bond_uuid = str(uuid.uuid4())
             port1_uuid = str(uuid.uuid4())
             port2_uuid = str(uuid.uuid4())
-
-            if is_dhcp:
-                ipv4_section = "method=auto"
-            else:
-                gateway = self._ip.rsplit(".", 1)[0] + ".1"
-                ipv4_section = f"method=manual\naddresses={self._ip}/24,{gateway}"
 
             bond_path = os.path.join(conn_dir, "bond0.nmconnection")
             with open(bond_path, "w") as f:
@@ -121,51 +142,41 @@ uuid={bond_uuid}
 type=bond
 interface-name=bond0
 autoconnect=true
+autoconnect-priority=100
 
 [bond]
 options=mode={self._bond_mode},miimon=100
 
-[ipv4]
 {ipv4_section}
+
+{ipv6_section}
 """)
             os.chmod(bond_path, 0o600)
 
-            port1_path = os.path.join(conn_dir, f"{self._interface}.nmconnection")
-            with open(port1_path, "w") as f:
-                f.write(f"""[connection]
-id={self._interface}
-uuid={port1_uuid}
+            for iface, port_uuid in [(self._interface, port1_uuid), (self._interface2, port2_uuid)]:
+                port_path = os.path.join(conn_dir, f"{iface}.nmconnection")
+                with open(port_path, "w") as f:
+                    f.write(f"""[connection]
+id={iface}
+uuid={port_uuid}
 type=ethernet
-interface-name={self._interface}
+interface-name={iface}
 master={bond_uuid}
 slave-type=bond
 autoconnect=true
-""")
-            os.chmod(port1_path, 0o600)
+autoconnect-priority=100
 
-            port2_path = os.path.join(conn_dir, f"{self._interface2}.nmconnection")
-            with open(port2_path, "w") as f:
-                f.write(f"""[connection]
-id={self._interface2}
-uuid={port2_uuid}
-type=ethernet
-interface-name={self._interface2}
-master={bond_uuid}
-slave-type=bond
-autoconnect=true
+[ethernet]
+
+{ipv6_section}
 """)
-            os.chmod(port2_path, 0o600)
+                os.chmod(port_path, 0o600)
+
             log.info("[VDI] 成功写入 Bond0 网卡绑定配置 (%s + %s, %s)",
                      self._interface, self._interface2, self._network_mode)
         else:
             # ----------------- 单网卡模式 (Single) -----------------
             single_uuid = str(uuid.uuid4())
-            if is_dhcp:
-                ipv4_section = "method=auto"
-            else:
-                gateway = self._ip.rsplit(".", 1)[0] + ".1"
-                ipv4_section = f"method=manual\naddresses={self._ip}/24,{gateway}"
-
             single_path = os.path.join(conn_dir, f"{self._interface}.nmconnection")
             with open(single_path, "w") as f:
                 f.write(f"""[connection]
@@ -174,9 +185,13 @@ uuid={single_uuid}
 type=ethernet
 interface-name={self._interface}
 autoconnect=true
+autoconnect-priority=100
 
-[ipv4]
+[ethernet]
+
 {ipv4_section}
+
+{ipv6_section}
 """)
             os.chmod(single_path, 0o600)
             log.info("[VDI] 成功写入单网卡配置 %s (%s)", self._interface, self._network_mode)
@@ -193,6 +208,9 @@ INTERFACE={self._interface}
 INTERFACE2={self._interface2}
 BOND_MODE={self._bond_mode}
 IP={self._ip}
+NETMASK={self._netmask}
+GATEWAY={self._gateway}
+DNS={self._dns}
 VIP={self._vip}
 """)
 

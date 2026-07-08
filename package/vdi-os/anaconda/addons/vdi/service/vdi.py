@@ -43,6 +43,15 @@ class VdiService(KickstartService):
         self._network_mode = "dhcp"
         self.network_mode_changed = Signal()
 
+        self._netmask = "255.255.255.0"
+        self.netmask_changed = Signal()
+
+        self._gateway = "192.168.10.1"
+        self.gateway_changed = Signal()
+
+        self._dns = "8.8.8.8"
+        self.dns_changed = Signal()
+
     def publish(self):
         """发布 DBus 对象。"""
         TaskContainer.set_namespace(VDI.namespace)
@@ -120,6 +129,36 @@ class VdiService(KickstartService):
         log.debug("VDI Network Mode is set to '%s'.", value)
 
     @property
+    def netmask(self):
+        return self._netmask
+
+    @netmask.setter
+    def netmask(self, value):
+        self._netmask = value
+        self.netmask_changed.emit()
+        log.debug("VDI Netmask is set to '%s'.", value)
+
+    @property
+    def gateway(self):
+        return self._gateway
+
+    @gateway.setter
+    def gateway(self, value):
+        self._gateway = value
+        self.gateway_changed.emit()
+        log.debug("VDI Gateway is set to '%s'.", value)
+
+    @property
+    def dns(self):
+        return self._dns
+
+    @dns.setter
+    def dns(self, value):
+        self._dns = value
+        self.dns_changed.emit()
+        log.debug("VDI DNS is set to '%s'.", value)
+
+    @property
     def kickstart_specification(self):
         return VdiKickstartSpecification
 
@@ -131,6 +170,9 @@ class VdiService(KickstartService):
         self.interface2 = addon_data.interface2
         self.bond_mode = addon_data.bond_mode
         self.ip = addon_data.ip
+        self.netmask = addon_data.netmask
+        self.gateway = addon_data.gateway
+        self.dns = addon_data.dns
         self.vip = addon_data.vip
         self.network_mode = addon_data.network_mode
 
@@ -141,6 +183,9 @@ class VdiService(KickstartService):
         data.addons.vdi.interface2 = self.interface2
         data.addons.vdi.bond_mode = self.bond_mode
         data.addons.vdi.ip = self.ip
+        data.addons.vdi.netmask = self.netmask
+        data.addons.vdi.gateway = self.gateway
+        data.addons.vdi.dns = self.dns
         data.addons.vdi.vip = self.vip
         data.addons.vdi.network_mode = self.network_mode
 
@@ -160,6 +205,9 @@ class VdiService(KickstartService):
                 interface2=self.interface2,
                 bond_mode=self.bond_mode,
                 ip=self.ip,
+                netmask=self.netmask,
+                gateway=self.gateway,
+                dns=self.dns,
                 vip=self.vip,
                 network_mode=self.network_mode,
             )

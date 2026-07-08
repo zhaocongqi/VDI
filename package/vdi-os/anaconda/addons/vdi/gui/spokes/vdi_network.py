@@ -104,7 +104,13 @@ class VdiNetworkSpoke(NormalSpoke):
         "ip_label",
         "ip_entry",
         "vip_label",
-        "vip_entry"
+        "vip_entry",
+        "netmask_label",
+        "netmask_entry",
+        "gateway_label",
+        "gateway_entry",
+        "dns_label",
+        "dns_entry",
     ]
     mainWidgetName = "vdi_network_box"
     uiFile = "vdi_network.glade"
@@ -142,6 +148,12 @@ class VdiNetworkSpoke(NormalSpoke):
         self._ip_entry = None
         self._vip_label = None
         self._vip_entry = None
+        self._netmask_label = None
+        self._netmask_entry = None
+        self._gateway_label = None
+        self._gateway_entry = None
+        self._dns_label = None
+        self._dns_entry = None
         NormalSpoke.__init__(self, data, storage, payload)
         self._proxy = VDI.get_proxy()
 
@@ -172,6 +184,12 @@ class VdiNetworkSpoke(NormalSpoke):
         self._ip_entry = self.builder.get_object("ip_entry")
         self._vip_label = self.builder.get_object("vip_label")
         self._vip_entry = self.builder.get_object("vip_entry")
+        self._netmask_label = self.builder.get_object("netmask_label")
+        self._netmask_entry = self.builder.get_object("netmask_entry")
+        self._gateway_label = self.builder.get_object("gateway_label")
+        self._gateway_entry = self.builder.get_object("gateway_entry")
+        self._dns_label = self.builder.get_object("dns_label")
+        self._dns_entry = self.builder.get_object("dns_entry")
 
         # 监听网络模式下拉框改变事件，以动态启用/禁用 IP/VIP 输入框
         self._network_mode_combo.connect("changed", self._on_network_mode_changed)
@@ -193,6 +211,12 @@ class VdiNetworkSpoke(NormalSpoke):
         self._ip_entry.set_visible(is_static)
         self._vip_label.set_visible(is_static)
         self._vip_entry.set_visible(is_static)
+        self._netmask_label.set_visible(is_static)
+        self._netmask_entry.set_visible(is_static)
+        self._gateway_label.set_visible(is_static)
+        self._gateway_entry.set_visible(is_static)
+        self._dns_label.set_visible(is_static)
+        self._dns_entry.set_visible(is_static)
         if not is_static:
             self._ip_entry.set_text("")
             self._vip_entry.set_text("")
@@ -223,20 +247,24 @@ class VdiNetworkSpoke(NormalSpoke):
         """扫描系统的物理网卡列表并填充到界面下拉栏中。"""
         if not self.network_proxy:
             return
-        
+
         try:
-            devices = self.network_proxy.GetDevices()
+            from pyanaconda.modules.common.structures.network import NetworkDeviceInfo
+            raw_devices = self.network_proxy.GetSupportedDevices()
+            devices = [NetworkDeviceInfo.from_structure(d).device_name for d in raw_devices]
         except Exception as e:
             log.error("D-Bus 获取网卡列表失败: %s", e)
-            devices = ["ens33", "ens34"] # 降级默认备选
-
-        # 过滤掉本地环回
-        physical_devs = [d for d in devices if d != "lo"]
+            import os
+            _VIRTUAL_PREFIXES = ("virbr", "docker", "veth", "br-", "ovs-")
+            devices = [
+                d for d in os.listdir("/sys/class/net")
+                if d != "lo" and not d.startswith(_VIRTUAL_PREFIXES)
+            ]
 
         self._interface_combo.remove_all()
         self._interface2_combo.remove_all()
 
-        for dev in physical_devs:
+        for dev in devices:
             self._interface_combo.append(dev, dev)
             self._interface2_combo.append(dev, dev)
 
@@ -267,6 +295,9 @@ class VdiNetworkSpoke(NormalSpoke):
 
         self._ip_entry.set_text(self._proxy.Ip)
         self._vip_entry.set_text(self._proxy.Vip)
+        self._netmask_entry.set_text(self._proxy.Netmask or "255.255.255.0")
+        self._gateway_entry.set_text(self._proxy.Gateway or "")
+        self._dns_entry.set_text(self._proxy.Dns or "8.8.8.8")
 
         # 3. 强制触发显隐同步
         self._sync_visibility()
@@ -282,9 +313,18 @@ class VdiNetworkSpoke(NormalSpoke):
             dev1 = self._interface_combo.get_active_id()
             dev2 = self._interface2_combo.get_active_id()
             if dev1 == dev2:
-                # 冲突时备用网卡置空或提示
+                dialog = Gtk.MessageDialog(
+                    transient_for=None,
+                    flags=Gtk.DialogFlags.MODAL,
+                    message_type=Gtk.MessageType.WARNING,
+                    buttons=Gtk.ButtonsType.OK,
+                    text="主备物理网卡不能选择同一设备",
+                )
+                dialog.format_secondary_text("已将配置模式回退为单网卡，请重新选择两块不同网卡以启用 Bond。")
+                dialog.run()
+                dialog.destroy()
+                self._proxy.Mode = "single"
                 self._proxy.Interface2 = ""
-                log.warning("主备物理网卡选择重合，已静默将备网卡置空。")
             else:
                 self._proxy.Interface2 = dev2 or ""
             self._proxy.BondMode = self._bond_mode_combo.get_active_id() or "active-backup"
@@ -292,12 +332,18 @@ class VdiNetworkSpoke(NormalSpoke):
             self._proxy.Interface2 = ""
             self._proxy.BondMode = "active-backup"
 
-        # 静态模式下写 IP/VIP，DHCP 模式下写空串
+        # 静态模式下写 IP/掩码/网关/DNS/VIP，DHCP 模式下写空串
         if self._proxy.NetworkMode == "static":
             self._proxy.Ip = self._ip_entry.get_text()
+            self._proxy.Netmask = self._netmask_entry.get_text() or "255.255.255.0"
+            self._proxy.Gateway = self._gateway_entry.get_text()
+            self._proxy.Dns = self._dns_entry.get_text() or "8.8.8.8"
             self._proxy.Vip = self._vip_entry.get_text()
         else:
             self._proxy.Ip = ""
+            self._proxy.Netmask = ""
+            self._proxy.Gateway = ""
+            self._proxy.Dns = ""
             self._proxy.Vip = ""
 
         # 用户点完成触发 apply，标记配置已确认，驱动 completed 让 Hub 放行开装。

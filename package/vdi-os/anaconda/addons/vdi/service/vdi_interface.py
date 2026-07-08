@@ -20,6 +20,9 @@ class VdiInterface(KickstartModuleInterface):
         self.watch_property("Ip", self.implementation.ip_changed)
         self.watch_property("Vip", self.implementation.vip_changed)
         self.watch_property("NetworkMode", self.implementation.network_mode_changed)
+        self.watch_property("Netmask", self.implementation.netmask_changed)
+        self.watch_property("Gateway", self.implementation.gateway_changed)
+        self.watch_property("Dns", self.implementation.dns_changed)
 
     @property
     def Mode(self) -> Str:
@@ -27,6 +30,7 @@ class VdiInterface(KickstartModuleInterface):
         return self.implementation.mode
 
     @Mode.setter
+    @emits_properties_changed
     def Mode(self, value: Str):
         self.implementation.mode = value
 
@@ -36,6 +40,7 @@ class VdiInterface(KickstartModuleInterface):
         return self.implementation.interface
 
     @Interface.setter
+    @emits_properties_changed
     def Interface(self, value: Str):
         self.implementation.interface = value
 
@@ -45,6 +50,7 @@ class VdiInterface(KickstartModuleInterface):
         return self.implementation.interface2
 
     @Interface2.setter
+    @emits_properties_changed
     def Interface2(self, value: Str):
         self.implementation.interface2 = value
 
@@ -54,6 +60,7 @@ class VdiInterface(KickstartModuleInterface):
         return self.implementation.bond_mode
 
     @BondMode.setter
+    @emits_properties_changed
     def BondMode(self, value: Str):
         self.implementation.bond_mode = value
 
@@ -86,4 +93,34 @@ class VdiInterface(KickstartModuleInterface):
     @emits_properties_changed
     def NetworkMode(self, value: Str):
         self.implementation.network_mode = value
+
+    @property
+    def Netmask(self) -> Str:
+        """子网掩码。"""
+        return self.implementation.netmask
+
+    @Netmask.setter
+    @emits_properties_changed
+    def Netmask(self, value: Str):
+        self.implementation.netmask = value
+
+    @property
+    def Gateway(self) -> Str:
+        """默认网关。"""
+        return self.implementation.gateway
+
+    @Gateway.setter
+    @emits_properties_changed
+    def Gateway(self, value: Str):
+        self.implementation.gateway = value
+
+    @property
+    def Dns(self) -> Str:
+        """DNS 服务器地址。"""
+        return self.implementation.dns
+
+    @Dns.setter
+    @emits_properties_changed
+    def Dns(self, value: Str):
+        self.implementation.dns = value
 

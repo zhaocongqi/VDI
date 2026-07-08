@@ -204,6 +204,84 @@
             <property name="top_attach">6</property>
           </packing>
         </child>
+        <!-- 子网掩码（默认隐藏，静态模式时由代码显示） -->
+        <child>
+          <object class="GtkLabel" id="netmask_label">
+            <property name="visible">False</property>
+            <property name="label" translatable="yes">子网掩码:</property>
+            <property name="xalign">1</property>
+            <property name="no_show_all">True</property>
+          </object>
+          <packing>
+            <property name="left_attach">0</property>
+            <property name="top_attach">7</property>
+          </packing>
+        </child>
+        <child>
+          <object class="GtkEntry" id="netmask_entry">
+            <property name="visible">False</property>
+            <property name="can_focus">True</property>
+            <property name="text">255.255.255.0</property>
+            <property name="width_chars">20</property>
+            <property name="no_show_all">True</property>
+          </object>
+          <packing>
+            <property name="left_attach">1</property>
+            <property name="top_attach">7</property>
+          </packing>
+        </child>
+        <!-- 默认网关（默认隐藏，静态模式时由代码显示） -->
+        <child>
+          <object class="GtkLabel" id="gateway_label">
+            <property name="visible">False</property>
+            <property name="label" translatable="yes">默认网关:</property>
+            <property name="xalign">1</property>
+            <property name="no_show_all">True</property>
+          </object>
+          <packing>
+            <property name="left_attach">0</property>
+            <property name="top_attach">8</property>
+          </packing>
+        </child>
+        <child>
+          <object class="GtkEntry" id="gateway_entry">
+            <property name="visible">False</property>
+            <property name="can_focus">True</property>
+            <property name="text">192.168.10.1</property>
+            <property name="width_chars">20</property>
+            <property name="no_show_all">True</property>
+          </object>
+          <packing>
+            <property name="left_attach">1</property>
+            <property name="top_attach">8</property>
+          </packing>
+        </child>
+        <!-- DNS 服务器（默认隐藏，静态模式时由代码显示） -->
+        <child>
+          <object class="GtkLabel" id="dns_label">
+            <property name="visible">False</property>
+            <property name="label" translatable="yes">DNS 服务器:</property>
+            <property name="xalign">1</property>
+            <property name="no_show_all">True</property>
+          </object>
+          <packing>
+            <property name="left_attach">0</property>
+            <property name="top_attach">9</property>
+          </packing>
+        </child>
+        <child>
+          <object class="GtkEntry" id="dns_entry">
+            <property name="visible">False</property>
+            <property name="can_focus">True</property>
+            <property name="text">8.8.8.8</property>
+            <property name="width_chars">20</property>
+            <property name="no_show_all">True</property>
+          </object>
+          <packing>
+            <property name="left_attach">1</property>
+            <property name="top_attach">9</property>
+          </packing>
+        </child>
       </object>
     </child>
   </object>
