@@ -473,6 +473,7 @@ spec:
   chartContent: {chart_content}
   targetNamespace: kube-system
   valuesContent: |
+    MASTER_NODES_LABEL: "node-role.kubernetes.io/master"
     ipv4:
       POD_CIDR: "{self._pod_cidr}"
       SVC_CIDR: "{self._service_cidr}"
