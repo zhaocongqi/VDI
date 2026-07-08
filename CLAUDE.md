@@ -57,17 +57,31 @@ make package-vdi-iso    # 构建 VDI 安装型 ISO（BCLinux DVD + kickstart + x
 make default            # build-bundle + package-vdi-iso 全链路
 ```
 
-### 测试场景（三层分离）
+### 装机模式与构建脚本
 
-| 场景 | 命令 | 用途 |
-|------|------|------|
-| Addon GUI 测试 | `./scripts/dev-cycle start` | 极简 ISO + VNC 观察 Spoke 界面，约 3 分钟 |
-| 装机后验证 | `./scripts/qemu-test-ks <iso> uefi` | 全自动无 GUI（ks-auto.cfg），约 5 分钟 |
-| 生产 ISO | `INTERACTIVE=1 ./scripts/qemu-test-ks <iso> uefi` | 完整交互装机（ks.cfg），手动配置网络/密码 |
+| 模式 | 构建脚本 | 产物 | 用途 |
+|------|----------|------|------|
+| 生产交互装机 | `make default`（build-bundle + package-vdi-iso） | `dist/artifacts/vdi-*-amd64.iso`（~4.2G） | 客户现场部署，GUI 强制配置网络/密码 |
+| 自动测试装机 | 同上（同一 ISO） | 同上，qemu-test-ks 非交互模式自动选用 ks-auto.cfg | CI/回归测试，全自动无 GUI |
+| 极简 GUI 测试 | `scripts/package-minimal-addon-iso`（dev-cycle start 内部调用） | `dist/artifacts/vdi-minimal-test.iso`（~3.4G，无 bundle） | Addon 界面调试，VNC 观察 Spoke |
+| 热重载迭代 | `scripts/hot-reload-addon`（dev-cycle reload） | 无 ISO，SSH 注入代码 | Addon 代码秒级迭代 |
 
-- **自动模式**：内核参数 `vdi.install.automatic=true` → `VdiNetworkSpoke` 自动标记 `completed=True` + `mandatory=False`，跳过 GUI 交互
-- **热重载**（GUI 测试）：`./scripts/dev-cycle reload` 通过 SSH 注入代码到运行中的安装器（需 anaconda 环境 SSH 可用）
-- **验证**：`./scripts/dev-cycle verify` SSH 进装机后系统检查 RKE2/SSH/网络配置文件
+**构建脚本职责**：
+- `scripts/build-bundle` — 下载离线资源（RKE2 二进制/镜像/charts）到 `package/vdi-os/iso/bundle/vdi/`
+- `scripts/package-vdi-iso` — xorriso 解包 BCLinux DVD → 注入 ks.cfg + ks-auto.cfg + Addon + bundle → 重建 ISO
+- `scripts/package-minimal-addon-iso` — 同上但**跳过 bundle**（省 ~800MB I/O），仅注入 Addon + 极简 ks
+
+### 测试命令速查
+
+| 命令 | 场景 |
+|------|------|
+| `./scripts/dev-cycle start` | 构建极简 ISO + 启动 VNC 交互环境 |
+| `./scripts/dev-cycle reload` | 热重载 addon 代码到运行中的 VM |
+| `./scripts/dev-cycle verify` | SSH 进装机后系统检查 RKE2/SSH/网络文件 |
+| `./scripts/qemu-test-ks <iso> uefi` | 全自动装机（ks-auto.cfg，无 GUI） |
+| `INTERACTIVE=1 ./scripts/qemu-test-ks <iso> uefi` | 交互装机（ks.cfg，VNC GUI） |
+
+- **自动模式内核参数**：`vdi.install.automatic=true` → Spoke `completed=True` + `mandatory=False`，跳过 GUI
 
 ### 宿主机工具要求
 
@@ -161,6 +175,11 @@ scripts/version-kagent    # KAGENT_VERSION="0.9.6"
 3. 在 `package/vdi-os/iso/bundle/vdi/charts/` 中放置 chart tgz
 4. 在 `package/vdi-os/iso/bundle/vdi/manifests/` 中放置 manifest YAML
 5. 若 Addon Task 需要处理新资源，在 `package/vdi-os/anaconda/addons/vdi/service/installation.py` 的 `VdiInstallationTask.run()` 中补充
+
+## 已知限制
+
+- `VdiInstallationTask._setup_kubectl_convenience()` 中 `~/.kube/config` 拷贝会失败——RKE2 在安装阶段尚未生成 `rke2.yaml`，需首启后由 RKE2 创建。修复方向：systemd oneshot 服务在首启后补拷。
+- anaconda 安装环境 SSH 不可用（sshd banner exchange 超时），`hot-reload-addon` 在安装阶段无法连入，仅装机后（phase 2）可用。
 
 ## 深入文档指针
 
