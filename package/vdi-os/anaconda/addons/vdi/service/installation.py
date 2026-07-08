@@ -69,7 +69,10 @@ class VdiInstallationTask(Task):
         # 5. 动态配置并下发 RKE2 config.yaml
         self._write_rke2_config()
 
-        # 6. 创建 systemd wants 链接，激活服务
+        # 6. kubectl 便捷配置（PATH、KUBECONFIG、~/.kube/config）
+        self._setup_kubectl_convenience()
+
+        # 7. 创建 systemd wants 链接，激活服务
         self._enable_systemd_services()
 
         log.info(">>> [VDI] VdiInstallationTask 全部配置下发与释放成功完成！")
@@ -403,6 +406,37 @@ kubelet-arg:
             log.info("[VDI] RKE2 核心配置文件 config.yaml 写入完成")
         except Exception as e:
             log.error("[VDI] 写入 RKE2 config.yaml 失败: %s", e)
+
+    def _setup_kubectl_convenience(self):
+        """配置 kubectl 便捷访问：PATH 软链、KUBECONFIG、~/.kube/config。"""
+        try:
+            # 1. kubectl 软链到 /usr/local/bin/
+            kubectl_src = "/var/lib/rancher/rke2/bin/kubectl"
+            kubectl_link = os.path.join(self._sysroot, "usr/local/bin/kubectl")
+            if not os.path.exists(kubectl_link):
+                os.symlink(kubectl_src, kubectl_link)
+
+            # 2. /etc/profile.d/rke2.sh — 登录时自动设置 PATH 和 KUBECONFIG
+            profile_d_dir = os.path.join(self._sysroot, "etc/profile.d")
+            if not os.path.exists(profile_d_dir):
+                os.makedirs(profile_d_dir, mode=0o755)
+            with open(os.path.join(profile_d_dir, "rke2.sh"), "w") as f:
+                f.write('export PATH="$PATH:/var/lib/rancher/rke2/bin"\n')
+                f.write('export KUBECONFIG="/etc/rancher/rke2/rke2.yaml"\n')
+
+            # 3. root 用户 ~/.kube/config（拷贝 kubeconfig）
+            kube_dir = os.path.join(self._sysroot, "root/.kube")
+            if not os.path.exists(kube_dir):
+                os.makedirs(kube_dir, mode=0o700)
+            kubeconfig_src = os.path.join(self._sysroot, "etc/rancher/rke2/rke2.yaml")
+            kubeconfig_dst = os.path.join(kube_dir, "config")
+            if os.path.exists(kubeconfig_src):
+                shutil.copy(kubeconfig_src, kubeconfig_dst)
+                os.chmod(kubeconfig_dst, 0o600)
+
+            log.info("[VDI] kubectl 便捷配置完成（PATH 软链 + profile.d + ~/.kube/config）")
+        except Exception as e:
+            log.error("[VDI] kubectl 便捷配置失败: %s", e)
 
     def _enable_systemd_services(self):
         """创建 systemd wants 链接，激活服务。"""

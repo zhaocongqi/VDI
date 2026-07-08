@@ -303,6 +303,15 @@ class VdiNetworkSpoke(NormalSpoke):
         # 用户点完成触发 apply，标记配置已确认，驱动 completed 让 Hub 放行开装。
         self._configured = True
 
+    @staticmethod
+    def _is_automatic_mode():
+        """检测内核参数中是否含 vdi.install.automatic=true（无人值守自动装机模式）。"""
+        try:
+            with open("/proc/cmdline", "r") as f:
+                return "vdi.install.automatic=true" in f.read()
+        except Exception:
+            return False
+
     @property
     def ready(self):
         """Spoke 是否已就绪。"""
@@ -310,7 +319,9 @@ class VdiNetworkSpoke(NormalSpoke):
 
     @property
     def completed(self):
-        """配置是否已完成。DHCP 模式只需选网卡，静态模式需要网卡 + IP。"""
+        """配置是否已完成。自动模式直接视为已完成，跳过 GUI 交互。"""
+        if self._is_automatic_mode():
+            return True
         if not self._configured:
             return False
         if self._proxy.NetworkMode == "dhcp":
@@ -320,7 +331,9 @@ class VdiNetworkSpoke(NormalSpoke):
 
     @property
     def mandatory(self):
-        """该 Spoke 是否为强制必填。mandatory=True 使 Hub 在未完成时不自动开装。"""
+        """该 Spoke 是否为强制必填。自动模式下不强制，允许跳过 GUI 直接开装。"""
+        if self._is_automatic_mode():
+            return False
         return True
 
     @property
