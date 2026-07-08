@@ -282,6 +282,78 @@
             <property name="top_attach">9</property>
           </packing>
         </child>
+        <!-- POD CIDR（始终可见） -->
+        <child>
+          <object class="GtkLabel" id="pod_cidr_label">
+            <property name="visible">True</property>
+            <property name="label" translatable="yes">POD CIDR:</property>
+            <property name="xalign">1</property>
+          </object>
+          <packing>
+            <property name="left_attach">0</property>
+            <property name="top_attach">10</property>
+          </packing>
+        </child>
+        <child>
+          <object class="GtkEntry" id="pod_cidr_entry">
+            <property name="visible">True</property>
+            <property name="can_focus">True</property>
+            <property name="text">10.16.0.0/16</property>
+            <property name="width_chars">20</property>
+          </object>
+          <packing>
+            <property name="left_attach">1</property>
+            <property name="top_attach">10</property>
+          </packing>
+        </child>
+        <!-- SERVICE CIDR（始终可见） -->
+        <child>
+          <object class="GtkLabel" id="service_cidr_label">
+            <property name="visible">True</property>
+            <property name="label" translatable="yes">SERVICE CIDR:</property>
+            <property name="xalign">1</property>
+          </object>
+          <packing>
+            <property name="left_attach">0</property>
+            <property name="top_attach">11</property>
+          </packing>
+        </child>
+        <child>
+          <object class="GtkEntry" id="service_cidr_entry">
+            <property name="visible">True</property>
+            <property name="can_focus">True</property>
+            <property name="text">10.96.0.0/12</property>
+            <property name="width_chars">20</property>
+          </object>
+          <packing>
+            <property name="left_attach">1</property>
+            <property name="top_attach">11</property>
+          </packing>
+        </child>
+        <!-- JOIN CIDR（始终可见） -->
+        <child>
+          <object class="GtkLabel" id="join_cidr_label">
+            <property name="visible">True</property>
+            <property name="label" translatable="yes">JOIN CIDR:</property>
+            <property name="xalign">1</property>
+          </object>
+          <packing>
+            <property name="left_attach">0</property>
+            <property name="top_attach">12</property>
+          </packing>
+        </child>
+        <child>
+          <object class="GtkEntry" id="join_cidr_entry">
+            <property name="visible">True</property>
+            <property name="can_focus">True</property>
+            <property name="text">100.64.0.0/16</property>
+            <property name="width_chars">20</property>
+          </object>
+          <packing>
+            <property name="left_attach">1</property>
+            <property name="top_attach">12</property>
+          </packing>
+        </child>
       </object>
     </child>
   </object>

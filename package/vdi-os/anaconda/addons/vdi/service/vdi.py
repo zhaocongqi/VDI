@@ -52,6 +52,15 @@ class VdiService(KickstartService):
         self._dns = "8.8.8.8"
         self.dns_changed = Signal()
 
+        self._pod_cidr = "10.16.0.0/16"
+        self.pod_cidr_changed = Signal()
+
+        self._service_cidr = "10.96.0.0/12"
+        self.service_cidr_changed = Signal()
+
+        self._join_cidr = "100.64.0.0/16"
+        self.join_cidr_changed = Signal()
+
     def publish(self):
         """发布 DBus 对象。"""
         TaskContainer.set_namespace(VDI.namespace)
@@ -159,6 +168,36 @@ class VdiService(KickstartService):
         log.debug("VDI DNS is set to '%s'.", value)
 
     @property
+    def pod_cidr(self):
+        return self._pod_cidr
+
+    @pod_cidr.setter
+    def pod_cidr(self, value):
+        self._pod_cidr = value
+        self.pod_cidr_changed.emit()
+        log.debug("VDI PodCidr is set to '%s'.", value)
+
+    @property
+    def service_cidr(self):
+        return self._service_cidr
+
+    @service_cidr.setter
+    def service_cidr(self, value):
+        self._service_cidr = value
+        self.service_cidr_changed.emit()
+        log.debug("VDI ServiceCidr is set to '%s'.", value)
+
+    @property
+    def join_cidr(self):
+        return self._join_cidr
+
+    @join_cidr.setter
+    def join_cidr(self, value):
+        self._join_cidr = value
+        self.join_cidr_changed.emit()
+        log.debug("VDI JoinCidr is set to '%s'.", value)
+
+    @property
     def kickstart_specification(self):
         return VdiKickstartSpecification
 
@@ -175,6 +214,9 @@ class VdiService(KickstartService):
         self.dns = addon_data.dns
         self.vip = addon_data.vip
         self.network_mode = addon_data.network_mode
+        self.pod_cidr = addon_data.pod_cidr
+        self.service_cidr = addon_data.service_cidr
+        self.join_cidr = addon_data.join_cidr
 
     def setup_kickstart(self, data):
         """将当前配置写回 Kickstart 数据。"""
@@ -188,6 +230,9 @@ class VdiService(KickstartService):
         data.addons.vdi.dns = self.dns
         data.addons.vdi.vip = self.vip
         data.addons.vdi.network_mode = self.network_mode
+        data.addons.vdi.pod_cidr = self.pod_cidr
+        data.addons.vdi.service_cidr = self.service_cidr
+        data.addons.vdi.join_cidr = self.join_cidr
 
     def install_with_tasks(self):
         """返回安装任务列表。
@@ -208,6 +253,9 @@ class VdiService(KickstartService):
                 netmask=self.netmask,
                 gateway=self.gateway,
                 dns=self.dns,
+                pod_cidr=self.pod_cidr,
+                service_cidr=self.service_cidr,
+                join_cidr=self.join_cidr,
                 vip=self.vip,
                 network_mode=self.network_mode,
             )

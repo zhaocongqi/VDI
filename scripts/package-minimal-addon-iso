@@ -146,6 +146,26 @@ bootloader --append="console=tty1 console=ttyS0,115200"
 KS_CFG
 
 # ============================================================
+# 6.5 注入 ks-auto.cfg（自动测试用，cmdline + rootpw）
+cat > "${MINI_ISO_ROOTFS}/ks-auto.cfg" <<'KS_AUTO'
+cmdline
+cdrom
+keyboard --vckeymap=us --xlayouts='us'
+lang zh_CN.UTF-8
+timezone Asia/Shanghai --isUtc --utc
+selinux --permissive
+firewall --disabled
+reboot --eject
+rootpw vdi123
+sshpw --username=root vdi123
+network --bootproto=dhcp --device=link --activate
+clearpart --all --initlabel
+autopart --type=lvm --fstype=ext4
+bootloader --append="console=ttyS0,115200 console=tty1"
+%addon vdi
+%end
+KS_AUTO
+
 # 7. 改写引导菜单强开图形 GUI
 # ============================================================
 echo ">>> 改写引导配置文件"

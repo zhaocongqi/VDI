@@ -24,7 +24,7 @@ class VdiInstallationTask(Task):
     - 激活 systemd 服务
     """
 
-    def __init__(self, sysroot, mode, interface, interface2, bond_mode, ip, netmask, gateway, dns, vip, network_mode):
+    def __init__(self, sysroot, mode, interface, interface2, bond_mode, ip, netmask, gateway, dns, pod_cidr, service_cidr, join_cidr, vip, network_mode):
         """创建安装任务。
 
         :param sysroot: 目标系统根路径
@@ -36,6 +36,9 @@ class VdiInstallationTask(Task):
         :param netmask: 子网掩码（如 255.255.255.0）
         :param gateway: 默认网关
         :param dns: DNS 服务器地址
+        :param pod_cidr: POD CIDR 地址段
+        :param service_cidr: SERVICE CIDR 地址段
+        :param join_cidr: JOIN CIDR 地址段
         :param vip: 集群虚拟 IP（静态模式）
         :param network_mode: 网络模式 (dhcp/static)
         """
@@ -49,6 +52,9 @@ class VdiInstallationTask(Task):
         self._netmask = netmask or "255.255.255.0"
         self._gateway = gateway or ""
         self._dns = dns or "8.8.8.8"
+        self._pod_cidr = pod_cidr or "10.16.0.0/16"
+        self._service_cidr = service_cidr or "10.96.0.0/12"
+        self._join_cidr = join_cidr or "100.64.0.0/16"
         self._vip = vip or ""
         self._network_mode = network_mode or "dhcp"
 
@@ -75,10 +81,13 @@ class VdiInstallationTask(Task):
         # 5. 动态配置并下发 RKE2 config.yaml
         self._write_rke2_config()
 
-        # 6. kubectl 便捷配置（PATH、KUBECONFIG、~/.kube/config）
+        # 6. 动态生成 Kube-OVN HelmChart CRD manifest
+        self._write_kube_ovn_manifest()
+
+        # 7. kubectl 便捷配置（PATH、KUBECONFIG、~/.kube/config）
         self._setup_kubectl_convenience()
 
-        # 7. 创建 systemd wants 链接，激活服务
+        # 8. 创建 systemd wants 链接，激活服务
         self._enable_systemd_services()
 
         log.info(">>> [VDI] VdiInstallationTask 全部配置下发与释放成功完成！")
@@ -424,6 +433,63 @@ kubelet-arg:
             log.info("[VDI] RKE2 核心配置文件 config.yaml 写入完成")
         except Exception as e:
             log.error("[VDI] 写入 RKE2 config.yaml 失败: %s", e)
+
+    def _write_kube_ovn_manifest(self):
+        """动态生成 Kube-OVN HelmChart CRD manifest。"""
+        try:
+            manifests_dir = os.path.join(self._sysroot, "var/lib/rancher/rke2/server/manifests")
+            if not os.path.exists(manifests_dir):
+                os.makedirs(manifests_dir, mode=0o755)
+
+            # underlay 接口：bond 模式用 bond0，单网卡用 interface
+            underlay_iface = "bond0" if self._mode == "bond" and self._interface2 else self._interface
+
+            # Kube-OVN 版本
+            kube_ovn_version = "v1.16.2"
+            try:
+                from vdi.constants import VDI
+                import importlib
+                version_mod = importlib.import_module("scripts.version-kubeovn")
+                kube_ovn_version = version_mod.KUBEOVN_VERSION
+            except Exception:
+                pass
+
+            manifest_path = os.path.join(manifests_dir, "kube-ovn.yaml")
+            with open(manifest_path, "w") as f:
+                f.write(f"""apiVersion: helm.cattle.io/v1
+kind: HelmChart
+metadata:
+  name: kube-ovn
+  namespace: kube-system
+spec:
+  chart: kube-ovn
+  version: {kube_ovn_version}
+  targetNamespace: kube-system
+  valuesContent: |
+    POD_CIDR: "{self._pod_cidr}"
+    SERVICE_CIDR: "{self._service_cidr}"
+    JOIN_CIDR: "{self._join_cidr}"
+    NETWORK_TYPE: "geneve"
+    VLAN_INTERFACE: "{underlay_iface}"
+    VLAN_ID: "0"
+    ENABLE_LB: "true"
+    ENABLE_NP: "true"
+    image:
+      repository: kubeovn
+      tag: {kube_ovn_version}
+    vpc-nat-gateway:
+      image:
+        repository: kubeovn/vpc-nat-gateway
+        tag: {kube_ovn_version}
+    kube-ovn-app:
+      image:
+        repository: kubeovn/kube-ovn-app
+        tag: {kube_ovn_version}
+""")
+            log.info("[VDI] Kube-OVN HelmChart CRD manifest 写入完成 (underlay=%s, POD=%s, SVC=%s)",
+                     underlay_iface, self._pod_cidr, self._service_cidr)
+        except Exception as e:
+            log.error("[VDI] 写入 Kube-OVN manifest 失败: %s", e)
 
     def _setup_kubectl_convenience(self):
         """配置 kubectl 便捷访问：PATH 软链、KUBECONFIG、~/.kube/config。"""

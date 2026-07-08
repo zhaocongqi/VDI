@@ -111,6 +111,12 @@ class VdiNetworkSpoke(NormalSpoke):
         "gateway_entry",
         "dns_label",
         "dns_entry",
+        "pod_cidr_label",
+        "pod_cidr_entry",
+        "service_cidr_label",
+        "service_cidr_entry",
+        "join_cidr_label",
+        "join_cidr_entry",
     ]
     mainWidgetName = "vdi_network_box"
     uiFile = "vdi_network.glade"
@@ -154,6 +160,12 @@ class VdiNetworkSpoke(NormalSpoke):
         self._gateway_entry = None
         self._dns_label = None
         self._dns_entry = None
+        self._pod_cidr_label = None
+        self._pod_cidr_entry = None
+        self._service_cidr_label = None
+        self._service_cidr_entry = None
+        self._join_cidr_label = None
+        self._join_cidr_entry = None
         NormalSpoke.__init__(self, data, storage, payload)
         self._proxy = VDI.get_proxy()
 
@@ -190,6 +202,12 @@ class VdiNetworkSpoke(NormalSpoke):
         self._gateway_entry = self.builder.get_object("gateway_entry")
         self._dns_label = self.builder.get_object("dns_label")
         self._dns_entry = self.builder.get_object("dns_entry")
+        self._pod_cidr_label = self.builder.get_object("pod_cidr_label")
+        self._pod_cidr_entry = self.builder.get_object("pod_cidr_entry")
+        self._service_cidr_label = self.builder.get_object("service_cidr_label")
+        self._service_cidr_entry = self.builder.get_object("service_cidr_entry")
+        self._join_cidr_label = self.builder.get_object("join_cidr_label")
+        self._join_cidr_entry = self.builder.get_object("join_cidr_entry")
 
         # 监听网络模式下拉框改变事件，以动态启用/禁用 IP/VIP 输入框
         self._network_mode_combo.connect("changed", self._on_network_mode_changed)
@@ -298,6 +316,9 @@ class VdiNetworkSpoke(NormalSpoke):
         self._netmask_entry.set_text(self._proxy.Netmask or "255.255.255.0")
         self._gateway_entry.set_text(self._proxy.Gateway or "")
         self._dns_entry.set_text(self._proxy.Dns or "8.8.8.8")
+        self._pod_cidr_entry.set_text(self._proxy.PodCidr or "10.16.0.0/16")
+        self._service_cidr_entry.set_text(self._proxy.ServiceCidr or "10.96.0.0/12")
+        self._join_cidr_entry.set_text(self._proxy.JoinCidr or "100.64.0.0/16")
 
         # 3. 强制触发显隐同步
         self._sync_visibility()
@@ -346,6 +367,10 @@ class VdiNetworkSpoke(NormalSpoke):
             self._proxy.Dns = ""
             self._proxy.Vip = ""
 
+        # CIDR 配置（始终写入，不依赖 static/dhcp）
+        self._proxy.PodCidr = self._pod_cidr_entry.get_text() or "10.16.0.0/16"
+        self._proxy.ServiceCidr = self._service_cidr_entry.get_text() or "10.96.0.0/12"
+        self._proxy.JoinCidr = self._join_cidr_entry.get_text() or "100.64.0.0/16"
         # 用户点完成触发 apply，标记配置已确认，驱动 completed 让 Hub 放行开装。
         self._configured = True
 

@@ -27,6 +27,9 @@ class VdiKickstartData(AddonData):
         self.dns = "8.8.8.8"
         self.vip = "192.168.10.100"
         self.network_mode = "dhcp"
+        self.pod_cidr = "10.16.0.0/16"
+        self.service_cidr = "10.96.0.0/12"
+        self.join_cidr = "100.64.0.0/16"
 
     def __str__(self):
         """生成 Kickstart 文本表示。"""
@@ -42,6 +45,9 @@ class VdiKickstartData(AddonData):
         addon_str += " --dns='%s'" % self.dns
         addon_str += " --vip='%s'" % self.vip
         addon_str += " --network-mode='%s'" % self.network_mode
+        addon_str += " --pod-cidr='%s'" % self.pod_cidr
+        addon_str += " --service-cidr='%s'" % self.service_cidr
+        addon_str += " --join-cidr='%s'" % self.join_cidr
         addon_str += "\n\n%end\n"
         return addon_str
 
@@ -59,6 +65,9 @@ class VdiKickstartData(AddonData):
         parser.add_argument("--dns", default="8.8.8.8")
         parser.add_argument("--vip", default="192.168.10.100")
         parser.add_argument("--network-mode", default="dhcp")
+        parser.add_argument("--pod-cidr", default="10.16.0.0/16")
+        parser.add_argument("--service-cidr", default="10.96.0.0/12")
+        parser.add_argument("--join-cidr", default="100.64.0.0/16")
 
         parsed, _ = parser.parse_known_args(args)
         self.mode = parsed.mode
@@ -71,6 +80,9 @@ class VdiKickstartData(AddonData):
         self.dns = parsed.dns
         self.vip = parsed.vip
         self.network_mode = parsed.network_mode
+        self.pod_cidr = parsed.pod_cidr
+        self.service_cidr = parsed.service_cidr
+        self.join_cidr = parsed.join_cidr
 
     def handle_line(self, line, line_number=None):
         """处理 %addon 段内部的行。"""

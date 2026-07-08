@@ -23,6 +23,9 @@ class VdiInterface(KickstartModuleInterface):
         self.watch_property("Netmask", self.implementation.netmask_changed)
         self.watch_property("Gateway", self.implementation.gateway_changed)
         self.watch_property("Dns", self.implementation.dns_changed)
+        self.watch_property("PodCidr", self.implementation.pod_cidr_changed)
+        self.watch_property("ServiceCidr", self.implementation.service_cidr_changed)
+        self.watch_property("JoinCidr", self.implementation.join_cidr_changed)
 
     @property
     def Mode(self) -> Str:
@@ -123,4 +126,34 @@ class VdiInterface(KickstartModuleInterface):
     @emits_properties_changed
     def Dns(self, value: Str):
         self.implementation.dns = value
+
+    @property
+    def PodCidr(self) -> Str:
+        """POD CIDR 地址段。"""
+        return self.implementation.pod_cidr
+
+    @PodCidr.setter
+    @emits_properties_changed
+    def PodCidr(self, value: Str):
+        self.implementation.pod_cidr = value
+
+    @property
+    def ServiceCidr(self) -> Str:
+        """SERVICE CIDR 地址段。"""
+        return self.implementation.service_cidr
+
+    @ServiceCidr.setter
+    @emits_properties_changed
+    def ServiceCidr(self, value: Str):
+        self.implementation.service_cidr = value
+
+    @property
+    def JoinCidr(self) -> Str:
+        """JOIN CIDR 地址段。"""
+        return self.implementation.join_cidr
+
+    @JoinCidr.setter
+    @emits_properties_changed
+    def JoinCidr(self, value: Str):
+        self.implementation.join_cidr = value
 
