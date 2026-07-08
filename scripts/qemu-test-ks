@@ -15,6 +15,8 @@
 # 用法: ./scripts/qemu-test-ks [ISO路径] [bios|uefi]
 
 set -e
+# 忽略 SIGPIPE：调用方可能通过 head/tail 截断输出，管道断开时脚本仍需跑完两阶段
+trap '' PIPE
 
 TOP_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )/.." &> /dev/null && pwd )"
 ISO="${1:-$(ls -t ${TOP_DIR}/dist/artifacts/vdi-*.iso 2>/dev/null | head -1)}"
@@ -130,10 +132,10 @@ INITRD="${KERNEL_EXTRACT_DIR}/initrd.img"
 # 交互模式需 monitor socket 供 sendkey/screendump 验证键盘响应（当前用 socat）。
 # 显示模式：自动模式用 inst.text（无人值守无需图形）；交互模式用 inst.graphical 让 anaconda 渲染 Gtk Hub。
 if [ "${INTERACTIVE:-0}" = "1" ]; then
-    APPEND="inst.stage2=hd:LABEL=BCLinux.x86_64 inst.ks=hd:LABEL=BCLinux.x86_64:/ks.cfg console=tty1 console=ttyS0,115200 quiet fpi_to_tail=off inst.graphical"
+    APPEND="inst.stage2=hd:LABEL=BCLinux.x86_64 inst.ks=hd:LABEL=BCLinux.x86_64:/ks.cfg console=tty1 console=ttyS0,115200 console=ttyS1,115200 quiet fpi_to_tail=off inst.graphical inst.sshd"
 else
     # 非交互模式：使用 ks-auto.cfg（预设 rootpw + cmdline 模式），跳过 GUI
-    APPEND="inst.stage2=hd:LABEL=BCLinux.x86_64 inst.ks=hd:LABEL=BCLinux.x86_64:/ks-auto.cfg console=ttyS0,115200 console=tty1 quiet fpi_to_tail=off inst.text vdi.install.automatic=true"
+    APPEND="inst.stage2=hd:LABEL=BCLinux.x86_64 inst.ks=hd:LABEL=BCLinux.x86_64:/ks-auto.cfg console=ttyS0,115200 console=tty1 console=ttyS1,115200 quiet fpi_to_tail=off inst.text vdi.install.automatic=true inst.sshd"
 fi
 info "APPEND=${APPEND}"
 
@@ -165,6 +167,7 @@ qemu-system-x86_64 \
     -netdev user,id=net0,hostfwd=tcp::$SSH_PORT-:22 \
     -device virtio-net-pci,netdev=net0 \
     -serial file:"$SERIAL_LOG" \
+    -serial tcp::4444,server,nowait \
     $MON_ARG \
     $DISPLAY_ARG \
     -daemonize \

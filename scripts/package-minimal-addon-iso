@@ -135,14 +135,11 @@ keyboard --vckeymap=us --xlayouts='us'
 lang zh_CN.UTF-8
 timezone Asia/Shanghai --isUtc
 rootpw vdi123
+sshpw --username=root vdi123
 network --bootproto=dhcp --device=link --activate
 clearpart --all --initlabel
 autopart --type=lvm --fstype=ext4
 bootloader --append="console=tty1 console=ttyS0,115200"
-
-%pre --nochroot
-echo "root:vdi123" | chpasswd
-%end
 
 %addon vdi
 %end
