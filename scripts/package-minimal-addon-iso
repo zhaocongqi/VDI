@@ -128,12 +128,21 @@ rm -rf "${MINI_SQUASH_ROOTFS}"
 # ============================================================
 echo ">>> 注入极简测试 ks.cfg"
 cat > "${MINI_ISO_ROOTFS}/ks.cfg" <<'KS_CFG'
-# 极简测试 Kickstart（验证 GUI Addon 显示）
+# 极简测试 Kickstart（验证 GUI Addon 显示 + hot-reload）
 graphical
 cdrom
 keyboard --vckeymap=us --xlayouts='us'
 lang zh_CN.UTF-8
 timezone Asia/Shanghai --isUtc
+rootpw vdi123
+network --bootproto=dhcp --device=link --activate
+clearpart --all --initlabel
+autopart --type=lvm --fstype=ext4
+bootloader --append="console=tty1 console=ttyS0,115200"
+
+%pre --nochroot
+echo "root:vdi123" | chpasswd
+%end
 
 %addon vdi
 %end
@@ -154,7 +163,7 @@ label vdi
   menu label ^Install VDI Addon Test (graphical)
   menu default
   kernel vmlinuz
-  append initrd=initrd.img inst.stage2=hd:LABEL=BCLinux.x86_64 inst.ks=hd:LABEL=BCLinux.x86_64:/ks.cfg console=ttyS0,115200 console=tty1 quiet fpi_to_tail=off inst.graphical inst.sshd
+  append initrd=initrd.img inst.stage2=hd:LABEL=BCLinux.x86_64 inst.ks=hd:LABEL=BCLinux.x86_64:/ks.cfg console=tty1 console=ttyS0,115200 quiet fpi_to_tail=off inst.graphical inst.sshd
 ISO_MENU
 
 cat > "${MINI_ISO_ROOTFS}/EFI/BOOT/grub.cfg" <<'GRUB_MENU'
@@ -180,7 +189,7 @@ menuentry 'Install VDI Addon Test (graphical)' --class gnu-linux --class os {
     set linux=linux
     set initrd=initrd
   fi
-  $linux /images/pxeboot/vmlinuz inst.stage2=hd:LABEL=BCLinux.x86_64 inst.ks=hd:LABEL=BCLinux.x86_64:/ks.cfg console=ttyS0,115200 console=tty1 quiet fpi_to_tail=off inst.graphical inst.sshd
+  $linux /images/pxeboot/vmlinuz inst.stage2=hd:LABEL=BCLinux.x86_64 inst.ks=hd:LABEL=BCLinux.x86_64:/ks.cfg console=tty1 console=ttyS0,115200 quiet fpi_to_tail=off inst.graphical inst.sshd
   $initrd /images/pxeboot/initrd.img
 }
 GRUB_MENU

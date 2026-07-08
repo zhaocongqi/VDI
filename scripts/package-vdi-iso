@@ -101,6 +101,14 @@ KS_OUT="${ISO_ROOTFS}/ks.cfg"
 cp -f "${KS_TEMPLATE}" "${KS_OUT}"
 echo "  ks.cfg -> /ks.cfg ($(wc -l < ${KS_OUT}) 行)"
 
+# 自动测试 ks（无人值守，预设 rootpw + cmdline 模式）
+KS_AUTO_TEMPLATE="${PACKAGE_VDI_OS_DIR}/ks/ks-auto.cfg"
+if [ -f "${KS_AUTO_TEMPLATE}" ]; then
+    KS_AUTO_OUT="${ISO_ROOTFS}/ks-auto.cfg"
+    cp -f "${KS_AUTO_TEMPLATE}" "${KS_AUTO_OUT}"
+    echo "  ks-auto.cfg -> /ks-auto.cfg ($(wc -l < ${KS_AUTO_OUT}) 行)"
+fi
+
 echo ">>> 解压并重构 install.img (注入 VDI Addon)"
 rm -rf "${CACHE_DIR}/install-rootfs"
 # -no-xattrs：非 root 构建时跳过 security.selinux 等 xattr 恢复，否则 unsquashfs 因
