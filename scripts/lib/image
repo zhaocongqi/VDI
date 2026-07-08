@@ -25,16 +25,24 @@ save_image()
 
   echo "Copying ${#images[@]} images via skopeo..."
 
-  # skopeo 多镜像打包：先 copy 第一个镜像创建 archive，后续用 --append 追加
-  local first=1
+  # skopeo 逐镜像打包为独立 docker-archive tar，RKE2 导入时自动扫描目录下所有 .tar.zst
   for image in "${images[@]}"; do
-    if [ $first -eq 1 ]; then
-      skopeo copy docker://$image docker-archive:${archive_file} --override-os linux --override-arch amd64
-      first=0
-    else
-      skopeo copy docker://$image docker-archive:${archive_file} --override-os linux --override-arch amd64 --append
+    local img_tag="${image##*:}"
+    local img_repo="${image%:*}"
+    local img_name="$(echo "${img_repo}" | sed 's|[^a-zA-Z0-9._-]|_|g')_${img_tag}"
+    local img_archive="${save_dir}/${img_name}.tar"
+    local img_zst="${img_archive}.zst"
+    if [ -f "$img_zst" ]; then
+      echo "  已存在: ${img_zst}"
+      continue
     fi
+    echo "  拉取: ${image}"
+    skopeo copy docker://$image docker-archive:${img_archive} --override-os linux --override-arch amd64
   done
 
-  zstd --rm $archive_file
+  # 批量压缩所有 tar 为 tar.zst
+  for tar_file in ${save_dir}/*.tar; do
+    [ -f "$tar_file" ] || continue
+    zstd --rm "$tar_file"
+  done
 }

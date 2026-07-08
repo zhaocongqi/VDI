@@ -66,7 +66,6 @@ kubeovn_image_list="${IMAGES_LISTS_DIR}/kube-ovn-${KUBEOVN_VERSION}.txt"
 cat > ${kubeovn_image_list} <<EOF
 docker.io/kubeovn/kube-ovn:${KUBEOVN_VERSION}
 docker.io/kubeovn/vpc-nat-gateway:${KUBEOVN_VERSION}
-docker.io/kubeovn/kube-ovn-app:${KUBEOVN_VERSION}
 EOF
 save_image ${kubeovn_image_list} ${IMAGES_DIR}
 
@@ -80,35 +79,43 @@ get_url "https://github.com/kubeovn/kube-ovn/releases/download/${KUBEOVN_VERSION
 # ============================================================
 kubevirt_image_list="${IMAGES_LISTS_DIR}/kubevirt-${KUBEVIRT_VERSION}.txt"
 cat > ${kubevirt_image_list} <<EOF
-docker.io/kubevirt/virt-operator:${KUBEVIRT_VERSION}
-docker.io/kubevirt/virt-controller:${KUBEVIRT_VERSION}
-docker.io/kubevirt/virt-handler:${KUBEVIRT_VERSION}
-docker.io/kubevirt/virt-api:${KUBEVIRT_VERSION}
-docker.io/kubevirt/virt-launcher:${KUBEVIRT_VERSION}
+quay.io/kubevirt/virt-operator:${KUBEVIRT_VERSION}
+quay.io/kubevirt/virt-controller:${KUBEVIRT_VERSION}
+quay.io/kubevirt/virt-handler:${KUBEVIRT_VERSION}
+quay.io/kubevirt/virt-api:${KUBEVIRT_VERSION}
+quay.io/kubevirt/virt-launcher:${KUBEVIRT_VERSION}
 EOF
 save_image ${kubevirt_image_list} ${IMAGES_DIR}
 
 kubevirt_chart="${CHARTS_DIR}/kubevirt-${KUBEVIRT_VERSION}.tgz"
 get_url "https://github.com/kubevirt/kubevirt/releases/download/${KUBEVIRT_VERSION}/kubevirt-${KUBEVIRT_VERSION}.tgz" ${kubevirt_chart} \
-  || get_url "https://kubevirt.github.io/kubevirt-helm/charts/kubevirt-${KUBEVIRT_VERSION}.tgz" ${kubevirt_chart}
+  || echo "WARN: KubeVirt Helm chart 不存在，使用静态 operator manifest"
+
+# KubeVirt 静态 manifest（operator + CR）
+get_url "https://github.com/kubevirt/kubevirt/releases/download/${KUBEVIRT_VERSION}/kubevirt-operator.yaml" ${MANIFESTS_DIR}/kubevirt-operator.yaml
+get_url "https://github.com/kubevirt/kubevirt/releases/download/${KUBEVIRT_VERSION}/kubevirt-cr.yaml" ${MANIFESTS_DIR}/kubevirt-cr.yaml
 
 # ============================================================
-# CDI images + Helm chart
+# CDI images + manifest
 # ============================================================
 cdi_image_list="${IMAGES_LISTS_DIR}/cdi-${CDI_VERSION}.txt"
 cat > ${cdi_image_list} <<EOF
-docker.io/kubevirt/cdi-operator:${CDI_VERSION}
-docker.io/kubevirt/cdi-controller:${CDI_VERSION}
-docker.io/kubevirt/cdi-importer:${CDI_VERSION}
-docker.io/kubevirt/cdi-cloner:${CDI_VERSION}
-docker.io/kubevirt/cdi-uploadproxy:${CDI_VERSION}
-docker.io/kubevirt/cdi-apiserver:${CDI_VERSION}
+quay.io/kubevirt/cdi-operator:${CDI_VERSION}
+quay.io/kubevirt/cdi-controller:${CDI_VERSION}
+quay.io/kubevirt/cdi-importer:${CDI_VERSION}
+quay.io/kubevirt/cdi-cloner:${CDI_VERSION}
+quay.io/kubevirt/cdi-uploadproxy:${CDI_VERSION}
+quay.io/kubevirt/cdi-apiserver:${CDI_VERSION}
 EOF
 save_image ${cdi_image_list} ${IMAGES_DIR}
 
 cdi_chart="${CHARTS_DIR}/cdi-${CDI_VERSION}.tgz"
 get_url "https://github.com/kubevirt/containerized-data-importer/releases/download/${CDI_VERSION}/cdi-${CDI_VERSION}.tgz" ${cdi_chart} \
-  || get_url "https://kubevirt.github.io/kubevirt-helm/charts/cdi-${CDI_VERSION}.tgz" ${cdi_chart}
+  || echo "WARN: CDI Helm chart 不存在，使用静态 operator manifest"
+
+# CDI 静态 manifest（operator + CR）
+get_url "https://github.com/kubevirt/containerized-data-importer/releases/download/${CDI_VERSION}/cdi-operator.yaml" ${MANIFESTS_DIR}/cdi-operator.yaml
+get_url "https://github.com/kubevirt/containerized-data-importer/releases/download/${CDI_VERSION}/cdi-cr.yaml" ${MANIFESTS_DIR}/cdi-cr.yaml
 
 echo "==> Build bundle completed (RKE2 + Kube-OVN + KubeVirt + CDI)"
 ls -la ${BUNDLE_DIR}/vdi/images/ ${BUNDLE_DIR}/vdi/binaries/ ${CHARTS_DIR}/ 2>/dev/null

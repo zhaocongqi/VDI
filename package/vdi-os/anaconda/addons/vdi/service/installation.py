@@ -84,16 +84,19 @@ class VdiInstallationTask(Task):
         # 6. 动态生成 Kube-OVN HelmChart CRD manifest
         self._write_kube_ovn_manifest()
 
-        # 7. 动态生成 KubeVirt HelmChart CRD manifest
-        self._write_kubevirt_manifest()
+        # 7. 复制 KubeVirt 静态 manifest（operator + CR）
+        self._copy_kubevirt_manifests()
 
-        # 8. 动态生成 CDI HelmChart CRD manifest
-        self._write_cdi_manifest()
+        # 8. 复制 CDI 静态 manifest（operator + CR）
+        self._copy_cdi_manifests()
 
-        # 9. kubectl 便捷配置（PATH、KUBECONFIG、~/.kube/config）
+        # 9. 创建 CNI bootstrap 服务（移除 NotReady taint）
+        self._create_cni_bootstrap_service()
+
+        # 10. kubectl 便捷配置（PATH、KUBECONFIG、~/.kube/config）
         self._setup_kubectl_convenience()
 
-        # 10. 创建 systemd wants 链接，激活服务
+        # 11. 创建 systemd wants 链接，激活服务
         self._enable_systemd_services()
 
         log.info(">>> [VDI] VdiInstallationTask 全部配置下发与释放成功完成！")
@@ -472,106 +475,59 @@ spec:
   version: {kube_ovn_version}
   targetNamespace: kube-system
   valuesContent: |
-    POD_CIDR: "{self._pod_cidr}"
-    SERVICE_CIDR: "{self._service_cidr}"
-    JOIN_CIDR: "{self._join_cidr}"
-    NETWORK_TYPE: "geneve"
-    VLAN_INTERFACE: "{underlay_iface}"
-    VLAN_ID: "0"
-    ENABLE_LB: "true"
-    ENABLE_NP: "true"
-    image:
-      repository: kubeovn
-      tag: {kube_ovn_version}
-    vpc-nat-gateway:
-      image:
-        repository: kubeovn/vpc-nat-gateway
-        tag: {kube_ovn_version}
-    kube-ovn-app:
-      image:
-        repository: kubeovn/kube-ovn-app
-        tag: {kube_ovn_version}
+    ipv4:
+      POD_CIDR: "{self._pod_cidr}"
+      SVC_CIDR: "{self._service_cidr}"
+      JOIN_CIDR: "{self._join_cidr}"
+    networking:
+      NETWORK_TYPE: "geneve"
+      vlan:
+        VLAN_INTERFACE_NAME: "{underlay_iface}"
+        VLAN_ID: "0"
+    func:
+      ENABLE_LB: "true"
+      ENABLE_NP: "true"
 """)
             log.info("[VDI] Kube-OVN HelmChart CRD manifest 写入完成 (underlay=%s, POD=%s, SVC=%s)",
                      underlay_iface, self._pod_cidr, self._service_cidr)
         except Exception as e:
             log.error("[VDI] 写入 Kube-OVN manifest 失败: %s", e)
 
-    def _write_kubevirt_manifest(self):
-        """动态生成 KubeVirt HelmChart CRD manifest。"""
+    def _copy_kubevirt_manifests(self):
+        """从 ISO bundle 复制 KubeVirt 静态 manifest（operator + CR）到 RKE2 manifests 目录。"""
         try:
             manifests_dir = os.path.join(self._sysroot, "var/lib/rancher/rke2/server/manifests")
             if not os.path.exists(manifests_dir):
                 os.makedirs(manifests_dir, mode=0o755)
 
-            kubevirt_version = "v1.5.0"
-            try:
-                import importlib
-                version_mod = importlib.import_module("scripts.version-kubevirt")
-                kubevirt_version = version_mod.KUBEVIRT_VERSION
-            except Exception:
-                pass
-
-            manifest_path = os.path.join(manifests_dir, "kubevirt.yaml")
-            with open(manifest_path, "w") as f:
-                f.write(f"""apiVersion: helm.cattle.io/v1
-kind: HelmChart
-metadata:
-  name: kubevirt
-  namespace: kube-system
-spec:
-  chart: kubevirt
-  version: {kubevirt_version}
-  targetNamespace: kubevirt
-  valuesContent: |
-    infra:
-      replicas: 1
-    workload:
-      image:
-        repository: kubevirt/virt-launcher
-        tag: {kubevirt_version}
-    image:
-      repository: kubevirt/virt-operator
-      tag: {kubevirt_version}
-""")
-            log.info("[VDI] KubeVirt HelmChart CRD manifest 写入完成 (version=%s)", kubevirt_version)
+            src_manifests_dir = "/run/install/repo/bundle/vdi/manifests"
+            for name in ("kubevirt-operator.yaml", "kubevirt-cr.yaml"):
+                src = os.path.join(src_manifests_dir, name)
+                if os.path.exists(src):
+                    shutil.copy(src, os.path.join(manifests_dir, name))
+                else:
+                    log.warning("[VDI] 未找到 KubeVirt 静态 manifest: %s", name)
+            log.info("[VDI] KubeVirt 静态 manifest 复制完成")
         except Exception as e:
-            log.error("[VDI] 写入 KubeVirt manifest 失败: %s", e)
+            log.error("[VDI] 复制 KubeVirt manifest 失败: %s", e)
 
-    def _write_cdi_manifest(self):
-        """动态生成 CDI HelmChart CRD manifest。"""
+    def _copy_cdi_manifests(self):
+        """从 ISO bundle 复制 CDI 静态 manifest（operator + CR）到 RKE2 manifests 目录。"""
         try:
             manifests_dir = os.path.join(self._sysroot, "var/lib/rancher/rke2/server/manifests")
             if not os.path.exists(manifests_dir):
                 os.makedirs(manifests_dir, mode=0o755)
 
-            cdi_version = "v1.65.0"
-            try:
-                import importlib
-                version_mod = importlib.import_module("scripts.version-cdi")
-                cdi_version = version_mod.CDI_VERSION
-            except Exception:
-                pass
-
-            manifest_path = os.path.join(manifests_dir, "cdi.yaml")
-            with open(manifest_path, "w") as f:
-                f.write(f"""apiVersion: helm.cattle.io/v1
-kind: HelmChart
-metadata:
-  name: cdi
-  namespace: kube-system
-spec:
-  chart: cdi
-  version: {cdi_version}
-  targetNamespace: cdi
-  valuesContent: |
-    image:
-      repository: kubevirt/cdi-operator
-      tag: {cdi_version}
-""")
-            log.info("[VDI] CDI HelmChart CRD manifest 写入完成 (version=%s)", cdi_version)
+            src_manifests_dir = "/run/install/repo/bundle/vdi/manifests"
+            for name in ("cdi-operator.yaml", "cdi-cr.yaml"):
+                src = os.path.join(src_manifests_dir, name)
+                if os.path.exists(src):
+                    shutil.copy(src, os.path.join(manifests_dir, name))
+                else:
+                    log.warning("[VDI] 未找到 CDI 静态 manifest: %s", name)
+            log.info("[VDI] CDI 静态 manifest 复制完成")
         except Exception as e:
-            log.error("[VDI] 写入 CDI manifest 失败: %s", e)
+            log.error("[VDI] 复制 CDI manifest 失败: %s", e)
 
     def _setup_kubectl_convenience(self):
         """配置 kubectl 便捷访问：PATH 软链、KUBECONFIG、~/.kube/config。"""
@@ -604,6 +560,40 @@ spec:
         except Exception as e:
             log.error("[VDI] kubectl 便捷配置失败: %s", e)
 
+    def _create_cni_bootstrap_service(self):
+        """创建 systemd oneshot 服务，RKE2 启动后移除 NotReady taint 以解决 CNI 鸡生蛋问题。"""
+        try:
+            # 写引导脚本
+            script_path = os.path.join(self._sysroot, "usr/local/bin/vdi-remove-notready-taint.sh")
+            with open(script_path, "w") as f:
+                f.write("""#!/bin/bash
+export KUBECONFIG=/etc/rancher/rke2/rke2.yaml
+export PATH="$PATH:/var/lib/rancher/rke2/bin"
+until kubectl get nodes 2>/dev/null; do sleep 5; done
+kubectl taint nodes --all node.kubernetes.io/not-ready- 2>/dev/null || true
+""")
+            os.chmod(script_path, 0o755)
+
+            # 写 systemd unit
+            unit_path = os.path.join(self._sysroot, "etc/systemd/system/vdi-remove-notready-taint.service")
+            with open(unit_path, "w") as f:
+                f.write("""[Unit]
+Description=Remove NotReady taint for CNI bootstrap
+After=rke2-server.service
+Requires=rke2-server.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/vdi-remove-notready-taint.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+""")
+            log.info("[VDI] CNI bootstrap 服务创建完成（移除 NotReady taint）")
+        except Exception as e:
+            log.error("[VDI] 创建 CNI bootstrap 服务失败: %s", e)
+
     def _enable_systemd_services(self):
         """创建 systemd wants 链接，激活服务。"""
         try:
@@ -629,6 +619,11 @@ spec:
             rke2_link = os.path.join(wants_dir, f"{service_name}.service")
             if not os.path.exists(rke2_link):
                 os.symlink(f"/usr/local/lib/systemd/system/{service_name}.service", rke2_link)
+
+            # 激活 CNI bootstrap 服务
+            taint_link = os.path.join(wants_dir, "vdi-remove-notready-taint.service")
+            if not os.path.exists(taint_link):
+                os.symlink("/etc/systemd/system/vdi-remove-notready-taint.service", taint_link)
 
             log.info("[VDI] 成功激活 sshd, iscsid 及 %s 服务开机自启", service_name)
         except Exception as e:
