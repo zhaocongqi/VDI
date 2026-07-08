@@ -11,6 +11,8 @@ cd ${TOP_DIR}
 source ${SCRIPTS_DIR}/version
 source ${SCRIPTS_DIR}/version-rke2
 source ${SCRIPTS_DIR}/version-kubeovn
+source ${SCRIPTS_DIR}/version-kubevirt
+source ${SCRIPTS_DIR}/version-cdi
 source ${SCRIPTS_DIR}/lib/http
 source ${SCRIPTS_DIR}/lib/image
 
@@ -73,5 +75,40 @@ kubeovn_chart="${CHARTS_DIR}/kube-ovn-${KUBEOVN_VERSION}.tgz"
 get_url "https://github.com/kubeovn/kube-ovn/releases/download/${KUBEOVN_VERSION}/kube-ovn-${KUBEOVN_VERSION}.tgz" ${kubeovn_chart} \
   || get_url "https://kubeovn.github.io/kube-ovn/charts/kube-ovn-${KUBEOVN_VERSION}.tgz" ${kubeovn_chart}
 
-echo "==> Build bundle completed (RKE2 + Kube-OVN)"
+# ============================================================
+# KubeVirt images + Helm chart
+# ============================================================
+kubevirt_image_list="${IMAGES_LISTS_DIR}/kubevirt-${KUBEVIRT_VERSION}.txt"
+cat > ${kubevirt_image_list} <<EOF
+docker.io/kubevirt/virt-operator:${KUBEVIRT_VERSION}
+docker.io/kubevirt/virt-controller:${KUBEVIRT_VERSION}
+docker.io/kubevirt/virt-handler:${KUBEVIRT_VERSION}
+docker.io/kubevirt/virt-api:${KUBEVIRT_VERSION}
+docker.io/kubevirt/virt-launcher:${KUBEVIRT_VERSION}
+EOF
+save_image ${kubevirt_image_list} ${IMAGES_DIR}
+
+kubevirt_chart="${CHARTS_DIR}/kubevirt-${KUBEVIRT_VERSION}.tgz"
+get_url "https://github.com/kubevirt/kubevirt/releases/download/${KUBEVIRT_VERSION}/kubevirt-${KUBEVIRT_VERSION}.tgz" ${kubevirt_chart} \
+  || get_url "https://kubevirt.github.io/kubevirt-helm/charts/kubevirt-${KUBEVIRT_VERSION}.tgz" ${kubevirt_chart}
+
+# ============================================================
+# CDI images + Helm chart
+# ============================================================
+cdi_image_list="${IMAGES_LISTS_DIR}/cdi-${CDI_VERSION}.txt"
+cat > ${cdi_image_list} <<EOF
+docker.io/kubevirt/cdi-operator:${CDI_VERSION}
+docker.io/kubevirt/cdi-controller:${CDI_VERSION}
+docker.io/kubevirt/cdi-importer:${CDI_VERSION}
+docker.io/kubevirt/cdi-cloner:${CDI_VERSION}
+docker.io/kubevirt/cdi-uploadproxy:${CDI_VERSION}
+docker.io/kubevirt/cdi-apiserver:${CDI_VERSION}
+EOF
+save_image ${cdi_image_list} ${IMAGES_DIR}
+
+cdi_chart="${CHARTS_DIR}/cdi-${CDI_VERSION}.tgz"
+get_url "https://github.com/kubevirt/containerized-data-importer/releases/download/${CDI_VERSION}/cdi-${CDI_VERSION}.tgz" ${cdi_chart} \
+  || get_url "https://kubevirt.github.io/kubevirt-helm/charts/cdi-${CDI_VERSION}.tgz" ${cdi_chart}
+
+echo "==> Build bundle completed (RKE2 + Kube-OVN + KubeVirt + CDI)"
 ls -la ${BUNDLE_DIR}/vdi/images/ ${BUNDLE_DIR}/vdi/binaries/ ${CHARTS_DIR}/ 2>/dev/null

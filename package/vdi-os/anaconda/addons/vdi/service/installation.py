@@ -84,10 +84,16 @@ class VdiInstallationTask(Task):
         # 6. 动态生成 Kube-OVN HelmChart CRD manifest
         self._write_kube_ovn_manifest()
 
-        # 7. kubectl 便捷配置（PATH、KUBECONFIG、~/.kube/config）
+        # 7. 动态生成 KubeVirt HelmChart CRD manifest
+        self._write_kubevirt_manifest()
+
+        # 8. 动态生成 CDI HelmChart CRD manifest
+        self._write_cdi_manifest()
+
+        # 9. kubectl 便捷配置（PATH、KUBECONFIG、~/.kube/config）
         self._setup_kubectl_convenience()
 
-        # 8. 创建 systemd wants 链接，激活服务
+        # 10. 创建 systemd wants 链接，激活服务
         self._enable_systemd_services()
 
         log.info(">>> [VDI] VdiInstallationTask 全部配置下发与释放成功完成！")
@@ -490,6 +496,82 @@ spec:
                      underlay_iface, self._pod_cidr, self._service_cidr)
         except Exception as e:
             log.error("[VDI] 写入 Kube-OVN manifest 失败: %s", e)
+
+    def _write_kubevirt_manifest(self):
+        """动态生成 KubeVirt HelmChart CRD manifest。"""
+        try:
+            manifests_dir = os.path.join(self._sysroot, "var/lib/rancher/rke2/server/manifests")
+            if not os.path.exists(manifests_dir):
+                os.makedirs(manifests_dir, mode=0o755)
+
+            kubevirt_version = "v1.5.0"
+            try:
+                import importlib
+                version_mod = importlib.import_module("scripts.version-kubevirt")
+                kubevirt_version = version_mod.KUBEVIRT_VERSION
+            except Exception:
+                pass
+
+            manifest_path = os.path.join(manifests_dir, "kubevirt.yaml")
+            with open(manifest_path, "w") as f:
+                f.write(f"""apiVersion: helm.cattle.io/v1
+kind: HelmChart
+metadata:
+  name: kubevirt
+  namespace: kube-system
+spec:
+  chart: kubevirt
+  version: {kubevirt_version}
+  targetNamespace: kubevirt
+  valuesContent: |
+    infra:
+      replicas: 1
+    workload:
+      image:
+        repository: kubevirt/virt-launcher
+        tag: {kubevirt_version}
+    image:
+      repository: kubevirt/virt-operator
+      tag: {kubevirt_version}
+""")
+            log.info("[VDI] KubeVirt HelmChart CRD manifest 写入完成 (version=%s)", kubevirt_version)
+        except Exception as e:
+            log.error("[VDI] 写入 KubeVirt manifest 失败: %s", e)
+
+    def _write_cdi_manifest(self):
+        """动态生成 CDI HelmChart CRD manifest。"""
+        try:
+            manifests_dir = os.path.join(self._sysroot, "var/lib/rancher/rke2/server/manifests")
+            if not os.path.exists(manifests_dir):
+                os.makedirs(manifests_dir, mode=0o755)
+
+            cdi_version = "v1.65.0"
+            try:
+                import importlib
+                version_mod = importlib.import_module("scripts.version-cdi")
+                cdi_version = version_mod.CDI_VERSION
+            except Exception:
+                pass
+
+            manifest_path = os.path.join(manifests_dir, "cdi.yaml")
+            with open(manifest_path, "w") as f:
+                f.write(f"""apiVersion: helm.cattle.io/v1
+kind: HelmChart
+metadata:
+  name: cdi
+  namespace: kube-system
+spec:
+  chart: cdi
+  version: {cdi_version}
+  targetNamespace: cdi
+  valuesContent: |
+    image:
+      repository: kubevirt/cdi-operator
+      tag: {cdi_version}
+""")
+            log.info("[VDI] CDI HelmChart CRD manifest 写入完成 (version=%s)", cdi_version)
+        except Exception as e:
+            log.error("[VDI] 写入 CDI manifest 失败: %s", e)
 
     def _setup_kubectl_convenience(self):
         """配置 kubectl 便捷访问：PATH 软链、KUBECONFIG、~/.kube/config。"""
