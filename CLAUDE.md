@@ -119,7 +119,10 @@ make default            # build-bundle + package-vdi-iso 全链路
    - 从 ISO `/run/install/repo/bundle/vdi` 复制离线镜像/charts/manifests 到 `$sysroot`
    - 解压 RKE2 二进制到 `$sysroot/usr/local`
    - 写 `config.yaml`（server/agent 按角色）
-   - 创建 systemd wants 链接（sshd/iscsid/rke2-server 或 rke2-agent）
+   - 生成 Kube-OVN HelmChart CRD manifest（`bootstrap: true` + `chartContent` base64 内嵌 chart tgz + `MASTER_NODES_LABEL: node-role.kubernetes.io/master`）
+   - KubeVirt/CDI operator.yaml → RKE2 manifests 目录，CR → `/etc/vdi/cr/`（延迟 apply）
+   - 创建 `vdi-apply-cr.service`（等 CRD Established 后 kubectl apply CR）
+   - 创建 systemd wants 链接（sshd/iscsid/rke2-server/vdi-apply-cr）
 4. **首次启动** — RKE2 server/agent 启动，首启自动导入 `agent/images/*.tar.zst`，HelmChart 控制器 apply `server/manifests/` 部署组件
 
 ## Anaconda Addon 架构
@@ -154,7 +157,7 @@ BCLinux 的 `install.img` 包含嵌套 ext4 分区，必须通过 loop 挂载 `L
   2. **BCLinux anaconda 36 的 `%post` 不 chroot**。kickstart 标准 `%post`（不带 --nochroot）本应 chroot 到 /mnt/sysroot，但实测**不 chroot**。当前已用 `VdiInstallationTask` 绕开，通过 `conf.target.system_root` 获取 sysroot。
   3. **多 %post section 不稳定**：BCLinux anaconda 36 对多个 `%post --nochroot` section 执行不稳定。`VdiInstallationTask.run()` 在单次调用中完成所有逻辑。
 - **RKE2 离线**：`rke2.linux-amd64.tar.gz` 解压 `$SYSROOT/usr/local`（二进制内嵌 containerd）；镜像 `*.tar.zst` 放 `agent/images/`，RKE2 首启自动导入。
-- **内存**：kickstart 装机无 squashfs/active.img，4G 够。
+- **内存**：kickstart 装机无 squashfs/active.img，测试环境 8G/4vCPU。
 
 ## 版本管理
 
@@ -175,6 +178,8 @@ scripts/version-kagent    # KAGENT_VERSION="0.9.6"
 3. 在 `package/vdi-os/iso/bundle/vdi/charts/` 中放置 chart tgz
 4. 在 `package/vdi-os/iso/bundle/vdi/manifests/` 中放置 manifest YAML
 5. 若 Addon Task 需要处理新资源，在 `package/vdi-os/anaconda/addons/vdi/service/installation.py` 的 `VdiInstallationTask.run()` 中补充
+6. 若使用 HelmChart CRD：必须设 `bootstrap: true`（CNI 类）+ `chartContent`（base64 内嵌 chart tgz），valuesContent 键名必须与 chart values.yaml 嵌套结构一致
+7. 若使用 Operator 模式（如 KubeVirt/CDI）：operator.yaml 放 manifests 目录，CR 放 `/etc/vdi/cr/` 由 `vdi-apply-cr.service` 延迟 apply
 
 ## 已知限制
 
