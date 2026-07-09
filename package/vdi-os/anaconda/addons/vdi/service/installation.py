@@ -94,7 +94,10 @@ class VdiInstallationTask(Task):
         # 9. kubectl 便捷配置（PATH、KUBECONFIG、~/.kube/config）
         self._setup_kubectl_convenience()
 
-        # 10. 创建 systemd wants 链接，激活服务
+        # 10. 创建 CR 延迟应用服务（等 CRD 就绪后 apply KubeVirt/CDI CR）
+        self._create_cr_apply_service()
+
+        # 11. 创建 systemd wants 链接，激活服务
         self._enable_systemd_services()
 
         log.info(">>> [VDI] VdiInstallationTask 全部配置下发与释放成功完成！")
@@ -493,40 +496,97 @@ spec:
             log.error("[VDI] 写入 Kube-OVN manifest 失败: %s", e)
 
     def _copy_kubevirt_manifests(self):
-        """从 ISO bundle 复制 KubeVirt 静态 manifest（operator + CR）到 RKE2 manifests 目录。"""
+        """KubeVirt operator 放 RKE2 manifests，CR 存 /etc/vdi/cr/ 延迟 apply。"""
         try:
             manifests_dir = os.path.join(self._sysroot, "var/lib/rancher/rke2/server/manifests")
-            if not os.path.exists(manifests_dir):
-                os.makedirs(manifests_dir, mode=0o755)
+            cr_dir = os.path.join(self._sysroot, "etc/vdi/cr")
+            os.makedirs(manifests_dir, mode=0o755, exist_ok=True)
+            os.makedirs(cr_dir, mode=0o755, exist_ok=True)
 
             src_manifests_dir = "/run/install/repo/bundle/vdi/manifests"
-            for name in ("kubevirt-operator.yaml", "kubevirt-cr.yaml"):
-                src = os.path.join(src_manifests_dir, name)
-                if os.path.exists(src):
-                    shutil.copy(src, os.path.join(manifests_dir, name))
-                else:
-                    log.warning("[VDI] 未找到 KubeVirt 静态 manifest: %s", name)
-            log.info("[VDI] KubeVirt 静态 manifest 复制完成")
+            # operator → RKE2 manifests（随 RKE2 启动自动部署 CRD + virt-operator）
+            src = os.path.join(src_manifests_dir, "kubevirt-operator.yaml")
+            if os.path.exists(src):
+                shutil.copy(src, os.path.join(manifests_dir, "kubevirt-operator.yaml"))
+            else:
+                log.warning("[VDI] 未找到 kubevirt-operator.yaml")
+            # CR → /etc/vdi/cr/（等 CRD 就绪后由 vdi-apply-cr.service apply）
+            src = os.path.join(src_manifests_dir, "kubevirt-cr.yaml")
+            if os.path.exists(src):
+                shutil.copy(src, os.path.join(cr_dir, "kubevirt-cr.yaml"))
+            else:
+                log.warning("[VDI] 未找到 kubevirt-cr.yaml")
+            log.info("[VDI] KubeVirt manifest 分流完成（operator→manifests, CR→/etc/vdi/cr/）")
         except Exception as e:
             log.error("[VDI] 复制 KubeVirt manifest 失败: %s", e)
 
     def _copy_cdi_manifests(self):
-        """从 ISO bundle 复制 CDI 静态 manifest（operator + CR）到 RKE2 manifests 目录。"""
+        """CDI operator 放 RKE2 manifests，CR 存 /etc/vdi/cr/ 延迟 apply。"""
         try:
             manifests_dir = os.path.join(self._sysroot, "var/lib/rancher/rke2/server/manifests")
-            if not os.path.exists(manifests_dir):
-                os.makedirs(manifests_dir, mode=0o755)
+            cr_dir = os.path.join(self._sysroot, "etc/vdi/cr")
+            os.makedirs(manifests_dir, mode=0o755, exist_ok=True)
+            os.makedirs(cr_dir, mode=0o755, exist_ok=True)
 
             src_manifests_dir = "/run/install/repo/bundle/vdi/manifests"
-            for name in ("cdi-operator.yaml", "cdi-cr.yaml"):
-                src = os.path.join(src_manifests_dir, name)
-                if os.path.exists(src):
-                    shutil.copy(src, os.path.join(manifests_dir, name))
-                else:
-                    log.warning("[VDI] 未找到 CDI 静态 manifest: %s", name)
-            log.info("[VDI] CDI 静态 manifest 复制完成")
+            src = os.path.join(src_manifests_dir, "cdi-operator.yaml")
+            if os.path.exists(src):
+                shutil.copy(src, os.path.join(manifests_dir, "cdi-operator.yaml"))
+            else:
+                log.warning("[VDI] 未找到 cdi-operator.yaml")
+            src = os.path.join(src_manifests_dir, "cdi-cr.yaml")
+            if os.path.exists(src):
+                shutil.copy(src, os.path.join(cr_dir, "cdi-cr.yaml"))
+            else:
+                log.warning("[VDI] 未找到 cdi-cr.yaml")
+            log.info("[VDI] CDI manifest 分流完成（operator→manifests, CR→/etc/vdi/cr/）")
         except Exception as e:
             log.error("[VDI] 复制 CDI manifest 失败: %s", e)
+
+    def _create_cr_apply_service(self):
+        """创建 systemd oneshot 服务，RKE2 启动后等 CRD 就绪再 apply KubeVirt/CDI CR。"""
+        try:
+            script_path = os.path.join(self._sysroot, "usr/local/bin/vdi-apply-cr.sh")
+            with open(script_path, "w") as f:
+                f.write("""#!/bin/bash
+export KUBECONFIG=/etc/rancher/rke2/rke2.yaml
+export PATH="$PATH:/var/lib/rancher/rke2/bin"
+
+# 等待 API server 就绪
+until kubectl get nodes 2>/dev/null; do sleep 5; done
+
+# 等待 KubeVirt CRD Established
+kubectl wait --for=condition=Established crd/kubevirts.kubevirt.io --timeout=300s 2>/dev/null || true
+
+# 等待 CDI CRD Established
+kubectl wait --for=condition=Established crd/cdis.cdi.kubevirt.io --timeout=300s 2>/dev/null || true
+
+# Apply CR
+for f in /etc/vdi/cr/*.yaml; do
+  [ -f "$f" ] || continue
+  kubectl apply -f "$f" 2>/dev/null || true
+done
+""")
+            os.chmod(script_path, 0o755)
+
+            unit_path = os.path.join(self._sysroot, "etc/systemd/system/vdi-apply-cr.service")
+            with open(unit_path, "w") as f:
+                f.write("""[Unit]
+Description=Apply KubeVirt/CDI CR after CRD ready
+After=rke2-server.service
+Requires=rke2-server.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/vdi-apply-cr.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+""")
+            log.info("[VDI] CR 延迟应用服务创建完成")
+        except Exception as e:
+            log.error("[VDI] 创建 CR 延迟应用服务失败: %s", e)
 
     def _setup_kubectl_convenience(self):
         """配置 kubectl 便捷访问：PATH 软链、KUBECONFIG、~/.kube/config。"""
@@ -584,6 +644,11 @@ spec:
             rke2_link = os.path.join(wants_dir, f"{service_name}.service")
             if not os.path.exists(rke2_link):
                 os.symlink(f"/usr/local/lib/systemd/system/{service_name}.service", rke2_link)
+
+            # 激活 CR 延迟应用服务
+            cr_link = os.path.join(wants_dir, "vdi-apply-cr.service")
+            if not os.path.exists(cr_link):
+                os.symlink("/etc/systemd/system/vdi-apply-cr.service", cr_link)
 
             log.info("[VDI] 成功激活 sshd, iscsid 及 %s 服务开机自启", service_name)
         except Exception as e:

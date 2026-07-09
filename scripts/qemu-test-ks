@@ -24,11 +24,11 @@ BOOT_MODE="${2:-uefi}"
 
 OVMF="/usr/share/ovmf/OVMF.fd"
 QEMU_DISK="${QEMU_DISK:-/tmp/qemu-vdi-ks-disk.qcow2}"
-QEMU_MEM="${QEMU_MEM:-4096}"   # kickstart 装机无 squashfs live + active.img，4G 够
-# 阶段2 系统运行资源（RKE2 + kube-ovn/longhorn/kubevirt 全栈运行，2核4G CPU 不足致
-# kube-ovn-controller admission 失败）。装机阶段用 QEMU_MEM/QEMU_SMP，运行阶段用 _RUN。
+QEMU_MEM="${QEMU_MEM:-8192}"   # RKE2 + kube-ovn/longhorn/kubevirt 全栈需 8G
+# 阶段2 系统运行资源（RKE2 + kube-ovn/longhorn/kubevirt 全栈运行）
+# 装机阶段用 QEMU_MEM/QEMU_SMP，运行阶段用 _RUN。
 QEMU_MEM_RUN="${QEMU_MEM_RUN:-8192}"
-QEMU_SMP="${QEMU_SMP:-2}"
+QEMU_SMP="${QEMU_SMP:-4}"
 QEMU_SMP_RUN="${QEMU_SMP_RUN:-4}"
 SSH_PORT="${SSH_PORT:-2222}"
 VM_IP="127.0.0.1"
