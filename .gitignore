@@ -1,3 +1,5 @@
+# === 项目特定 ===
+
 # 子项目目录（独立 Git 仓库，不纳入主仓库跟踪）
 /kagent/
 /kubekey/
@@ -6,80 +8,66 @@
 /kubevirt/
 /longhorn/
 
-# Claude Code 配置（本地使用，不提交到远程）
+# 离线资源（build-bundle 下载，不入 git）
+package/vdi-os/iso/bundle/
+
+# 构建时自动生成
+package/vdi-os/vdi-release.yaml
+
+# 构建产物目录（dist/cache 为符号链接，不加 / 以确保匹配）
+bin/
+dist
+cache
+/tmp/
+
+# === 工具配置（本地使用，不入远程）===
 .claude/
-
-# CodeGraph 工具缓存
 .codegraph/
-
-# 常见临时文件
-*.tmp
-*.temp
-*~
-.DS_Store
-Thumbs.db
-desktop.ini
-image.png
-
-# IDE 配置
+.codex/
 .vscode/
+.vscode-ai-images/
 .idea/
-*.swp
-*.swo
-*.sublime-workspace
+*.sw?
 
-# 构建产物（通用）
-*.o
-*.a
-*.so
-*.dylib
-*.exe
-*.bin
+# === Python ===
+__pycache__/
 
-# 镜像文件
+# === 二进制/磁盘映像 ===
 *.iso
 *.qcow2
 *.img
 *.raw
 *.vmdk
+*.o
+*.a
+*.so
+*.dylib
 
-# 压缩包
+# === 压缩包 ===
 *.tar.gz
 *.tar.bz2
 *.tar.xz
+*.tar.zst
 *.zip
 *.tgz
 
-# 日志文件
-*.log
-
-# 环境配置
-.env
-.env.local
-.env.*.local
-
-# 敏感文件（证书、密钥）
+# === 敏感文件 ===
 *.pem
 *.key
 *.crt
 *.p12
 *.pfx
+.env
+.env.local
+.env.*.local
 
-# 进程与 socket 文件
+# === 临时/日志 ===
+*.tmp
+*.temp
+*~
+*.log
 *.pid
 *.sock
-
-# Python 缓存
-__pycache__/
-
-# QEMU/测试临时目录
-tmp/
-bin/
-dist
-# 离线资源（由 build-bundle 脚本下载，不提交到 git）
-package/vdi-os/iso/bundle/
-cache
-
-# 构建时自动生成的版本文件
-package/vdi-os/vdi-release.yaml
-/.vscode-ai-images/
+.DS_Store
+Thumbs.db
+desktop.ini
