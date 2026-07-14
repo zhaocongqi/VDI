@@ -26,6 +26,10 @@ class VdiInterface(KickstartModuleInterface):
         self.watch_property("PodCidr", self.implementation.pod_cidr_changed)
         self.watch_property("ServiceCidr", self.implementation.service_cidr_changed)
         self.watch_property("JoinCidr", self.implementation.join_cidr_changed)
+        self.watch_property("Role", self.implementation.role_changed)
+        self.watch_property("ServerUrl", self.implementation.server_url_changed)
+        self.watch_property("Token", self.implementation.token_changed)
+        self.watch_property("DataDisk", self.implementation.data_disk_changed)
 
     @property
     def Mode(self) -> Str:
@@ -156,4 +160,44 @@ class VdiInterface(KickstartModuleInterface):
     @emits_properties_changed
     def JoinCidr(self, value: Str):
         self.implementation.join_cidr = value
+
+    @property
+    def Role(self) -> Str:
+        """RKE2 角色 (server / agent)。"""
+        return self.implementation.role
+
+    @Role.setter
+    @emits_properties_changed
+    def Role(self, value: Str):
+        self.implementation.role = value
+
+    @property
+    def ServerUrl(self) -> Str:
+        """Agent 模式下 RKE2 Server 的 URL。"""
+        return self.implementation.server_url
+
+    @ServerUrl.setter
+    @emits_properties_changed
+    def ServerUrl(self, value: Str):
+        self.implementation.server_url = value
+
+    @property
+    def Token(self) -> Str:
+        """Agent 模式下加入集群的 Token。"""
+        return self.implementation.token
+
+    @Token.setter
+    @emits_properties_changed
+    def Token(self, value: Str):
+        self.implementation.token = value
+
+    @property
+    def DataDisk(self) -> Str:
+        """数据盘选择 (auto 或具体设备名)。"""
+        return self.implementation.data_disk
+
+    @DataDisk.setter
+    @emits_properties_changed
+    def DataDisk(self, value: Str):
+        self.implementation.data_disk = value
 

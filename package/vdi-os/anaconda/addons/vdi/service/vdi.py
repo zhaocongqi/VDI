@@ -61,6 +61,18 @@ class VdiService(KickstartService):
         self._join_cidr = "100.64.0.0/16"
         self.join_cidr_changed = Signal()
 
+        self._role = "server"
+        self.role_changed = Signal()
+
+        self._server_url = ""
+        self.server_url_changed = Signal()
+
+        self._token = ""
+        self.token_changed = Signal()
+
+        self._data_disk = "auto"
+        self.data_disk_changed = Signal()
+
     def publish(self):
         """发布 DBus 对象。"""
         TaskContainer.set_namespace(VDI.namespace)
@@ -198,6 +210,46 @@ class VdiService(KickstartService):
         log.debug("VDI JoinCidr is set to '%s'.", value)
 
     @property
+    def role(self):
+        return self._role
+
+    @role.setter
+    def role(self, value):
+        self._role = value
+        self.role_changed.emit()
+        log.debug("VDI Role is set to '%s'.", value)
+
+    @property
+    def server_url(self):
+        return self._server_url
+
+    @server_url.setter
+    def server_url(self, value):
+        self._server_url = value
+        self.server_url_changed.emit()
+        log.debug("VDI ServerUrl is set to '%s'.", value)
+
+    @property
+    def token(self):
+        return self._token
+
+    @token.setter
+    def token(self, value):
+        self._token = value
+        self.token_changed.emit()
+        log.debug("VDI Token is set to '%s'.", value)
+
+    @property
+    def data_disk(self):
+        return self._data_disk
+
+    @data_disk.setter
+    def data_disk(self, value):
+        self._data_disk = value
+        self.data_disk_changed.emit()
+        log.debug("VDI DataDisk is set to '%s'.", value)
+
+    @property
     def kickstart_specification(self):
         return VdiKickstartSpecification
 
@@ -217,6 +269,10 @@ class VdiService(KickstartService):
         self.pod_cidr = addon_data.pod_cidr
         self.service_cidr = addon_data.service_cidr
         self.join_cidr = addon_data.join_cidr
+        self.role = addon_data.role
+        self.server_url = addon_data.server_url
+        self.token = addon_data.token
+        self.data_disk = addon_data.data_disk
 
     def setup_kickstart(self, data):
         """将当前配置写回 Kickstart 数据。"""
@@ -233,6 +289,10 @@ class VdiService(KickstartService):
         data.addons.vdi.pod_cidr = self.pod_cidr
         data.addons.vdi.service_cidr = self.service_cidr
         data.addons.vdi.join_cidr = self.join_cidr
+        data.addons.vdi.role = self.role
+        data.addons.vdi.server_url = self.server_url
+        data.addons.vdi.token = self.token
+        data.addons.vdi.data_disk = self.data_disk
 
     def install_with_tasks(self):
         """返回安装任务列表。
@@ -258,5 +318,9 @@ class VdiService(KickstartService):
                 join_cidr=self.join_cidr,
                 vip=self.vip,
                 network_mode=self.network_mode,
+                role=self.role,
+                server_url=self.server_url,
+                token=self.token,
+                data_disk=self.data_disk,
             )
         ]
