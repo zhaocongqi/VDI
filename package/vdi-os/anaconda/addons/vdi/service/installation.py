@@ -28,7 +28,7 @@ class VdiInstallationTask(Task):
     - 激活 systemd 服务
     """
 
-    def __init__(self, sysroot, mode, interface, interface2, bond_mode, ip, netmask, gateway, dns, pod_cidr, service_cidr, join_cidr, vip, network_mode):
+    def __init__(self, sysroot, mode, interface, interface2, bond_mode, ip, netmask, gateway, dns, pod_cidr, service_cidr, join_cidr, vip, network_mode, role="server", server_url="", token="", data_disk="auto"):
         """创建安装任务。
 
         :param sysroot: 目标系统根路径
@@ -45,6 +45,10 @@ class VdiInstallationTask(Task):
         :param join_cidr: JOIN CIDR 地址段
         :param vip: 集群虚拟 IP（静态模式）
         :param network_mode: 网络模式 (dhcp/static)
+        :param role: RKE2 角色 (server/agent)
+        :param server_url: Agent 模式下 Server URL
+        :param token: Agent 模式下加入集群令牌
+        :param data_disk: 数据盘 (auto 或设备名)
         """
         super().__init__()
         self._sysroot = sysroot
@@ -61,6 +65,10 @@ class VdiInstallationTask(Task):
         self._join_cidr = join_cidr or "100.64.0.0/16"
         self._vip = vip or ""
         self._network_mode = network_mode or "dhcp"
+        self._role = role or "server"
+        self._server_url = server_url or ""
+        self._token = token or ""
+        self._data_disk = data_disk or "auto"
 
     @property
     def name(self):
@@ -296,17 +304,24 @@ VIP={self._vip}
         return False
 
     def _setup_data_disk(self):
-        """数据盘自动探测、格式化与 fstab 挂载。"""
+        """数据盘自动探测/指定、格式化与 fstab 挂载。"""
         try:
-            all_block_devs = sorted(glob.glob("/sys/block/vd*")) + sorted(glob.glob("/sys/block/sd*"))
+            if self._data_disk and self._data_disk != "auto":
+                data_disk_name = os.path.basename(self._data_disk)
+                data_dev_path = f"/dev/{data_disk_name}"
+                if not os.path.exists(data_dev_path):
+                    log.warning("[VDI] 指定数据盘 %s 不存在，回退自动探测", data_dev_path)
+                    data_disk_name = None
+            else:
+                data_disk_name = None
 
-            # 单次遍历：分离系统盘与数据盘
-            data_disk_name = None
-            for dev_path in all_block_devs:
-                dev_name = os.path.basename(dev_path)
-                if not self._is_system_disk(dev_name):
-                    data_disk_name = dev_name
-                    break
+            if not data_disk_name:
+                all_block_devs = sorted(glob.glob("/sys/block/vd*")) + sorted(glob.glob("/sys/block/sd*"))
+                for dev_path in all_block_devs:
+                    dev_name = os.path.basename(dev_path)
+                    if not self._is_system_disk(dev_name):
+                        data_disk_name = dev_name
+                        break
 
             if not data_disk_name:
                 log.warning("[VDI] 未探测到其它物理数据盘，跳过数据盘处理")
@@ -418,27 +433,33 @@ VIP={self._vip}
                 os.remove(tmp_tar_path)
 
     def _write_rke2_config(self):
-        """动态配置并下发 RKE2 config.yaml（当前仅 server 模式）。"""
-        # TODO: Agent 模式待实现 — 需 D-Bus Role 属性 + server_url/token
+        """动态配置并下发 RKE2 config.yaml，按角色分流。"""
         rke2_conf_dir = os.path.join(self._sysroot, "etc/rancher/rke2")
         self._ensure_dir(rke2_conf_dir)
 
         rke2_conf_path = os.path.join(rke2_conf_dir, "config.yaml")
         try:
             with open(rke2_conf_path, "w") as f:
-                f.write("""write-kubeconfig-mode: "0600"
+                if self._role == "agent":
+                    f.write(f"""server: {self._server_url}
+token: "{self._token}"
+kubelet-arg:
+  - "max-pods=200"
+""")
+                else:
+                    f.write("""write-kubeconfig-mode: "0600"
 cni: none
 disable:
   - rke2-ingress-nginx
 kubelet-arg:
   - "max-pods=200"
 """)
-                if self._ip or self._vip:
-                    f.write("tls-san:\n")
-                    if self._vip:
-                        f.write(f"  - {self._vip}\n")
-                    if self._ip:
-                        f.write(f"  - {self._ip}\n")
+                    if self._ip or self._vip:
+                        f.write("tls-san:\n")
+                        if self._vip:
+                            f.write(f"  - {self._vip}\n")
+                        if self._ip:
+                            f.write(f"  - {self._ip}\n")
             log.info("[VDI] RKE2 核心配置文件 config.yaml 写入完成")
         except Exception as e:
             log.error("[VDI] 写入 RKE2 config.yaml 失败: %s", e)
