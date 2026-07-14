@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <interface>
   <requires lib="gtk+" version="3.20"/>
-  <object class="GtkBox" id="vdi_network_box">
+  <object class="GtkBox" id="vdi_config_box">
     <property name="visible">True</property>
     <property name="can_focus">False</property>
     <property name="orientation">vertical</property>
-    <property name="spacing">18</property>
+    <property name="spacing">12</property>
     <property name="margin_start">48</property>
     <property name="margin_end">48</property>
     <property name="margin_top">24</property>
@@ -13,7 +13,7 @@
     <child>
       <object class="GtkLabel" id="title_label">
         <property name="visible">True</property>
-        <property name="label" translatable="yes">VDI 管理网络与网卡绑定配置</property>
+        <property name="label" translatable="yes">VDI 安装配置</property>
         <property name="xalign">0</property>
         <attributes>
           <attribute name="weight" value="bold"/>
@@ -21,338 +21,378 @@
         </attributes>
       </object>
     </child>
+
+    <!-- ==================== 网络配置 ==================== -->
     <child>
-      <object class="GtkGrid" id="config_grid">
+      <object class="GtkFrame" id="network_frame">
         <property name="visible">True</property>
-        <property name="row_spacing">10</property>
-        <property name="column_spacing">12</property>
-        <!-- 网络模式 -->
-        <child>
-          <object class="GtkLabel" id="network_mode_label">
+        <property name="label_xalign">0</property>
+        <property name="shadow_type">in</property>
+        <property name="vexpand">False</property>
+        <child type="label">
+          <object class="GtkLabel">
             <property name="visible">True</property>
-            <property name="label" translatable="yes">网络模式:</property>
-            <property name="xalign">1</property>
+            <property name="label" translatable="yes">网络配置</property>
+            <attributes>
+              <attribute name="weight" value="bold"/>
+            </attributes>
           </object>
-          <packing>
-            <property name="left_attach">0</property>
-            <property name="top_attach">0</property>
-          </packing>
         </child>
         <child>
-          <object class="GtkComboBoxText" id="network_mode_combo">
+          <object class="GtkGrid" id="network_grid">
             <property name="visible">True</property>
-            <property name="can_focus">False</property>
-            <items>
-              <item id="dhcp" translatable="yes">DHCP (自动获取 IP)</item>
-              <item id="static" translatable="yes">静态 IP (手动配置)</item>
-            </items>
+            <property name="row_spacing">8</property>
+            <property name="column_spacing">12</property>
+            <property name="margin_start">12</property>
+            <property name="margin_end">12</property>
+            <property name="margin_top">8</property>
+            <property name="margin_bottom">8</property>
+
+            <child>
+              <object class="GtkLabel" id="network_mode_label">
+                <property name="visible">True</property>
+                <property name="label" translatable="yes">网络模式:</property>
+                <property name="xalign">1</property>
+              </object>
+              <packing><property name="left_attach">0</property><property name="top_attach">0</property></packing>
+            </child>
+            <child>
+              <object class="GtkComboBoxText" id="network_mode_combo">
+                <property name="visible">True</property>
+                <property name="can_focus">False</property>
+                <items>
+                  <item id="dhcp" translatable="yes">DHCP (自动获取 IP)</item>
+                  <item id="static" translatable="yes">静态 IP (手动配置)</item>
+                </items>
+              </object>
+              <packing><property name="left_attach">1</property><property name="top_attach">0</property></packing>
+            </child>
+
+            <child>
+              <object class="GtkLabel" id="mode_label">
+                <property name="visible">True</property>
+                <property name="label" translatable="yes">配置模式:</property>
+                <property name="xalign">1</property>
+              </object>
+              <packing><property name="left_attach">0</property><property name="top_attach">1</property></packing>
+            </child>
+            <child>
+              <object class="GtkComboBoxText" id="mode_combo">
+                <property name="visible">True</property>
+                <property name="can_focus">False</property>
+                <items>
+                  <item id="single" translatable="yes">单网卡模式 (Single)</item>
+                  <item id="bond" translatable="yes">网卡绑定模式 (Bonding)</item>
+                </items>
+              </object>
+              <packing><property name="left_attach">1</property><property name="top_attach">1</property></packing>
+            </child>
+
+            <child>
+              <object class="GtkLabel" id="interface_label">
+                <property name="visible">True</property>
+                <property name="label" translatable="yes">主物理网卡:</property>
+                <property name="xalign">1</property>
+              </object>
+              <packing><property name="left_attach">0</property><property name="top_attach">2</property></packing>
+            </child>
+            <child>
+              <object class="GtkComboBoxText" id="interface_combo">
+                <property name="visible">True</property>
+                <property name="can_focus">False</property>
+              </object>
+              <packing><property name="left_attach">1</property><property name="top_attach">2</property></packing>
+            </child>
+
+            <child>
+              <object class="GtkLabel" id="interface2_label">
+                <property name="visible">False</property>
+                <property name="label" translatable="yes">备物理网卡:</property>
+                <property name="xalign">1</property>
+                <property name="no_show_all">True</property>
+              </object>
+              <packing><property name="left_attach">0</property><property name="top_attach">3</property></packing>
+            </child>
+            <child>
+              <object class="GtkComboBoxText" id="interface2_combo">
+                <property name="visible">False</property>
+                <property name="can_focus">False</property>
+                <property name="no_show_all">True</property>
+              </object>
+              <packing><property name="left_attach">1</property><property name="top_attach">3</property></packing>
+            </child>
+
+            <child>
+              <object class="GtkLabel" id="bond_mode_label">
+                <property name="visible">False</property>
+                <property name="label" translatable="yes">Bond 绑定模式:</property>
+                <property name="xalign">1</property>
+                <property name="no_show_all">True</property>
+              </object>
+              <packing><property name="left_attach">0</property><property name="top_attach">4</property></packing>
+            </child>
+            <child>
+              <object class="GtkComboBoxText" id="bond_mode_combo">
+                <property name="visible">False</property>
+                <property name="can_focus">False</property>
+                <property name="no_show_all">True</property>
+                <items>
+                  <item id="active-backup" translatable="yes">active-backup (主备容灾)</item>
+                  <item id="802.3ad" translatable="yes">802.3ad (LACP 链路聚合)</item>
+                </items>
+              </object>
+              <packing><property name="left_attach">1</property><property name="top_attach">4</property></packing>
+            </child>
           </object>
-          <packing>
-            <property name="left_attach">1</property>
-            <property name="top_attach">0</property>
-          </packing>
         </child>
-        <!-- 配置模式 -->
-        <child>
-          <object class="GtkLabel" id="mode_label">
+      </object>
+    </child>
+
+    <!-- ==================== 静态 IP 配置 ==================== -->
+    <child>
+      <object class="GtkFrame" id="static_ip_frame">
+        <property name="visible">False</property>
+        <property name="label_xalign">0</property>
+        <property name="shadow_type">in</property>
+        <property name="no_show_all">True</property>
+        <child type="label">
+          <object class="GtkLabel">
             <property name="visible">True</property>
-            <property name="label" translatable="yes">配置模式:</property>
-            <property name="xalign">1</property>
+            <property name="label" translatable="yes">静态 IP 配置</property>
+            <attributes>
+              <attribute name="weight" value="bold"/>
+            </attributes>
           </object>
-          <packing>
-            <property name="left_attach">0</property>
-            <property name="top_attach">1</property>
-          </packing>
         </child>
         <child>
-          <object class="GtkComboBoxText" id="mode_combo">
+          <object class="GtkGrid" id="static_ip_grid">
             <property name="visible">True</property>
-            <property name="can_focus">False</property>
-            <items>
-              <item id="single" translatable="yes">单网卡模式 (Single)</item>
-              <item id="bond" translatable="yes">网卡绑定模式 (Bonding)</item>
-            </items>
+            <property name="row_spacing">8</property>
+            <property name="column_spacing">12</property>
+            <property name="margin_start">12</property>
+            <property name="margin_end">12</property>
+            <property name="margin_top">8</property>
+            <property name="margin_bottom">8</property>
+
+            <child>
+              <object class="GtkLabel" id="ip_label"><property name="visible">True</property><property name="label" translatable="yes">管理 IPv4 地址:</property><property name="xalign">1</property></object>
+              <packing><property name="left_attach">0</property><property name="top_attach">0</property></packing>
+            </child>
+            <child>
+              <object class="GtkEntry" id="ip_entry"><property name="visible">True</property><property name="can_focus">True</property><property name="text">192.168.10.10</property><property name="width_chars">20</property></object>
+              <packing><property name="left_attach">1</property><property name="top_attach">0</property></packing>
+            </child>
+            <child>
+              <object class="GtkImage" id="ip_icon"><property name="visible">True</property><property name="icon_size">3</property></object>
+              <packing><property name="left_attach">2</property><property name="top_attach">0</property></packing>
+            </child>
+
+            <child>
+              <object class="GtkLabel" id="vip_label"><property name="visible">True</property><property name="label" translatable="yes">集群虚拟 IP (VIP):</property><property name="xalign">1</property></object>
+              <packing><property name="left_attach">0</property><property name="top_attach">1</property></packing>
+            </child>
+            <child>
+              <object class="GtkEntry" id="vip_entry"><property name="visible">True</property><property name="can_focus">True</property><property name="text">192.168.10.100</property><property name="width_chars">20</property></object>
+              <packing><property name="left_attach">1</property><property name="top_attach">1</property></packing>
+            </child>
+            <child>
+              <object class="GtkImage" id="vip_icon"><property name="visible">True</property><property name="icon_size">3</property></object>
+              <packing><property name="left_attach">2</property><property name="top_attach">1</property></packing>
+            </child>
+
+            <child>
+              <object class="GtkLabel" id="netmask_label"><property name="visible">True</property><property name="label" translatable="yes">子网掩码:</property><property name="xalign">1</property></object>
+              <packing><property name="left_attach">0</property><property name="top_attach">2</property></packing>
+            </child>
+            <child>
+              <object class="GtkEntry" id="netmask_entry"><property name="visible">True</property><property name="can_focus">True</property><property name="text">255.255.255.0</property><property name="width_chars">20</property></object>
+              <packing><property name="left_attach">1</property><property name="top_attach">2</property></packing>
+            </child>
+            <child>
+              <object class="GtkImage" id="netmask_icon"><property name="visible">True</property><property name="icon_size">3</property></object>
+              <packing><property name="left_attach">2</property><property name="top_attach">2</property></packing>
+            </child>
+
+            <child>
+              <object class="GtkLabel" id="gateway_label"><property name="visible">True</property><property name="label" translatable="yes">默认网关:</property><property name="xalign">1</property></object>
+              <packing><property name="left_attach">0</property><property name="top_attach">3</property></packing>
+            </child>
+            <child>
+              <object class="GtkEntry" id="gateway_entry"><property name="visible">True</property><property name="can_focus">True</property><property name="text">192.168.10.1</property><property name="width_chars">20</property></object>
+              <packing><property name="left_attach">1</property><property name="top_attach">3</property></packing>
+            </child>
+            <child>
+              <object class="GtkImage" id="gateway_icon"><property name="visible">True</property><property name="icon_size">3</property></object>
+              <packing><property name="left_attach">2</property><property name="top_attach">3</property></packing>
+            </child>
+
+            <child>
+              <object class="GtkLabel" id="dns_label"><property name="visible">True</property><property name="label" translatable="yes">DNS 服务器:</property><property name="xalign">1</property></object>
+              <packing><property name="left_attach">0</property><property name="top_attach">4</property></packing>
+            </child>
+            <child>
+              <object class="GtkEntry" id="dns_entry"><property name="visible">True</property><property name="can_focus">True</property><property name="text">8.8.8.8</property><property name="width_chars">20</property></object>
+              <packing><property name="left_attach">1</property><property name="top_attach">4</property></packing>
+            </child>
+            <child>
+              <object class="GtkImage" id="dns_icon"><property name="visible">True</property><property name="icon_size">3</property></object>
+              <packing><property name="left_attach">2</property><property name="top_attach">4</property></packing>
+            </child>
           </object>
-          <packing>
-            <property name="left_attach">1</property>
-            <property name="top_attach">1</property>
-          </packing>
         </child>
-        <!-- 主网卡 -->
-        <child>
-          <object class="GtkLabel" id="interface_label">
+      </object>
+    </child>
+
+    <!-- ==================== 集群配置 ==================== -->
+    <child>
+      <object class="GtkFrame" id="cluster_frame">
+        <property name="visible">True</property>
+        <property name="label_xalign">0</property>
+        <property name="shadow_type">in</property>
+        <child type="label">
+          <object class="GtkLabel">
             <property name="visible">True</property>
-            <property name="label" translatable="yes">主物理网卡:</property>
-            <property name="xalign">1</property>
+            <property name="label" translatable="yes">集群配置</property>
+            <attributes>
+              <attribute name="weight" value="bold"/>
+            </attributes>
           </object>
-          <packing>
-            <property name="left_attach">0</property>
-            <property name="top_attach">2</property>
-          </packing>
         </child>
         <child>
-          <object class="GtkComboBoxText" id="interface_combo">
+          <object class="GtkGrid" id="cluster_grid">
             <property name="visible">True</property>
-            <property name="can_focus">False</property>
+            <property name="row_spacing">8</property>
+            <property name="column_spacing">12</property>
+            <property name="margin_start">12</property>
+            <property name="margin_end">12</property>
+            <property name="margin_top">8</property>
+            <property name="margin_bottom">8</property>
+
+            <child>
+              <object class="GtkLabel" id="role_label"><property name="visible">True</property><property name="label" translatable="yes">RKE2 角色:</property><property name="xalign">1</property></object>
+              <packing><property name="left_attach">0</property><property name="top_attach">0</property></packing>
+            </child>
+            <child>
+              <object class="GtkComboBoxText" id="role_combo">
+                <property name="visible">True</property>
+                <property name="can_focus">False</property>
+                <items>
+                  <item id="server" translatable="yes">Server (主控节点)</item>
+                  <item id="agent" translatable="yes">Agent (工作节点)</item>
+                </items>
+              </object>
+              <packing><property name="left_attach">1</property><property name="top_attach">0</property></packing>
+            </child>
+
+            <child>
+              <object class="GtkLabel" id="server_url_label"><property name="visible">False</property><property name="label" translatable="yes">Server URL:</property><property name="xalign">1</property><property name="no_show_all">True</property></object>
+              <packing><property name="left_attach">0</property><property name="top_attach">1</property></packing>
+            </child>
+            <child>
+              <object class="GtkEntry" id="server_url_entry"><property name="visible">False</property><property name="can_focus">True</property><property name="placeholder_text" translatable="yes">https://server-ip:9345</property><property name="width_chars">20</property><property name="no_show_all">True</property></object>
+              <packing><property name="left_attach">1</property><property name="top_attach">1</property></packing>
+            </child>
+            <child>
+              <object class="GtkImage" id="server_url_icon"><property name="visible">False</property><property name="icon_size">3</property><property name="no_show_all">True</property></object>
+              <packing><property name="left_attach">2</property><property name="top_attach">1</property></packing>
+            </child>
+
+            <child>
+              <object class="GtkLabel" id="token_label"><property name="visible">False</property><property name="label" translatable="yes">Join Token:</property><property name="xalign">1</property><property name="no_show_all">True</property></object>
+              <packing><property name="left_attach">0</property><property name="top_attach">2</property></packing>
+            </child>
+            <child>
+              <object class="GtkEntry" id="token_entry"><property name="visible">False</property><property name="can_focus">True</property><property name="placeholder_text" translatable="yes">集群加入令牌</property><property name="width_chars">20</property><property name="no_show_all">True</property></object>
+              <packing><property name="left_attach">1</property><property name="top_attach">2</property></packing>
+            </child>
+            <child>
+              <object class="GtkImage" id="token_icon"><property name="visible">False</property><property name="icon_size">3</property><property name="no_show_all">True</property></object>
+              <packing><property name="left_attach">2</property><property name="top_attach">2</property></packing>
+            </child>
+
+            <child>
+              <object class="GtkLabel" id="pod_cidr_label"><property name="visible">True</property><property name="label" translatable="yes">POD CIDR:</property><property name="xalign">1</property></object>
+              <packing><property name="left_attach">0</property><property name="top_attach">3</property></packing>
+            </child>
+            <child>
+              <object class="GtkEntry" id="pod_cidr_entry"><property name="visible">True</property><property name="can_focus">True</property><property name="text">10.16.0.0/16</property><property name="width_chars">20</property></object>
+              <packing><property name="left_attach">1</property><property name="top_attach">3</property></packing>
+            </child>
+            <child>
+              <object class="GtkImage" id="pod_cidr_icon"><property name="visible">True</property><property name="icon_size">3</property></object>
+              <packing><property name="left_attach">2</property><property name="top_attach">3</property></packing>
+            </child>
+
+            <child>
+              <object class="GtkLabel" id="service_cidr_label"><property name="visible">True</property><property name="label" translatable="yes">SERVICE CIDR:</property><property name="xalign">1</property></object>
+              <packing><property name="left_attach">0</property><property name="top_attach">4</property></packing>
+            </child>
+            <child>
+              <object class="GtkEntry" id="service_cidr_entry"><property name="visible">True</property><property name="can_focus">True</property><property name="text">10.96.0.0/12</property><property name="width_chars">20</property></object>
+              <packing><property name="left_attach">1</property><property name="top_attach">4</property></packing>
+            </child>
+            <child>
+              <object class="GtkImage" id="service_cidr_icon"><property name="visible">True</property><property name="icon_size">3</property></object>
+              <packing><property name="left_attach">2</property><property name="top_attach">4</property></packing>
+            </child>
+
+            <child>
+              <object class="GtkLabel" id="join_cidr_label"><property name="visible">True</property><property name="label" translatable="yes">JOIN CIDR:</property><property name="xalign">1</property></object>
+              <packing><property name="left_attach">0</property><property name="top_attach">5</property></packing>
+            </child>
+            <child>
+              <object class="GtkEntry" id="join_cidr_entry"><property name="visible">True</property><property name="can_focus">True</property><property name="text">100.64.0.0/16</property><property name="width_chars">20</property></object>
+              <packing><property name="left_attach">1</property><property name="top_attach">5</property></packing>
+            </child>
+            <child>
+              <object class="GtkImage" id="join_cidr_icon"><property name="visible">True</property><property name="icon_size">3</property></object>
+              <packing><property name="left_attach">2</property><property name="top_attach">5</property></packing>
+            </child>
           </object>
-          <packing>
-            <property name="left_attach">1</property>
-            <property name="top_attach">2</property>
-          </packing>
         </child>
-        <!-- 备网卡（默认隐藏，bond 模式时由代码显示） -->
-        <child>
-          <object class="GtkLabel" id="interface2_label">
-            <property name="visible">False</property>
-            <property name="label" translatable="yes">备物理网卡:</property>
-            <property name="xalign">1</property>
-            <property name="no_show_all">True</property>
-          </object>
-          <packing>
-            <property name="left_attach">0</property>
-            <property name="top_attach">3</property>
-          </packing>
-        </child>
-        <child>
-          <object class="GtkComboBoxText" id="interface2_combo">
-            <property name="visible">False</property>
-            <property name="can_focus">False</property>
-            <property name="no_show_all">True</property>
-          </object>
-          <packing>
-            <property name="left_attach">1</property>
-            <property name="top_attach">3</property>
-          </packing>
-        </child>
-        <!-- Bond 模式（默认隐藏，bond 模式时由代码显示） -->
-        <child>
-          <object class="GtkLabel" id="bond_mode_label">
-            <property name="visible">False</property>
-            <property name="label" translatable="yes">Bond 绑定模式:</property>
-            <property name="xalign">1</property>
-            <property name="no_show_all">True</property>
-          </object>
-          <packing>
-            <property name="left_attach">0</property>
-            <property name="top_attach">4</property>
-          </packing>
-        </child>
-        <child>
-          <object class="GtkComboBoxText" id="bond_mode_combo">
-            <property name="visible">False</property>
-            <property name="can_focus">False</property>
-            <property name="no_show_all">True</property>
-            <items>
-              <item id="active-backup" translatable="yes">active-backup (主备容灾)</item>
-              <item id="802.3ad" translatable="yes">802.3ad (LACP 链路聚合)</item>
-            </items>
-          </object>
-          <packing>
-            <property name="left_attach">1</property>
-            <property name="top_attach">4</property>
-          </packing>
-        </child>
-        <!-- 管理 IP（默认隐藏，静态模式时由代码显示） -->
-        <child>
-          <object class="GtkLabel" id="ip_label">
-            <property name="visible">False</property>
-            <property name="label" translatable="yes">管理 IPv4 地址:</property>
-            <property name="xalign">1</property>
-            <property name="no_show_all">True</property>
-          </object>
-          <packing>
-            <property name="left_attach">0</property>
-            <property name="top_attach">5</property>
-          </packing>
-        </child>
-        <child>
-          <object class="GtkEntry" id="ip_entry">
-            <property name="visible">False</property>
-            <property name="can_focus">True</property>
-            <property name="text">192.168.10.10</property>
-            <property name="width_chars">20</property>
-            <property name="no_show_all">True</property>
-          </object>
-          <packing>
-            <property name="left_attach">1</property>
-            <property name="top_attach">5</property>
-          </packing>
-        </child>
-        <!-- 集群虚拟 IP（默认隐藏，静态模式时由代码显示） -->
-        <child>
-          <object class="GtkLabel" id="vip_label">
-            <property name="visible">False</property>
-            <property name="label" translatable="yes">集群虚拟 IP (VIP):</property>
-            <property name="xalign">1</property>
-            <property name="no_show_all">True</property>
-          </object>
-          <packing>
-            <property name="left_attach">0</property>
-            <property name="top_attach">6</property>
-          </packing>
-        </child>
-        <child>
-          <object class="GtkEntry" id="vip_entry">
-            <property name="visible">False</property>
-            <property name="can_focus">True</property>
-            <property name="text">192.168.10.100</property>
-            <property name="width_chars">20</property>
-            <property name="no_show_all">True</property>
-          </object>
-          <packing>
-            <property name="left_attach">1</property>
-            <property name="top_attach">6</property>
-          </packing>
-        </child>
-        <!-- 子网掩码（默认隐藏，静态模式时由代码显示） -->
-        <child>
-          <object class="GtkLabel" id="netmask_label">
-            <property name="visible">False</property>
-            <property name="label" translatable="yes">子网掩码:</property>
-            <property name="xalign">1</property>
-            <property name="no_show_all">True</property>
-          </object>
-          <packing>
-            <property name="left_attach">0</property>
-            <property name="top_attach">7</property>
-          </packing>
-        </child>
-        <child>
-          <object class="GtkEntry" id="netmask_entry">
-            <property name="visible">False</property>
-            <property name="can_focus">True</property>
-            <property name="text">255.255.255.0</property>
-            <property name="width_chars">20</property>
-            <property name="no_show_all">True</property>
-          </object>
-          <packing>
-            <property name="left_attach">1</property>
-            <property name="top_attach">7</property>
-          </packing>
-        </child>
-        <!-- 默认网关（默认隐藏，静态模式时由代码显示） -->
-        <child>
-          <object class="GtkLabel" id="gateway_label">
-            <property name="visible">False</property>
-            <property name="label" translatable="yes">默认网关:</property>
-            <property name="xalign">1</property>
-            <property name="no_show_all">True</property>
-          </object>
-          <packing>
-            <property name="left_attach">0</property>
-            <property name="top_attach">8</property>
-          </packing>
-        </child>
-        <child>
-          <object class="GtkEntry" id="gateway_entry">
-            <property name="visible">False</property>
-            <property name="can_focus">True</property>
-            <property name="text">192.168.10.1</property>
-            <property name="width_chars">20</property>
-            <property name="no_show_all">True</property>
-          </object>
-          <packing>
-            <property name="left_attach">1</property>
-            <property name="top_attach">8</property>
-          </packing>
-        </child>
-        <!-- DNS 服务器（默认隐藏，静态模式时由代码显示） -->
-        <child>
-          <object class="GtkLabel" id="dns_label">
-            <property name="visible">False</property>
-            <property name="label" translatable="yes">DNS 服务器:</property>
-            <property name="xalign">1</property>
-            <property name="no_show_all">True</property>
-          </object>
-          <packing>
-            <property name="left_attach">0</property>
-            <property name="top_attach">9</property>
-          </packing>
-        </child>
-        <child>
-          <object class="GtkEntry" id="dns_entry">
-            <property name="visible">False</property>
-            <property name="can_focus">True</property>
-            <property name="text">8.8.8.8</property>
-            <property name="width_chars">20</property>
-            <property name="no_show_all">True</property>
-          </object>
-          <packing>
-            <property name="left_attach">1</property>
-            <property name="top_attach">9</property>
-          </packing>
-        </child>
-        <!-- POD CIDR（始终可见） -->
-        <child>
-          <object class="GtkLabel" id="pod_cidr_label">
+      </object>
+    </child>
+
+    <!-- ==================== 系统配置 ==================== -->
+    <child>
+      <object class="GtkFrame" id="system_frame">
+        <property name="visible">True</property>
+        <property name="label_xalign">0</property>
+        <property name="shadow_type">in</property>
+        <child type="label">
+          <object class="GtkLabel">
             <property name="visible">True</property>
-            <property name="label" translatable="yes">POD CIDR:</property>
-            <property name="xalign">1</property>
+            <property name="label" translatable="yes">系统配置</property>
+            <attributes>
+              <attribute name="weight" value="bold"/>
+            </attributes>
           </object>
-          <packing>
-            <property name="left_attach">0</property>
-            <property name="top_attach">10</property>
-          </packing>
         </child>
         <child>
-          <object class="GtkEntry" id="pod_cidr_entry">
+          <object class="GtkGrid" id="system_grid">
             <property name="visible">True</property>
-            <property name="can_focus">True</property>
-            <property name="text">10.16.0.0/16</property>
-            <property name="width_chars">20</property>
+            <property name="row_spacing">8</property>
+            <property name="column_spacing">12</property>
+            <property name="margin_start">12</property>
+            <property name="margin_end">12</property>
+            <property name="margin_top">8</property>
+            <property name="margin_bottom">8</property>
+
+            <child>
+              <object class="GtkLabel" id="data_disk_label"><property name="visible">True</property><property name="label" translatable="yes">数据盘:</property><property name="xalign">1</property></object>
+              <packing><property name="left_attach">0</property><property name="top_attach">0</property></packing>
+            </child>
+            <child>
+              <object class="GtkComboBoxText" id="data_disk_combo">
+                <property name="visible">True</property>
+                <property name="can_focus">False</property>
+                <items>
+                  <item id="auto" translatable="yes">自动探测</item>
+                </items>
+              </object>
+              <packing><property name="left_attach">1</property><property name="top_attach">0</property><property name="width">2</property></packing>
+            </child>
           </object>
-          <packing>
-            <property name="left_attach">1</property>
-            <property name="top_attach">10</property>
-          </packing>
-        </child>
-        <!-- SERVICE CIDR（始终可见） -->
-        <child>
-          <object class="GtkLabel" id="service_cidr_label">
-            <property name="visible">True</property>
-            <property name="label" translatable="yes">SERVICE CIDR:</property>
-            <property name="xalign">1</property>
-          </object>
-          <packing>
-            <property name="left_attach">0</property>
-            <property name="top_attach">11</property>
-          </packing>
-        </child>
-        <child>
-          <object class="GtkEntry" id="service_cidr_entry">
-            <property name="visible">True</property>
-            <property name="can_focus">True</property>
-            <property name="text">10.96.0.0/12</property>
-            <property name="width_chars">20</property>
-          </object>
-          <packing>
-            <property name="left_attach">1</property>
-            <property name="top_attach">11</property>
-          </packing>
-        </child>
-        <!-- JOIN CIDR（始终可见） -->
-        <child>
-          <object class="GtkLabel" id="join_cidr_label">
-            <property name="visible">True</property>
-            <property name="label" translatable="yes">JOIN CIDR:</property>
-            <property name="xalign">1</property>
-          </object>
-          <packing>
-            <property name="left_attach">0</property>
-            <property name="top_attach">12</property>
-          </packing>
-        </child>
-        <child>
-          <object class="GtkEntry" id="join_cidr_entry">
-            <property name="visible">True</property>
-            <property name="can_focus">True</property>
-            <property name="text">100.64.0.0/16</property>
-            <property name="width_chars">20</property>
-          </object>
-          <packing>
-            <property name="left_attach">1</property>
-            <property name="top_attach">12</property>
-          </packing>
         </child>
       </object>
     </child>
