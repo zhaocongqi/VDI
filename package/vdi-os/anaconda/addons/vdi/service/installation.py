@@ -1,4 +1,5 @@
 """VDI Addon 安装任务实现（参考 com_redhat_kdump/service/installation.py）"""
+import glob
 import os
 import uuid
 import logging
@@ -11,6 +12,8 @@ from pyanaconda.modules.common.task import Task
 log = logging.getLogger(__name__)
 
 __all__ = ["VdiInstallationTask"]
+
+_BUNDLE_DIR = "/run/install/repo/bundle/vdi"
 
 
 class VdiInstallationTask(Task):
@@ -63,6 +66,32 @@ class VdiInstallationTask(Task):
     def name(self):
         return "Deploy VDI platform resources and configuration"
 
+    @staticmethod
+    def _ensure_dir(path, mode=0o755):
+        os.makedirs(path, mode=mode, exist_ok=True)
+
+    def _copy_operator_cr_manifests(self, prefix):
+        """将 operator.yaml 拷贝到 RKE2 manifests，CR 拷贝到 /etc/vdi/cr/ 延迟 apply。"""
+        manifests_dir = os.path.join(self._sysroot, "var/lib/rancher/rke2/server/manifests")
+        cr_dir = os.path.join(self._sysroot, "etc/vdi/cr")
+        self._ensure_dir(manifests_dir)
+        self._ensure_dir(cr_dir)
+
+        src_manifests_dir = os.path.join(_BUNDLE_DIR, "manifests")
+        operator_src = os.path.join(src_manifests_dir, f"{prefix}-operator.yaml")
+        if os.path.exists(operator_src):
+            shutil.copy(operator_src, os.path.join(manifests_dir, f"{prefix}-operator.yaml"))
+        else:
+            log.warning("[VDI] 未找到 %s-operator.yaml", prefix)
+
+        cr_src = os.path.join(src_manifests_dir, f"{prefix}-cr.yaml")
+        if os.path.exists(cr_src):
+            shutil.copy(cr_src, os.path.join(cr_dir, f"{prefix}-cr.yaml"))
+        else:
+            log.warning("[VDI] 未找到 %s-cr.yaml", prefix)
+
+        log.info("[VDI] %s manifest 分流完成（operator→manifests, CR→/etc/vdi/cr/）", prefix)
+
     def run(self):
         """执行安装任务。"""
         log.info(">>> [VDI] 开始执行 VdiInstallationTask 全量系统配置写入")
@@ -91,13 +120,16 @@ class VdiInstallationTask(Task):
         # 8. 复制 CDI 静态 manifest（operator + CR）
         self._copy_cdi_manifests()
 
-        # 9. kubectl 便捷配置（PATH、KUBECONFIG、~/.kube/config）
+        # 9. kubectl 便捷配置（PATH、KUBECONFIG）
         self._setup_kubectl_convenience()
 
-        # 10. 创建 CR 延迟应用服务（等 CRD 就绪后 apply KubeVirt/CDI CR）
+        # 10. 创建 kubeconfig 延迟拷贝服务（RKE2 首启后补拷 ~/.kube/config）
+        self._create_kubeconfig_service()
+
+        # 11. 创建 CR 延迟应用服务（等 CRD 就绪后 apply KubeVirt/CDI CR）
         self._create_cr_apply_service()
 
-        # 11. 创建 systemd wants 链接，激活服务
+        # 12. 创建 systemd wants 链接，激活服务
         self._enable_systemd_services()
 
         log.info(">>> [VDI] VdiInstallationTask 全部配置下发与释放成功完成！")
@@ -128,20 +160,19 @@ class VdiInstallationTask(Task):
             return
 
         conn_dir = os.path.join(self._sysroot, "etc/NetworkManager/system-connections")
-        if not os.path.exists(conn_dir):
-            try:
-                os.makedirs(conn_dir, mode=0o755)
-            except Exception as e:
-                log.error("[VDI] 创建目标网卡配置目录失败: %s", e)
-                return
+        try:
+            self._ensure_dir(conn_dir)
+        except Exception as e:
+            log.error("[VDI] 创建目标网卡配置目录失败: %s", e)
+            return
 
         # 清理原有网卡配置，防止冲突
         for f in os.listdir(conn_dir):
             if f.endswith(".nmconnection"):
                 try:
                     os.remove(os.path.join(conn_dir, f))
-                except Exception:
-                    pass
+                except Exception as e:
+                    log.warning("[VDI] 删除旧网卡配置 %s 失败: %s", f, e)
 
         is_dhcp = (self._network_mode == "dhcp")
         ipv4_section = self._build_ipv4_section(is_dhcp)
@@ -217,8 +248,7 @@ autoconnect-priority=100
 
         # 写入 VDI 内部网络配置文件
         vdi_conf_dir = os.path.join(self._sysroot, "etc/vdi")
-        if not os.path.exists(vdi_conf_dir):
-            os.makedirs(vdi_conf_dir, mode=0o755)
+        self._ensure_dir(vdi_conf_dir)
         with open(os.path.join(vdi_conf_dir, "network.conf"), "w") as f:
             f.write(f"""# VDI Management Network Config
 NETWORK_MODE={self._network_mode}
@@ -237,54 +267,44 @@ VIP={self._vip}
         """配置 SSH root 登录。"""
         try:
             sshd_conf_dir = os.path.join(self._sysroot, "etc/ssh/sshd_config.d")
-            if not os.path.exists(sshd_conf_dir):
-                os.makedirs(sshd_conf_dir, mode=0o755)
+            self._ensure_dir(sshd_conf_dir)
             with open(os.path.join(sshd_conf_dir, "00-vdi-root-login.conf"), "w") as f:
                 f.write("PermitRootLogin yes\nPasswordAuthentication yes\nUseDNS no\nGSSAPIAuthentication no\n")
             log.info("[VDI] 成功写入 00-vdi-root-login.conf SSH 配置文件")
         except Exception as e:
             log.error("[VDI] 写入 SSH 配置文件发生错误: %s", e)
 
+    def _is_system_disk(self, dev_name):
+        """判断块设备是否为系统盘（包含 LVM PV 或已挂载的根分区）。"""
+        partitions = glob.glob(f"/sys/block/{dev_name}/{dev_name}*")
+        for part in partitions:
+            part_dev = f"/dev/{os.path.basename(part)}"
+            try:
+                fstype = subprocess.check_output(
+                    ["blkid", "-s", "TYPE", "-o", "value", part_dev],
+                    stderr=subprocess.DEVNULL
+                ).decode().strip()
+                if fstype in ("LVM2_member", "ext4", "xfs"):
+                    mount_info = subprocess.check_output(
+                        ["lsblk", "-no", "MOUNTPOINT", part_dev],
+                        stderr=subprocess.DEVNULL
+                    ).decode().strip()
+                    if mount_info or fstype == "LVM2_member":
+                        return True
+            except Exception as e:
+                log.warning("[VDI] blkid/lsblk 探测 %s 失败: %s", part_dev, e)
+        return False
+
     def _setup_data_disk(self):
         """数据盘自动探测、格式化与 fstab 挂载。"""
         try:
-            # 通过 /sys/block 枚举块设备，跳过系统盘（含根分区/LVM 的盘）
-            import glob
             all_block_devs = sorted(glob.glob("/sys/block/vd*")) + sorted(glob.glob("/sys/block/sd*"))
 
-            # 系统盘判定：包含 LVM PV 或根分区的盘
-            boot_disk_name = ""
-            for dev_path in all_block_devs:
-                dev_name = os.path.basename(dev_path)
-                # 检查该盘的分区是否包含 LVM 或根文件系统
-                partitions = glob.glob(f"/sys/block/{dev_name}/{dev_name}*")
-                for part in partitions:
-                    part_name = os.path.basename(part)
-                    part_dev = f"/dev/{part_name}"
-                    try:
-                        fstype = subprocess.check_output(
-                            ["blkid", "-s", "TYPE", "-o", "value", part_dev],
-                            stderr=subprocess.DEVNULL
-                        ).decode().strip()
-                        if fstype in ("LVM2_member", "ext4", "xfs"):
-                            # 可能是系统盘
-                            mount_info = subprocess.check_output(
-                                ["lsblk", "-no", "MOUNTPOINT", part_dev],
-                                stderr=subprocess.DEVNULL
-                            ).decode().strip()
-                            if mount_info or fstype == "LVM2_member":
-                                boot_disk_name = dev_name
-                                break
-                    except Exception:
-                        pass
-                if boot_disk_name:
-                    break
-
-            # 查找非系统盘作为数据盘
+            # 单次遍历：分离系统盘与数据盘
             data_disk_name = None
             for dev_path in all_block_devs:
                 dev_name = os.path.basename(dev_path)
-                if dev_name != boot_disk_name:
+                if not self._is_system_disk(dev_name):
                     data_disk_name = dev_name
                     break
 
@@ -296,9 +316,7 @@ VIP={self._vip}
             log.info("[VDI] 探测到物理数据盘: %s, 开始格式化...", data_dev_path)
             subprocess.run(["mkfs.ext4", "-F", "-L", "VDI_LH_DEFAULT", data_dev_path], check=True)
 
-            longhorn_dir = os.path.join(self._sysroot, "var/lib/longhorn")
-            if not os.path.exists(longhorn_dir):
-                os.makedirs(longhorn_dir, mode=0o755)
+            self._ensure_dir(os.path.join(self._sysroot, "var/lib/longhorn"))
 
             fstab_path = os.path.join(self._sysroot, "etc/fstab")
             longhorn_entry = "LABEL=VDI_LH_DEFAULT /var/lib/longhorn ext4 defaults,noatime,nofail 0 2"
@@ -315,20 +333,16 @@ VIP={self._vip}
 
     def _extract_bundle_resources(self):
         """复制 ISO 离线资源 Bundle 到目标磁盘。"""
-        repo_dir = "/run/install/repo"
-        bundle_dir = os.path.join(repo_dir, "bundle/vdi")
-
-        if not os.path.exists(bundle_dir):
+        if not os.path.exists(_BUNDLE_DIR):
             log.warning("[VDI] 未在光盘安装源中找到离线资源 bundle/vdi，跳过离线资源释放")
             return
 
         log.info("[VDI] 发现离线资源 bundle，开始释放...")
 
-        # 5.1 拷贝 RKE2 离线镜像 (images)
+        # 拷贝 RKE2 离线镜像 (images)
         target_images_dir = os.path.join(self._sysroot, "var/lib/rancher/rke2/agent/images")
-        if not os.path.exists(target_images_dir):
-            os.makedirs(target_images_dir, mode=0o755)
-        src_images_dir = os.path.join(bundle_dir, "images")
+        self._ensure_dir(target_images_dir)
+        src_images_dir = os.path.join(_BUNDLE_DIR, "images")
         if os.path.exists(src_images_dir):
             for f in os.listdir(src_images_dir):
                 if f.endswith(".tar.zst"):
@@ -339,28 +353,30 @@ VIP={self._vip}
                     shutil.copy(src_img, target_images_dir)
         log.info("[VDI] 离线 RKE2 镜像拷贝完成")
 
-        # 5.2 拷贝 Helm Charts 和 Manifests
+        # 拷贝 Helm Charts 和 Manifests
         target_charts_dir = os.path.join(self._sysroot, "var/lib/rancher/rke2/server/charts")
-        if not os.path.exists(target_charts_dir):
-            os.makedirs(target_charts_dir, mode=0o755)
-        src_charts_dir = os.path.join(bundle_dir, "charts")
+        self._ensure_dir(target_charts_dir)
+        src_charts_dir = os.path.join(_BUNDLE_DIR, "charts")
         if os.path.exists(src_charts_dir):
             for f in os.listdir(src_charts_dir):
                 if f.endswith(".tgz"):
                     shutil.copy(os.path.join(src_charts_dir, f), target_charts_dir)
 
         target_manifests_dir = os.path.join(self._sysroot, "var/lib/rancher/rke2/server/manifests")
-        if not os.path.exists(target_manifests_dir):
-            os.makedirs(target_manifests_dir, mode=0o755)
-        src_manifests_dir = os.path.join(bundle_dir, "manifests")
+        self._ensure_dir(target_manifests_dir)
+        src_manifests_dir = os.path.join(_BUNDLE_DIR, "manifests")
         if os.path.exists(src_manifests_dir):
             for f in os.listdir(src_manifests_dir):
                 if f.endswith(".yaml"):
                     shutil.copy(os.path.join(src_manifests_dir, f), target_manifests_dir)
         log.info("[VDI] 离线 Helm Charts & Manifests 拷贝完成")
 
-        # 5.3 复制并解压 RKE2 运行二进制包
-        src_binaries_dir = os.path.join(bundle_dir, "binaries")
+        # 解压 RKE2 运行二进制包
+        self._extract_rke2_binary()
+
+    def _extract_rke2_binary(self):
+        """从 bundle 中查找、校验并解压 RKE2 二进制包到 sysroot。"""
+        src_binaries_dir = os.path.join(_BUNDLE_DIR, "binaries")
         rke2_tar = None
         if os.path.exists(src_binaries_dir):
             for f in os.listdir(src_binaries_dir):
@@ -368,14 +384,16 @@ VIP={self._vip}
                     rke2_tar = f
                     break
 
-        if rke2_tar:
-            tmp_tar_path = os.path.join(self._sysroot, "tmp", rke2_tar)
-            shutil.copy(os.path.join(src_binaries_dir, rke2_tar), tmp_tar_path)
+        if not rke2_tar:
+            log.warning("[VDI] 未在离线 bundle 中找到 rke2.linux-*.tar.gz 二进制包")
+            return
 
-            # 完整性校验
+        tmp_tar_path = os.path.join(self._sysroot, "tmp", rke2_tar)
+        shutil.copy(os.path.join(src_binaries_dir, rke2_tar), tmp_tar_path)
+
+        try:
             if os.path.getsize(tmp_tar_path) == 0:
                 log.error("[VDI] RKE2 二进制包 %s 为 0 字节，中止 RKE2 安装", rke2_tar)
-                os.remove(tmp_tar_path)
                 return
 
             verify = subprocess.run(
@@ -387,59 +405,40 @@ VIP={self._vip}
             if verify.returncode != 0:
                 log.error("[VDI] RKE2 二进制包 %s 校验失败（非合法 tar）: %s",
                           rke2_tar, verify.stderr.decode(errors="replace").strip())
-                os.remove(tmp_tar_path)
                 return
 
-            # 解压
             usr_local = os.path.join(self._sysroot, "usr/local")
-            if not os.path.exists(usr_local):
-                os.makedirs(usr_local, mode=0o755)
-
-            try:
-                subprocess.run(["tar", "xzf", tmp_tar_path, "-C", usr_local], check=True)
-                log.info("[VDI] RKE2 运行二进制解压释放完成")
-            except Exception as e:
-                log.error("[VDI] 解压 RKE2 二进制包失败: %s", e)
-            finally:
-                if os.path.exists(tmp_tar_path):
-                    os.remove(tmp_tar_path)
-        else:
-            log.warning("[VDI] 未在离线 bundle 中找到 rke2.linux-*.tar.gz 二进制包")
+            self._ensure_dir(usr_local)
+            subprocess.run(["tar", "xzf", tmp_tar_path, "-C", usr_local], check=True)
+            log.info("[VDI] RKE2 运行二进制解压释放完成")
+        except Exception as e:
+            log.error("[VDI] 解压 RKE2 二进制包失败: %s", e)
+        finally:
+            if os.path.exists(tmp_tar_path):
+                os.remove(tmp_tar_path)
 
     def _write_rke2_config(self):
-        """动态配置并下发 RKE2 config.yaml。"""
-        is_agent = False
-        server_url = ""
-        token = "vdi-cluster-token"
-
+        """动态配置并下发 RKE2 config.yaml（当前仅 server 模式）。"""
+        # TODO: Agent 模式待实现 — 需 D-Bus Role 属性 + server_url/token
         rke2_conf_dir = os.path.join(self._sysroot, "etc/rancher/rke2")
-        if not os.path.exists(rke2_conf_dir):
-            os.makedirs(rke2_conf_dir, mode=0o755)
+        self._ensure_dir(rke2_conf_dir)
 
         rke2_conf_path = os.path.join(rke2_conf_dir, "config.yaml")
         try:
             with open(rke2_conf_path, "w") as f:
-                if not is_agent:
-                    f.write(f"""write-kubeconfig-mode: "0600"
+                f.write("""write-kubeconfig-mode: "0600"
 cni: none
 disable:
   - rke2-ingress-nginx
 kubelet-arg:
   - "max-pods=200"
 """)
-                    # 如果配置了 IP/VIP，将其注入为 SAN
-                    if self._ip or self._vip:
-                        f.write("tls-san:\n")
-                        if self._vip:
-                            f.write(f"  - {self._vip}\n")
-                        if self._ip:
-                            f.write(f"  - {self._ip}\n")
-                else:
-                    f.write(f"""server: {server_url}
-token: "{token}"
-kubelet-arg:
-  - "max-pods=200"
-""")
+                if self._ip or self._vip:
+                    f.write("tls-san:\n")
+                    if self._vip:
+                        f.write(f"  - {self._vip}\n")
+                    if self._ip:
+                        f.write(f"  - {self._ip}\n")
             log.info("[VDI] RKE2 核心配置文件 config.yaml 写入完成")
         except Exception as e:
             log.error("[VDI] 写入 RKE2 config.yaml 失败: %s", e)
@@ -448,14 +447,13 @@ kubelet-arg:
         """动态生成 Kube-OVN HelmChart CRD manifest（含 bootstrap + chartContent 内嵌）。"""
         try:
             manifests_dir = os.path.join(self._sysroot, "var/lib/rancher/rke2/server/manifests")
-            if not os.path.exists(manifests_dir):
-                os.makedirs(manifests_dir, mode=0o755)
+            self._ensure_dir(manifests_dir)
 
             underlay_iface = "bond0" if self._mode == "bond" and self._interface2 else self._interface
 
             # 从 ISO bundle 读取 chart tgz 并 base64 编码内嵌到 chartContent
             chart_content = ""
-            src_charts_dir = "/run/install/repo/bundle/vdi/charts"
+            src_charts_dir = os.path.join(_BUNDLE_DIR, "charts")
             if os.path.exists(src_charts_dir):
                 for f in os.listdir(src_charts_dir):
                     if f.startswith("kube-ovn") and f.endswith(".tgz"):
@@ -498,50 +496,63 @@ spec:
     def _copy_kubevirt_manifests(self):
         """KubeVirt operator 放 RKE2 manifests，CR 存 /etc/vdi/cr/ 延迟 apply。"""
         try:
-            manifests_dir = os.path.join(self._sysroot, "var/lib/rancher/rke2/server/manifests")
-            cr_dir = os.path.join(self._sysroot, "etc/vdi/cr")
-            os.makedirs(manifests_dir, mode=0o755, exist_ok=True)
-            os.makedirs(cr_dir, mode=0o755, exist_ok=True)
-
-            src_manifests_dir = "/run/install/repo/bundle/vdi/manifests"
-            # operator → RKE2 manifests（随 RKE2 启动自动部署 CRD + virt-operator）
-            src = os.path.join(src_manifests_dir, "kubevirt-operator.yaml")
-            if os.path.exists(src):
-                shutil.copy(src, os.path.join(manifests_dir, "kubevirt-operator.yaml"))
-            else:
-                log.warning("[VDI] 未找到 kubevirt-operator.yaml")
-            # CR → /etc/vdi/cr/（等 CRD 就绪后由 vdi-apply-cr.service apply）
-            src = os.path.join(src_manifests_dir, "kubevirt-cr.yaml")
-            if os.path.exists(src):
-                shutil.copy(src, os.path.join(cr_dir, "kubevirt-cr.yaml"))
-            else:
-                log.warning("[VDI] 未找到 kubevirt-cr.yaml")
-            log.info("[VDI] KubeVirt manifest 分流完成（operator→manifests, CR→/etc/vdi/cr/）")
+            self._copy_operator_cr_manifests("kubevirt")
         except Exception as e:
             log.error("[VDI] 复制 KubeVirt manifest 失败: %s", e)
 
     def _copy_cdi_manifests(self):
         """CDI operator 放 RKE2 manifests，CR 存 /etc/vdi/cr/ 延迟 apply。"""
         try:
-            manifests_dir = os.path.join(self._sysroot, "var/lib/rancher/rke2/server/manifests")
-            cr_dir = os.path.join(self._sysroot, "etc/vdi/cr")
-            os.makedirs(manifests_dir, mode=0o755, exist_ok=True)
-            os.makedirs(cr_dir, mode=0o755, exist_ok=True)
-
-            src_manifests_dir = "/run/install/repo/bundle/vdi/manifests"
-            src = os.path.join(src_manifests_dir, "cdi-operator.yaml")
-            if os.path.exists(src):
-                shutil.copy(src, os.path.join(manifests_dir, "cdi-operator.yaml"))
-            else:
-                log.warning("[VDI] 未找到 cdi-operator.yaml")
-            src = os.path.join(src_manifests_dir, "cdi-cr.yaml")
-            if os.path.exists(src):
-                shutil.copy(src, os.path.join(cr_dir, "cdi-cr.yaml"))
-            else:
-                log.warning("[VDI] 未找到 cdi-cr.yaml")
-            log.info("[VDI] CDI manifest 分流完成（operator→manifests, CR→/etc/vdi/cr/）")
+            self._copy_operator_cr_manifests("cdi")
         except Exception as e:
             log.error("[VDI] 复制 CDI manifest 失败: %s", e)
+
+    def _create_kubeconfig_service(self):
+        """创建 systemd oneshot 服务，RKE2 首启后等 rke2.yaml 生成再拷贝到 ~/.kube/config。"""
+        try:
+            script_path = os.path.join(self._sysroot, "usr/local/bin/vdi-kubeconfig.sh")
+            with open(script_path, "w") as f:
+                f.write("""#!/bin/bash
+# 等待 RKE2 生成 rke2.yaml（最多 5 分钟）
+SRC="/etc/rancher/rke2/rke2.yaml"
+DST="/root/.kube/config"
+TIMEOUT=300
+ELAPSED=0
+
+while [ ! -s "$SRC" ]; do
+    sleep 2
+    ELAPSED=$((ELAPSED + 2))
+    if [ "$ELAPSED" -ge "$TIMEOUT" ]; then
+        echo "VDI kubeconfig: 等待 $SRC 超时 (${TIMEOUT}s)" >&2
+        exit 1
+    fi
+done
+
+mkdir -p /root/.kube
+cp "$SRC" "$DST"
+chmod 600 "$DST"
+echo "VDI kubeconfig: $SRC → $DST 拷贝完成"
+""")
+            os.chmod(script_path, 0o755)
+
+            unit_path = os.path.join(self._sysroot, "etc/systemd/system/vdi-kubeconfig.service")
+            with open(unit_path, "w") as f:
+                f.write("""[Unit]
+Description=Copy RKE2 kubeconfig to root home after first boot
+After=rke2-server.service
+Requires=rke2-server.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/vdi-kubeconfig.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+""")
+            log.info("[VDI] kubeconfig 延迟拷贝服务创建完成")
+        except Exception as e:
+            log.error("[VDI] 创建 kubeconfig 延迟拷贝服务失败: %s", e)
 
     def _create_cr_apply_service(self):
         """创建 systemd oneshot 服务，RKE2 启动后等 CRD 就绪再 apply KubeVirt/CDI CR。"""
@@ -589,33 +600,25 @@ WantedBy=multi-user.target
             log.error("[VDI] 创建 CR 延迟应用服务失败: %s", e)
 
     def _setup_kubectl_convenience(self):
-        """配置 kubectl 便捷访问：PATH 软链、KUBECONFIG、~/.kube/config。"""
+        """配置 kubectl 便捷访问：PATH 软链、KUBECONFIG。"""
         try:
-            # 1. kubectl 软链到 /usr/local/bin/
+            # kubectl 软链到 /usr/local/bin/
             kubectl_src = "/var/lib/rancher/rke2/bin/kubectl"
             kubectl_link = os.path.join(self._sysroot, "usr/local/bin/kubectl")
             if not os.path.exists(kubectl_link):
                 os.symlink(kubectl_src, kubectl_link)
 
-            # 2. /etc/profile.d/rke2.sh — 登录时自动设置 PATH 和 KUBECONFIG
+            # /etc/profile.d/rke2.sh — 登录时自动设置 PATH 和 KUBECONFIG
             profile_d_dir = os.path.join(self._sysroot, "etc/profile.d")
-            if not os.path.exists(profile_d_dir):
-                os.makedirs(profile_d_dir, mode=0o755)
+            self._ensure_dir(profile_d_dir)
             with open(os.path.join(profile_d_dir, "rke2.sh"), "w") as f:
                 f.write('export PATH="$PATH:/var/lib/rancher/rke2/bin"\n')
                 f.write('export KUBECONFIG="/etc/rancher/rke2/rke2.yaml"\n')
 
-            # 3. root 用户 ~/.kube/config（拷贝 kubeconfig）
-            kube_dir = os.path.join(self._sysroot, "root/.kube")
-            if not os.path.exists(kube_dir):
-                os.makedirs(kube_dir, mode=0o700)
-            kubeconfig_src = os.path.join(self._sysroot, "etc/rancher/rke2/rke2.yaml")
-            kubeconfig_dst = os.path.join(kube_dir, "config")
-            if os.path.exists(kubeconfig_src):
-                shutil.copy(kubeconfig_src, kubeconfig_dst)
-                os.chmod(kubeconfig_dst, 0o600)
+            # 注: ~/.kube/config 由 vdi-kubeconfig.service 在 RKE2 首启后延迟拷贝，
+            # 安装阶段 rke2.yaml 尚未生成，此处无法拷贝。
 
-            log.info("[VDI] kubectl 便捷配置完成（PATH 软链 + profile.d + ~/.kube/config）")
+            log.info("[VDI] kubectl 便捷配置完成（PATH 软链 + profile.d，kubeconfig 延迟拷贝）")
         except Exception as e:
             log.error("[VDI] kubectl 便捷配置失败: %s", e)
 
@@ -623,8 +626,7 @@ WantedBy=multi-user.target
         """创建 systemd wants 链接，激活服务。"""
         try:
             wants_dir = os.path.join(self._sysroot, "etc/systemd/system/multi-user.target.wants")
-            if not os.path.exists(wants_dir):
-                os.makedirs(wants_dir, mode=0o755)
+            self._ensure_dir(wants_dir)
 
             # 激活 sshd.service
             sshd_link = os.path.join(wants_dir, "sshd.service")
@@ -636,8 +638,8 @@ WantedBy=multi-user.target
             if not os.path.exists(iscsid_link):
                 try:
                     os.symlink("/usr/lib/systemd/system/iscsid.service", iscsid_link)
-                except Exception:
-                    pass
+                except Exception as e:
+                    log.warning("[VDI] 激活 iscsid.service 失败: %s", e)
 
             # 激活 RKE2 服务
             service_name = "rke2-server"
@@ -645,11 +647,16 @@ WantedBy=multi-user.target
             if not os.path.exists(rke2_link):
                 os.symlink(f"/usr/local/lib/systemd/system/{service_name}.service", rke2_link)
 
+            # 激活 kubeconfig 延迟拷贝服务
+            kc_link = os.path.join(wants_dir, "vdi-kubeconfig.service")
+            if not os.path.exists(kc_link):
+                os.symlink("/etc/systemd/system/vdi-kubeconfig.service", kc_link)
+
             # 激活 CR 延迟应用服务
             cr_link = os.path.join(wants_dir, "vdi-apply-cr.service")
             if not os.path.exists(cr_link):
                 os.symlink("/etc/systemd/system/vdi-apply-cr.service", cr_link)
 
-            log.info("[VDI] 成功激活 sshd, iscsid 及 %s 服务开机自启", service_name)
+            log.info("[VDI] 成功激活 sshd, iscsid, vdi-kubeconfig, vdi-apply-cr 及 %s 服务开机自启", service_name)
         except Exception as e:
             log.error("[VDI] 激活 systemd 服务发生错误: %s", e)
