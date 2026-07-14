@@ -183,7 +183,7 @@ scripts/version-kagent    # KAGENT_VERSION="0.9.6"
 
 ## 已知限制
 
-- `VdiInstallationTask._setup_kubectl_convenience()` 中 `~/.kube/config` 拷贝会失败——RKE2 在安装阶段尚未生成 `rke2.yaml`，需首启后由 RKE2 创建。修复方向：systemd oneshot 服务在首启后补拷。
+- ~~`VdiInstallationTask._setup_kubectl_convenience()` 中 `~/.kube/config` 拷贝会失败~~ — 已修复：由 `vdi-kubeconfig.service`（oneshot）在 RKE2 首启后等待 `rke2.yaml` 生成再拷贝到 `/root/.kube/config`。
 - anaconda 安装环境 SSH 不可用（sshd banner exchange 超时），`hot-reload-addon` 在安装阶段无法连入，仅装机后（phase 2）可用。
 
 ## 深入文档指针
