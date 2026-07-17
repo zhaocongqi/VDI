@@ -182,6 +182,18 @@ class VdiInstallationTask(Task):
                 except Exception as e:
                     log.warning("[VDI] 删除旧网卡配置 %s 失败: %s", f, e)
 
+        # 清理 Anaconda 装机阶段生成的 ifcfg 残留（与 keyfile bond 配置语义冲突），
+        # 确保 NM 以 keyfile 为唯一配置来源（NM 1.32 keyfile 优先于 ifcfg-rh）。
+        ifcfg_dir = os.path.join(self._sysroot, "etc/sysconfig/network-scripts")
+        if os.path.isdir(ifcfg_dir):
+            for f in os.listdir(ifcfg_dir):
+                if f.startswith("ifcfg-"):
+                    try:
+                        os.remove(os.path.join(ifcfg_dir, f))
+                        log.debug("[VDI] 删除 ifcfg 残留 %s", f)
+                    except Exception as e:
+                        log.warning("[VDI] 删除 ifcfg 残留 %s 失败: %s", f, e)
+
         is_dhcp = (self._network_mode == "dhcp")
         ipv4_section = self._build_ipv4_section(is_dhcp)
         ipv6_section = "[ipv6]\nmethod=disabled"
@@ -203,7 +215,8 @@ autoconnect=true
 autoconnect-priority=100
 
 [bond]
-options=mode={self._bond_mode},miimon=100
+mode={self._bond_mode}
+miimon=100
 
 {ipv4_section}
 
