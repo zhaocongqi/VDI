@@ -88,6 +88,17 @@ fi
 SERIAL_LOG="/tmp/qemu-ks-serial.log"
 QEMU_PID_FILE="/tmp/qemu-ks.pid"
 
+# 额外网卡数（用于多网卡 bond 验证）：EXTRA_NICS=2 会追加 net1/net2 两块 virtio 网卡
+# 额外网卡用独立 user netdev（无 hostfwd），仅供 bond 成员使用
+EXTRA_NICS="${EXTRA_NICS:-0}"
+EXTRA_NIC_ARGS=""
+if [ "$EXTRA_NICS" -gt 0 ] 2>/dev/null; then
+    for i in $(seq 1 "$EXTRA_NICS"); do
+        EXTRA_NIC_ARGS+=" -netdev user,id=net${i} -device virtio-net-pci,netdev=net${i}"
+    done
+    info "追加 ${EXTRA_NICS} 块额外网卡（bond 验证用）: ${EXTRA_NIC_ARGS}"
+fi
+
 qemu_stop() {
     if [ -f "$QEMU_PID_FILE" ] && kill -0 "$(cat $QEMU_PID_FILE)" 2>/dev/null; then
         kill "$(cat $QEMU_PID_FILE)" 2>/dev/null || true
@@ -166,6 +177,7 @@ qemu-system-x86_64 \
     -append "$APPEND" \
     -netdev user,id=net0,hostfwd=tcp::$SSH_PORT-:22 \
     -device virtio-net-pci,netdev=net0 \
+    $EXTRA_NIC_ARGS \
     -serial file:"$SERIAL_LOG" \
     -serial tcp::4444,server,nowait \
     $MON_ARG \
@@ -326,6 +338,7 @@ qemu-system-x86_64 \
     -drive file="$QEMU_DATA_DISK",format=qcow2,if=virtio \
     -netdev user,id=net0,hostfwd=tcp::$SSH_PORT-:22 \
     -device virtio-net-pci,netdev=net0 \
+    $EXTRA_NIC_ARGS \
     $P2_SERIAL \
     $P2_DISPLAY \
     $P2_MONITOR \
