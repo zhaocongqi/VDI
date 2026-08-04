@@ -34,6 +34,44 @@ class VdiService(KickstartService):
         self._bond_mode = "active-backup"
         self.bond_mode_changed = Signal()
 
+        # bond1/bond2 业务网络绑定（可选）
+        self._bond1_enabled = False
+        self.bond1_enabled_changed = Signal()
+        self._bond1_interface = ""
+        self.bond1_interface_changed = Signal()
+        self._bond1_interface2 = ""
+        self.bond1_interface2_changed = Signal()
+        self._bond1_bond_mode = "active-backup"
+        self.bond1_bond_mode_changed = Signal()
+        self._bond1_network_mode = "static"
+        self.bond1_network_mode_changed = Signal()
+        self._bond1_ip = ""
+        self.bond1_ip_changed = Signal()
+        self._bond1_netmask = "255.255.255.0"
+        self.bond1_netmask_changed = Signal()
+        self._bond1_gateway = ""
+        self.bond1_gateway_changed = Signal()
+
+        self._bond2_enabled = False
+        self.bond2_enabled_changed = Signal()
+        self._bond2_interface = ""
+        self.bond2_interface_changed = Signal()
+        self._bond2_interface2 = ""
+        self.bond2_interface2_changed = Signal()
+        self._bond2_bond_mode = "active-backup"
+        self.bond2_bond_mode_changed = Signal()
+        self._bond2_network_mode = "static"
+        self.bond2_network_mode_changed = Signal()
+        self._bond2_ip = ""
+        self.bond2_ip_changed = Signal()
+        self._bond2_netmask = "255.255.255.0"
+        self.bond2_netmask_changed = Signal()
+        self._bond2_gateway = ""
+        self.bond2_gateway_changed = Signal()
+
+        self._default_route_iface = ""
+        self.default_route_iface_changed = Signal()
+
         self._ip = "192.168.10.10"
         self.ip_changed = Signal()
 
@@ -79,6 +117,15 @@ class VdiService(KickstartService):
         DBus.publish_object(VDI.object_path, VdiInterface(self))
         DBus.register_service(VDI.service_name)
 
+    @staticmethod
+    def _coerce_bool(value):
+        """将 D-Bus/kickstart 传入的布尔值统一为 Python bool。"""
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            return value.strip().lower() in ("true", "1", "yes", "on")
+        return bool(value)
+
     @property
     def mode(self):
         return self._mode
@@ -118,6 +165,178 @@ class VdiService(KickstartService):
         self._bond_mode = value
         self.bond_mode_changed.emit()
         log.debug("VDI Network Bond Mode is set to '%s'.", value)
+
+    # ---- bond1 ----
+    @property
+    def bond1_enabled(self):
+        return self._bond1_enabled
+
+    @bond1_enabled.setter
+    def bond1_enabled(self, value):
+        self._bond1_enabled = self._coerce_bool(value)
+        self.bond1_enabled_changed.emit()
+        log.debug("VDI Bond1 Enabled is set to '%s'.", self._bond1_enabled)
+
+    @property
+    def bond1_interface(self):
+        return self._bond1_interface
+
+    @bond1_interface.setter
+    def bond1_interface(self, value):
+        self._bond1_interface = value
+        self.bond1_interface_changed.emit()
+        log.debug("VDI Bond1 Interface is set to '%s'.", value)
+
+    @property
+    def bond1_interface2(self):
+        return self._bond1_interface2
+
+    @bond1_interface2.setter
+    def bond1_interface2(self, value):
+        self._bond1_interface2 = value
+        self.bond1_interface2_changed.emit()
+        log.debug("VDI Bond1 Interface2 is set to '%s'.", value)
+
+    @property
+    def bond1_bond_mode(self):
+        return self._bond1_bond_mode
+
+    @bond1_bond_mode.setter
+    def bond1_bond_mode(self, value):
+        self._bond1_bond_mode = value
+        self.bond1_bond_mode_changed.emit()
+        log.debug("VDI Bond1 BondMode is set to '%s'.", value)
+
+    @property
+    def bond1_network_mode(self):
+        return self._bond1_network_mode
+
+    @bond1_network_mode.setter
+    def bond1_network_mode(self, value):
+        self._bond1_network_mode = value
+        self.bond1_network_mode_changed.emit()
+        log.debug("VDI Bond1 NetworkMode is set to '%s'.", value)
+
+    @property
+    def bond1_ip(self):
+        return self._bond1_ip
+
+    @bond1_ip.setter
+    def bond1_ip(self, value):
+        self._bond1_ip = value
+        self.bond1_ip_changed.emit()
+        log.debug("VDI Bond1 IP is set to '%s'.", value)
+
+    @property
+    def bond1_netmask(self):
+        return self._bond1_netmask
+
+    @bond1_netmask.setter
+    def bond1_netmask(self, value):
+        self._bond1_netmask = value
+        self.bond1_netmask_changed.emit()
+        log.debug("VDI Bond1 Netmask is set to '%s'.", value)
+
+    @property
+    def bond1_gateway(self):
+        return self._bond1_gateway
+
+    @bond1_gateway.setter
+    def bond1_gateway(self, value):
+        self._bond1_gateway = value
+        self.bond1_gateway_changed.emit()
+        log.debug("VDI Bond1 Gateway is set to '%s'.", value)
+
+    # ---- bond2 ----
+    @property
+    def bond2_enabled(self):
+        return self._bond2_enabled
+
+    @bond2_enabled.setter
+    def bond2_enabled(self, value):
+        self._bond2_enabled = self._coerce_bool(value)
+        self.bond2_enabled_changed.emit()
+        log.debug("VDI Bond2 Enabled is set to '%s'.", self._bond2_enabled)
+
+    @property
+    def bond2_interface(self):
+        return self._bond2_interface
+
+    @bond2_interface.setter
+    def bond2_interface(self, value):
+        self._bond2_interface = value
+        self.bond2_interface_changed.emit()
+        log.debug("VDI Bond2 Interface is set to '%s'.", value)
+
+    @property
+    def bond2_interface2(self):
+        return self._bond2_interface2
+
+    @bond2_interface2.setter
+    def bond2_interface2(self, value):
+        self._bond2_interface2 = value
+        self.bond2_interface2_changed.emit()
+        log.debug("VDI Bond2 Interface2 is set to '%s'.", value)
+
+    @property
+    def bond2_bond_mode(self):
+        return self._bond2_bond_mode
+
+    @bond2_bond_mode.setter
+    def bond2_bond_mode(self, value):
+        self._bond2_bond_mode = value
+        self.bond2_bond_mode_changed.emit()
+        log.debug("VDI Bond2 BondMode is set to '%s'.", value)
+
+    @property
+    def bond2_network_mode(self):
+        return self._bond2_network_mode
+
+    @bond2_network_mode.setter
+    def bond2_network_mode(self, value):
+        self._bond2_network_mode = value
+        self.bond2_network_mode_changed.emit()
+        log.debug("VDI Bond2 NetworkMode is set to '%s'.", value)
+
+    @property
+    def bond2_ip(self):
+        return self._bond2_ip
+
+    @bond2_ip.setter
+    def bond2_ip(self, value):
+        self._bond2_ip = value
+        self.bond2_ip_changed.emit()
+        log.debug("VDI Bond2 IP is set to '%s'.", value)
+
+    @property
+    def bond2_netmask(self):
+        return self._bond2_netmask
+
+    @bond2_netmask.setter
+    def bond2_netmask(self, value):
+        self._bond2_netmask = value
+        self.bond2_netmask_changed.emit()
+        log.debug("VDI Bond2 Netmask is set to '%s'.", value)
+
+    @property
+    def bond2_gateway(self):
+        return self._bond2_gateway
+
+    @bond2_gateway.setter
+    def bond2_gateway(self, value):
+        self._bond2_gateway = value
+        self.bond2_gateway_changed.emit()
+        log.debug("VDI Bond2 Gateway is set to '%s'.", value)
+
+    @property
+    def default_route_iface(self):
+        return self._default_route_iface
+
+    @default_route_iface.setter
+    def default_route_iface(self, value):
+        self._default_route_iface = value
+        self.default_route_iface_changed.emit()
+        log.debug("VDI DefaultRouteIface is set to '%s'.", value)
 
     @property
     def ip(self):
@@ -260,6 +479,23 @@ class VdiService(KickstartService):
         self.interface = addon_data.interface
         self.interface2 = addon_data.interface2
         self.bond_mode = addon_data.bond_mode
+        self.bond1_enabled = addon_data.bond1_enabled
+        self.bond1_interface = addon_data.bond1_interface
+        self.bond1_interface2 = addon_data.bond1_interface2
+        self.bond1_bond_mode = addon_data.bond1_bond_mode
+        self.bond1_network_mode = addon_data.bond1_network_mode
+        self.bond1_ip = addon_data.bond1_ip
+        self.bond1_netmask = addon_data.bond1_netmask
+        self.bond1_gateway = addon_data.bond1_gateway
+        self.bond2_enabled = addon_data.bond2_enabled
+        self.bond2_interface = addon_data.bond2_interface
+        self.bond2_interface2 = addon_data.bond2_interface2
+        self.bond2_bond_mode = addon_data.bond2_bond_mode
+        self.bond2_network_mode = addon_data.bond2_network_mode
+        self.bond2_ip = addon_data.bond2_ip
+        self.bond2_netmask = addon_data.bond2_netmask
+        self.bond2_gateway = addon_data.bond2_gateway
+        self.default_route_iface = addon_data.default_route_iface
         self.ip = addon_data.ip
         self.netmask = addon_data.netmask
         self.gateway = addon_data.gateway
@@ -280,6 +516,23 @@ class VdiService(KickstartService):
         data.addons.vdi.interface = self.interface
         data.addons.vdi.interface2 = self.interface2
         data.addons.vdi.bond_mode = self.bond_mode
+        data.addons.vdi.bond1_enabled = self.bond1_enabled
+        data.addons.vdi.bond1_interface = self.bond1_interface
+        data.addons.vdi.bond1_interface2 = self.bond1_interface2
+        data.addons.vdi.bond1_bond_mode = self.bond1_bond_mode
+        data.addons.vdi.bond1_network_mode = self.bond1_network_mode
+        data.addons.vdi.bond1_ip = self.bond1_ip
+        data.addons.vdi.bond1_netmask = self.bond1_netmask
+        data.addons.vdi.bond1_gateway = self.bond1_gateway
+        data.addons.vdi.bond2_enabled = self.bond2_enabled
+        data.addons.vdi.bond2_interface = self.bond2_interface
+        data.addons.vdi.bond2_interface2 = self.bond2_interface2
+        data.addons.vdi.bond2_bond_mode = self.bond2_bond_mode
+        data.addons.vdi.bond2_network_mode = self.bond2_network_mode
+        data.addons.vdi.bond2_ip = self.bond2_ip
+        data.addons.vdi.bond2_netmask = self.bond2_netmask
+        data.addons.vdi.bond2_gateway = self.bond2_gateway
+        data.addons.vdi.default_route_iface = self.default_route_iface
         data.addons.vdi.ip = self.ip
         data.addons.vdi.netmask = self.netmask
         data.addons.vdi.gateway = self.gateway
@@ -322,5 +575,22 @@ class VdiService(KickstartService):
                 server_url=self.server_url,
                 token=self.token,
                 data_disk=self.data_disk,
+                bond1_enabled=self.bond1_enabled,
+                bond1_interface=self.bond1_interface,
+                bond1_interface2=self.bond1_interface2,
+                bond1_bond_mode=self.bond1_bond_mode,
+                bond1_network_mode=self.bond1_network_mode,
+                bond1_ip=self.bond1_ip,
+                bond1_netmask=self.bond1_netmask,
+                bond1_gateway=self.bond1_gateway,
+                bond2_enabled=self.bond2_enabled,
+                bond2_interface=self.bond2_interface,
+                bond2_interface2=self.bond2_interface2,
+                bond2_bond_mode=self.bond2_bond_mode,
+                bond2_network_mode=self.bond2_network_mode,
+                bond2_ip=self.bond2_ip,
+                bond2_netmask=self.bond2_netmask,
+                bond2_gateway=self.bond2_gateway,
+                default_route_iface=self.default_route_iface,
             )
         ]
