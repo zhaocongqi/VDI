@@ -105,33 +105,55 @@ class VdiInstallConfigSpoke(NormalSpoke):
     """VDI 安装配置图形 Spoke。
 
     在 Anaconda 安装器主界面（Hub）的 SYSTEM 分类下显示，
-    提供网络/集群/系统三层配置入口，含实时输入校验。
+    提供网络(管理/业务/存储)/集群/系统三层配置入口，含实时输入校验。
     """
 
     builderObjects = [
+        "vdi_scrolled_window",
         "vdi_config_box",
+        "default_route_combo",
+        # 管理网络
+        "mgmt_enabled_check", "mgmt_config_box",
         "network_mode_combo",
-        "mode_combo",
         "interface_combo",
-        "interface2_label",
-        "interface2_combo",
-        "bond_mode_label",
-        "bond_mode_combo",
-        "static_ip_frame",
+        "mgmt_bond_check", "mgmt_bond_grid",
+        "interface2_label", "interface2_combo",
+        "bond_mode_label", "bond_mode_combo",
+        "mgmt_static_grid",
         "ip_entry", "ip_icon",
         "vip_entry", "vip_icon",
         "netmask_entry", "netmask_icon",
         "gateway_entry", "gateway_icon",
         "dns_entry", "dns_icon",
+        # 业务网络
+        "biz_enabled_check", "biz_config_box",
+        "bond1_network_mode_combo",
+        "bond1_interface_combo",
+        "biz_bond_check", "biz_bond_grid",
+        "bond1_interface2_combo",
+        "bond1_bond_mode_combo",
+        "biz_static_grid",
+        "bond1_ip_entry", "bond1_netmask_entry", "bond1_gateway_entry",
+        # 存储网络
+        "storage_enabled_check", "storage_config_box",
+        "bond2_network_mode_combo",
+        "bond2_interface_combo",
+        "storage_bond_check", "storage_bond_grid",
+        "bond2_interface2_combo",
+        "bond2_bond_mode_combo",
+        "storage_static_grid",
+        "bond2_ip_entry", "bond2_netmask_entry", "bond2_gateway_entry",
+        # 集群配置
         "role_combo",
         "server_url_label", "server_url_entry", "server_url_icon",
         "token_label", "token_entry", "token_icon",
         "pod_cidr_entry", "pod_cidr_icon",
         "service_cidr_entry", "service_cidr_icon",
         "join_cidr_entry", "join_cidr_icon",
+        # 系统配置
         "data_disk_combo",
     ]
-    mainWidgetName = "vdi_config_box"
+    mainWidgetName = "vdi_scrolled_window"
     uiFile = "vdi_install_config.glade"
 
     icon = "preferences-system-symbolic"
@@ -152,19 +174,57 @@ class VdiInstallConfigSpoke(NormalSpoke):
 
     def __init__(self, data, storage, payload):
         self._wrapped_window = None
+        # 全局
+        self._default_route_combo = None
+        # 管理网络
+        self._mgmt_enabled_check = None
+        self._mgmt_config_box = None
         self._network_mode_combo = None
-        self._mode_combo = None
         self._interface_combo = None
+        self._mgmt_bond_check = None
+        self._mgmt_bond_grid = None
         self._interface2_label = None
         self._interface2_combo = None
         self._bond_mode_label = None
         self._bond_mode_combo = None
-        self._static_ip_frame = None
+        self._mgmt_static_grid = None
         self._ip_entry = None
         self._vip_entry = None
         self._netmask_entry = None
         self._gateway_entry = None
         self._dns_entry = None
+        self._ip_icon = None
+        self._vip_icon = None
+        self._netmask_icon = None
+        self._gateway_icon = None
+        self._dns_icon = None
+        # 业务网络
+        self._biz_enabled_check = None
+        self._biz_config_box = None
+        self._bond1_network_mode_combo = None
+        self._bond1_interface_combo = None
+        self._biz_bond_check = None
+        self._biz_bond_grid = None
+        self._bond1_interface2_combo = None
+        self._bond1_bond_mode_combo = None
+        self._biz_static_grid = None
+        self._bond1_ip_entry = None
+        self._bond1_netmask_entry = None
+        self._bond1_gateway_entry = None
+        # 存储网络
+        self._storage_enabled_check = None
+        self._storage_config_box = None
+        self._bond2_network_mode_combo = None
+        self._bond2_interface_combo = None
+        self._storage_bond_check = None
+        self._storage_bond_grid = None
+        self._bond2_interface2_combo = None
+        self._bond2_bond_mode_combo = None
+        self._storage_static_grid = None
+        self._bond2_ip_entry = None
+        self._bond2_netmask_entry = None
+        self._bond2_gateway_entry = None
+        # 集群配置
         self._role_combo = None
         self._server_url_label = None
         self._server_url_entry = None
@@ -173,17 +233,13 @@ class VdiInstallConfigSpoke(NormalSpoke):
         self._pod_cidr_entry = None
         self._service_cidr_entry = None
         self._join_cidr_entry = None
-        self._data_disk_combo = None
-        self._ip_icon = None
-        self._vip_icon = None
-        self._netmask_icon = None
-        self._gateway_icon = None
-        self._dns_icon = None
         self._server_url_icon = None
         self._token_icon = None
         self._pod_cidr_icon = None
         self._service_cidr_icon = None
         self._join_cidr_icon = None
+        # 系统配置
+        self._data_disk_combo = None
         self._validation_errors = set()
         NormalSpoke.__init__(self, data, storage, payload)
         self._proxy = VDI.get_proxy()
@@ -200,16 +256,20 @@ class VdiInstallConfigSpoke(NormalSpoke):
 
     def initialize(self):
         NormalSpoke.initialize(self)
-        # 网络配置区
+        # 全局
+        self._default_route_combo = self.builder.get_object("default_route_combo")
+        # 管理网络
+        self._mgmt_enabled_check = self.builder.get_object("mgmt_enabled_check")
+        self._mgmt_config_box = self.builder.get_object("mgmt_config_box")
         self._network_mode_combo = self.builder.get_object("network_mode_combo")
-        self._mode_combo = self.builder.get_object("mode_combo")
         self._interface_combo = self.builder.get_object("interface_combo")
+        self._mgmt_bond_check = self.builder.get_object("mgmt_bond_check")
+        self._mgmt_bond_grid = self.builder.get_object("mgmt_bond_grid")
         self._interface2_label = self.builder.get_object("interface2_label")
         self._interface2_combo = self.builder.get_object("interface2_combo")
         self._bond_mode_label = self.builder.get_object("bond_mode_label")
         self._bond_mode_combo = self.builder.get_object("bond_mode_combo")
-        # 静态 IP 区
-        self._static_ip_frame = self.builder.get_object("static_ip_frame")
+        self._mgmt_static_grid = self.builder.get_object("mgmt_static_grid")
         self._ip_entry = self.builder.get_object("ip_entry")
         self._vip_entry = self.builder.get_object("vip_entry")
         self._netmask_entry = self.builder.get_object("netmask_entry")
@@ -220,6 +280,32 @@ class VdiInstallConfigSpoke(NormalSpoke):
         self._netmask_icon = self.builder.get_object("netmask_icon")
         self._gateway_icon = self.builder.get_object("gateway_icon")
         self._dns_icon = self.builder.get_object("dns_icon")
+        # 业务网络
+        self._biz_enabled_check = self.builder.get_object("biz_enabled_check")
+        self._biz_config_box = self.builder.get_object("biz_config_box")
+        self._bond1_network_mode_combo = self.builder.get_object("bond1_network_mode_combo")
+        self._bond1_interface_combo = self.builder.get_object("bond1_interface_combo")
+        self._biz_bond_check = self.builder.get_object("biz_bond_check")
+        self._biz_bond_grid = self.builder.get_object("biz_bond_grid")
+        self._bond1_interface2_combo = self.builder.get_object("bond1_interface2_combo")
+        self._bond1_bond_mode_combo = self.builder.get_object("bond1_bond_mode_combo")
+        self._biz_static_grid = self.builder.get_object("biz_static_grid")
+        self._bond1_ip_entry = self.builder.get_object("bond1_ip_entry")
+        self._bond1_netmask_entry = self.builder.get_object("bond1_netmask_entry")
+        self._bond1_gateway_entry = self.builder.get_object("bond1_gateway_entry")
+        # 存储网络
+        self._storage_enabled_check = self.builder.get_object("storage_enabled_check")
+        self._storage_config_box = self.builder.get_object("storage_config_box")
+        self._bond2_network_mode_combo = self.builder.get_object("bond2_network_mode_combo")
+        self._bond2_interface_combo = self.builder.get_object("bond2_interface_combo")
+        self._storage_bond_check = self.builder.get_object("storage_bond_check")
+        self._storage_bond_grid = self.builder.get_object("storage_bond_grid")
+        self._bond2_interface2_combo = self.builder.get_object("bond2_interface2_combo")
+        self._bond2_bond_mode_combo = self.builder.get_object("bond2_bond_mode_combo")
+        self._storage_static_grid = self.builder.get_object("storage_static_grid")
+        self._bond2_ip_entry = self.builder.get_object("bond2_ip_entry")
+        self._bond2_netmask_entry = self.builder.get_object("bond2_netmask_entry")
+        self._bond2_gateway_entry = self.builder.get_object("bond2_gateway_entry")
         # 集群配置区
         self._role_combo = self.builder.get_object("role_combo")
         self._server_url_label = self.builder.get_object("server_url_label")
@@ -237,10 +323,22 @@ class VdiInstallConfigSpoke(NormalSpoke):
         # 系统配置区
         self._data_disk_combo = self.builder.get_object("data_disk_combo")
 
-        # 绑定下拉框联动信号
+        # 绑定信号
+        self._mgmt_enabled_check.connect("toggled", self._on_mgmt_enabled_toggled)
+        self._mgmt_bond_check.connect("toggled", self._on_mgmt_bond_toggled)
         self._network_mode_combo.connect("changed", self._on_network_mode_changed)
-        self._mode_combo.connect("changed", self._on_mode_changed)
         self._role_combo.connect("changed", self._on_role_changed)
+        self._biz_enabled_check.connect("toggled", self._on_biz_enabled_toggled)
+        self._biz_bond_check.connect("toggled", self._on_biz_bond_toggled)
+        self._bond1_network_mode_combo.connect("changed", self._on_bond1_network_mode_changed)
+        self._storage_enabled_check.connect("toggled", self._on_storage_enabled_toggled)
+        self._storage_bond_check.connect("toggled", self._on_storage_bond_toggled)
+        self._bond2_network_mode_combo.connect("changed", self._on_bond2_network_mode_changed)
+        # 网卡选择变化时刷新互斥灰化 + 默认路由下拉框
+        for combo in [self._interface_combo, self._interface2_combo,
+                      self._bond1_interface_combo, self._bond1_interface2_combo,
+                      self._bond2_interface_combo, self._bond2_interface2_combo]:
+            combo.connect("changed", lambda *args: (self._refresh_port_sensitivity(), self._refresh_default_route_combo()))
 
         # 绑定输入校验信号
         for entry, icon, validator in [
@@ -315,19 +413,40 @@ class VdiInstallConfigSpoke(NormalSpoke):
     # ==================== 显隐联动 ====================
 
     def _sync_visibility(self):
-        network_mode = self._proxy.NetworkMode or "dhcp"
         mode = self._proxy.Mode or "single"
+        network_mode = self._proxy.NetworkMode or "dhcp"
         role = self._proxy.Role or "server"
 
-        is_static = (network_mode == "static")
-        self._static_ip_frame.set_visible(is_static)
+        # 管理网络：始终启用（不可关闭），配置区始终可见
+        mgmt_on = self._mgmt_enabled_check.get_active()
+        self._mgmt_config_box.set_visible(mgmt_on)
+        if mgmt_on:
+            # Bond 子区域：直接读 checkbox 状态，而非 proxy Mode
+            is_bond = self._mgmt_bond_check.get_active()
+            self._mgmt_bond_grid.set_visible(is_bond)
+            # 静态 IP 子区域
+            is_static = (network_mode == "static")
+            self._mgmt_static_grid.set_visible(is_static)
 
-        is_bond = (mode == "bond")
-        self._interface2_label.set_visible(is_bond)
-        self._interface2_combo.set_visible(is_bond)
-        self._bond_mode_label.set_visible(is_bond)
-        self._bond_mode_combo.set_visible(is_bond)
+        # 业务网络
+        biz_on = self._biz_enabled_check.get_active()
+        self._biz_config_box.set_visible(biz_on)
+        if biz_on:
+            b1_bond = self._biz_bond_check.get_active()
+            self._biz_bond_grid.set_visible(b1_bond)
+            b1_static = (self._proxy.Bond1NetworkMode == "static")
+            self._biz_static_grid.set_visible(b1_static)
 
+        # 存储网络
+        storage_on = self._storage_enabled_check.get_active()
+        self._storage_config_box.set_visible(storage_on)
+        if storage_on:
+            b2_bond = self._storage_bond_check.get_active()
+            self._storage_bond_grid.set_visible(b2_bond)
+            b2_static = (self._proxy.Bond2NetworkMode == "static")
+            self._storage_static_grid.set_visible(b2_static)
+
+        # Agent 字段
         is_agent = (role == "agent")
         self._server_url_label.set_visible(is_agent)
         self._server_url_entry.set_visible(is_agent)
@@ -336,19 +455,62 @@ class VdiInstallConfigSpoke(NormalSpoke):
         self._token_entry.set_visible(is_agent)
         self._token_icon.set_visible(is_agent)
 
+        self._refresh_default_route_combo()
+
+    def _on_mgmt_enabled_toggled(self, check):
+        if not check.get_active():
+            # 管理网络不允许关闭——强制开启
+            check.set_active(True)
+        self._sync_visibility()
+
+    def _on_mgmt_bond_toggled(self, check):
+        if check.get_active():
+            self._proxy.Mode = "bond"
+        else:
+            self._proxy.Mode = "single"
+            self._proxy.Interface2 = ""
+        self._sync_visibility()
+
     def _on_network_mode_changed(self, combo):
         active_id = combo.get_active_id() or "dhcp"
         self._proxy.NetworkMode = active_id
         self._sync_visibility()
 
-    def _on_mode_changed(self, combo):
-        active_id = combo.get_active_id() or "single"
-        self._proxy.Mode = active_id
-        self._sync_visibility()
-
     def _on_role_changed(self, combo):
         active_id = combo.get_active_id() or "server"
         self._proxy.Role = active_id
+        self._sync_visibility()
+
+    def _on_biz_enabled_toggled(self, check):
+        self._proxy.Bond1Enabled = check.get_active()
+        if not check.get_active():
+            self._proxy.Bond1Interface = ""
+            self._proxy.Bond1Interface2 = ""
+        self._sync_visibility()
+
+    def _on_biz_bond_toggled(self, check):
+        if not check.get_active():
+            self._proxy.Bond1Interface2 = ""
+        self._sync_visibility()
+
+    def _on_bond1_network_mode_changed(self, combo):
+        self._proxy.Bond1NetworkMode = combo.get_active_id() or "static"
+        self._sync_visibility()
+
+    def _on_storage_enabled_toggled(self, check):
+        self._proxy.Bond2Enabled = check.get_active()
+        if not check.get_active():
+            self._proxy.Bond2Interface = ""
+            self._proxy.Bond2Interface2 = ""
+        self._sync_visibility()
+
+    def _on_storage_bond_toggled(self, check):
+        if not check.get_active():
+            self._proxy.Bond2Interface2 = ""
+        self._sync_visibility()
+
+    def _on_bond2_network_mode_changed(self, combo):
+        self._proxy.Bond2NetworkMode = combo.get_active_id() or "static"
         self._sync_visibility()
 
     # ==================== 网卡/磁盘填充 ====================
@@ -369,9 +531,17 @@ class VdiInstallConfigSpoke(NormalSpoke):
 
         self._interface_combo.remove_all()
         self._interface2_combo.remove_all()
+        self._bond1_interface_combo.remove_all()
+        self._bond1_interface2_combo.remove_all()
+        self._bond2_interface_combo.remove_all()
+        self._bond2_interface2_combo.remove_all()
         for dev in devices:
-            self._interface_combo.append(dev, dev)
-            self._interface2_combo.append(dev, dev)
+            for combo in [self._interface_combo, self._interface2_combo,
+                          self._bond1_interface_combo, self._bond1_interface2_combo,
+                          self._bond2_interface_combo, self._bond2_interface2_combo]:
+                combo.append(dev, dev)
+
+        self._refresh_port_sensitivity()
 
     def _fill_data_disks(self):
         self._data_disk_combo.remove_all()
@@ -388,6 +558,73 @@ class VdiInstallConfigSpoke(NormalSpoke):
             except Exception:
                 self._data_disk_combo.append(dev_name, f"/dev/{dev_name}")
 
+    def _refresh_port_sensitivity(self):
+        """实时灰化已被任一 bond 选中的网卡，防止跨 bond 重复选。"""
+        all_combos = [
+            (self._interface_combo, "mgmt-iface1"),
+            (self._interface2_combo, "mgmt-iface2"),
+            (self._bond1_interface_combo, "biz-iface1"),
+            (self._bond1_interface2_combo, "biz-iface2"),
+            (self._bond2_interface_combo, "storage-iface1"),
+            (self._bond2_interface2_combo, "storage-iface2"),
+        ]
+        selected = {}
+        for combo, tag in all_combos:
+            dev = combo.get_active_id()
+            if dev:
+                selected[tag] = dev
+
+        # Gtk.ComboBoxText 无行级 sensitive，此处仅做 apply 时兜底校验
+        pass
+
+    def _refresh_default_route_combo(self):
+        """刷新默认路由下拉框选项（仅包含已启用的网络接口）。"""
+        combo = self._default_route_combo
+        if not combo:
+            return
+        current = combo.get_active_id()
+        combo.remove_all()
+        # 管理网络始终可选
+        if self._mgmt_bond_check.get_active():
+            combo.append("bond0", "bond0 (管理网络)")
+        else:
+            # 从 combo 实际选中项读取网卡名
+            iface = self._interface_combo.get_active_id() or ""
+            if iface:
+                combo.append(iface, f"{iface} (管理网卡)")
+            else:
+                combo.append("bond0", "管理网络 (待选网卡)")
+        # 业务网络
+        if self._biz_enabled_check.get_active():
+            if self._biz_bond_check.get_active():
+                combo.append("bond1", "bond1 (业务网络)")
+            else:
+                b1_iface = self._bond1_interface_combo.get_active_id() or ""
+                if b1_iface:
+                    combo.append(b1_iface, f"{b1_iface} (业务网卡)")
+                else:
+                    combo.append("bond1", "业务网络 (待选网卡)")
+        # 存储网络
+        if self._storage_enabled_check.get_active():
+            if self._storage_bond_check.get_active():
+                combo.append("bond2", "bond2 (存储网络)")
+            else:
+                b2_iface = self._bond2_interface_combo.get_active_id() or ""
+                if b2_iface:
+                    combo.append(b2_iface, f"{b2_iface} (存储网卡)")
+                else:
+                    combo.append("bond2", "存储网络 (待选网卡)")
+        # 恢复选中
+        model = combo.get_model()
+        if len(model) == 0:
+            return
+        if current:
+            for row in model:
+                if row[0] == current:
+                    combo.set_active_id(current)
+                    return
+        combo.set_active(0)
+
     # ==================== Spoke 生命周期 ====================
 
     def refresh(self):
@@ -397,8 +634,10 @@ class VdiInstallConfigSpoke(NormalSpoke):
         network_mode_val = self._proxy.NetworkMode or "dhcp"
         self._network_mode_combo.set_active_id(network_mode_val)
 
+        # 管理网络始终启用
+        self._mgmt_enabled_check.set_active(True)
         mode_val = self._proxy.Mode or "single"
-        self._mode_combo.set_active_id(mode_val)
+        self._mgmt_bond_check.set_active(mode_val == "bond")
 
         if self._proxy.Interface:
             self._interface_combo.set_active_id(self._proxy.Interface)
@@ -430,16 +669,53 @@ class VdiInstallConfigSpoke(NormalSpoke):
 
         self._data_disk_combo.set_active_id(self._proxy.DataDisk or "auto")
 
+        # 业务网络状态恢复
+        self._biz_enabled_check.set_active(self._proxy.Bond1Enabled)
+        if self._proxy.Bond1Interface:
+            self._bond1_interface_combo.set_active_id(self._proxy.Bond1Interface)
+        if self._proxy.Bond1Interface2:
+            self._bond1_interface2_combo.set_active_id(self._proxy.Bond1Interface2)
+        self._bond1_bond_mode_combo.set_active_id(self._proxy.Bond1BondMode or "active-backup")
+        self._bond1_network_mode_combo.set_active_id(self._proxy.Bond1NetworkMode or "static")
+        self._bond1_ip_entry.set_text(self._proxy.Bond1Ip or "")
+        self._bond1_netmask_entry.set_text(self._proxy.Bond1Netmask or "255.255.255.0")
+        self._bond1_gateway_entry.set_text(self._proxy.Bond1Gateway or "")
+        # 业务网络 Bond 开关：有 Interface2 或模式为 bond 则勾选
+        self._biz_bond_check.set_active(bool(self._proxy.Bond1Interface2))
+
+        # 存储网络状态恢复
+        self._storage_enabled_check.set_active(self._proxy.Bond2Enabled)
+        if self._proxy.Bond2Interface:
+            self._bond2_interface_combo.set_active_id(self._proxy.Bond2Interface)
+        if self._proxy.Bond2Interface2:
+            self._bond2_interface2_combo.set_active_id(self._proxy.Bond2Interface2)
+        self._bond2_bond_mode_combo.set_active_id(self._proxy.Bond2BondMode or "active-backup")
+        self._bond2_network_mode_combo.set_active_id(self._proxy.Bond2NetworkMode or "static")
+        self._bond2_ip_entry.set_text(self._proxy.Bond2Ip or "")
+        self._bond2_netmask_entry.set_text(self._proxy.Bond2Netmask or "255.255.255.0")
+        self._bond2_gateway_entry.set_text(self._proxy.Bond2Gateway or "")
+        self._storage_bond_check.set_active(bool(self._proxy.Bond2Interface2))
+
+        # 默认路由
+        default_route = self._proxy.DefaultRouteIface or ""
+        if default_route:
+            self._default_route_combo.set_active_id(default_route)
+
         self._sync_visibility()
         self._validate_all_defaults()
 
     def apply(self):
         self._proxy.NetworkMode = self._network_mode_combo.get_active_id() or "dhcp"
-        self._proxy.Mode = self._mode_combo.get_active_id() or "single"
         self._proxy.Interface = self._interface_combo.get_active_id() or ""
         self._proxy.Role = self._role_combo.get_active_id() or "server"
 
-        # Bond 校验
+        # 管理网络 Bond
+        if self._mgmt_bond_check.get_active():
+            self._proxy.Mode = "bond"
+        else:
+            self._proxy.Mode = "single"
+
+        # Bond0 校验
         if self._proxy.Mode == "bond":
             dev1 = self._interface_combo.get_active_id()
             dev2 = self._interface2_combo.get_active_id()
@@ -451,7 +727,7 @@ class VdiInstallConfigSpoke(NormalSpoke):
                     buttons=Gtk.ButtonsType.OK,
                     text="主备物理网卡不能选择同一设备",
                 )
-                dialog.format_secondary_text("已将配置模式回退为单网卡，请重新选择两块不同网卡以启用 Bond。")
+                dialog.format_secondary_text("已将管理网络回退为单网卡，请重新选择两块不同网卡以启用 Bond。")
                 dialog.run()
                 dialog.destroy()
                 self._proxy.Mode = "single"
@@ -489,6 +765,68 @@ class VdiInstallConfigSpoke(NormalSpoke):
         # 系统配置
         self._proxy.DataDisk = self._data_disk_combo.get_active_id() or "auto"
 
+        # 业务网络
+        self._proxy.Bond1Enabled = self._biz_enabled_check.get_active()
+        if self._proxy.Bond1Enabled:
+            self._proxy.Bond1Interface = self._bond1_interface_combo.get_active_id() or ""
+            if self._biz_bond_check.get_active():
+                self._proxy.Bond1Interface2 = self._bond1_interface2_combo.get_active_id() or ""
+                self._proxy.Bond1BondMode = self._bond1_bond_mode_combo.get_active_id() or "active-backup"
+            else:
+                self._proxy.Bond1Interface2 = ""
+                self._proxy.Bond1BondMode = "active-backup"
+            self._proxy.Bond1NetworkMode = self._bond1_network_mode_combo.get_active_id() or "static"
+            self._proxy.Bond1Ip = self._bond1_ip_entry.get_text()
+            self._proxy.Bond1Netmask = self._bond1_netmask_entry.get_text() or "255.255.255.0"
+            self._proxy.Bond1Gateway = self._bond1_gateway_entry.get_text()
+        else:
+            self._proxy.Bond1Interface = ""
+            self._proxy.Bond1Interface2 = ""
+
+        # 存储网络
+        self._proxy.Bond2Enabled = self._storage_enabled_check.get_active()
+        if self._proxy.Bond2Enabled:
+            self._proxy.Bond2Interface = self._bond2_interface_combo.get_active_id() or ""
+            if self._storage_bond_check.get_active():
+                self._proxy.Bond2Interface2 = self._bond2_interface2_combo.get_active_id() or ""
+                self._proxy.Bond2BondMode = self._bond2_bond_mode_combo.get_active_id() or "active-backup"
+            else:
+                self._proxy.Bond2Interface2 = ""
+                self._proxy.Bond2BondMode = "active-backup"
+            self._proxy.Bond2NetworkMode = self._bond2_network_mode_combo.get_active_id() or "static"
+            self._proxy.Bond2Ip = self._bond2_ip_entry.get_text()
+            self._proxy.Bond2Netmask = self._bond2_netmask_entry.get_text() or "255.255.255.0"
+            self._proxy.Bond2Gateway = self._bond2_gateway_entry.get_text()
+        else:
+            self._proxy.Bond2Interface = ""
+            self._proxy.Bond2Interface2 = ""
+
+        # 默认路由
+        self._proxy.DefaultRouteIface = self._default_route_combo.get_active_id() or ""
+
+        # 跨 bond 网卡互斥兜底校验
+        all_ports = []
+        for label, dev in [("管理主", self._proxy.Interface), ("管理备", self._proxy.Interface2),
+                           ("业务主", self._proxy.Bond1Interface), ("业务备", self._proxy.Bond1Interface2),
+                           ("存储主", self._proxy.Bond2Interface), ("存储备", self._proxy.Bond2Interface2)]:
+            if dev:
+                all_ports.append((label, dev))
+        seen = {}
+        for label, dev in all_ports:
+            if dev in seen:
+                dialog = Gtk.MessageDialog(
+                    transient_for=None,
+                    flags=Gtk.DialogFlags.MODAL,
+                    message_type=Gtk.MessageType.WARNING,
+                    buttons=Gtk.ButtonsType.OK,
+                    text=f"网卡 {dev} 同时被 {seen[dev]} 和 {label} 选中",
+                )
+                dialog.format_secondary_text("同一物理网卡不能属于多个网络，请修改配置。")
+                dialog.run()
+                dialog.destroy()
+                break
+            seen[dev] = label
+
         self._configured = True
 
     @staticmethod
@@ -511,10 +849,17 @@ class VdiInstallConfigSpoke(NormalSpoke):
             return False
         if self._validation_errors:
             return False
-        if self._proxy.NetworkMode == "dhcp":
-            return bool(self._proxy.Interface)
-        else:
-            return bool(self._proxy.Interface and self._proxy.Ip)
+        # 管理网络必选主网卡
+        if not self._proxy.Interface:
+            return False
+        if self._proxy.NetworkMode == "static" and not self._proxy.Ip:
+            return False
+        # 业务/存储网络启用但未选主网卡
+        if self._proxy.Bond1Enabled and not self._proxy.Bond1Interface:
+            return False
+        if self._proxy.Bond2Enabled and not self._proxy.Bond2Interface:
+            return False
+        return True
 
     @property
     def mandatory(self):
@@ -528,10 +873,20 @@ class VdiInstallConfigSpoke(NormalSpoke):
             return "未配置，请点击进入配置"
         parts = []
         if self._proxy.NetworkMode == "dhcp":
-            parts.append(f"DHCP: {self._proxy.Interface}")
+            parts.append(f"管理: DHCP {self._proxy.Interface}")
         elif self._proxy.Mode == "bond":
-            parts.append(f"Static Bonding[{self._proxy.BondMode}]: {self._proxy.Interface},{self._proxy.Interface2 or '未配置'}  IP: {self._proxy.Ip}")
+            parts.append(f"管理: Bond[{self._proxy.BondMode}] {self._proxy.Interface},{self._proxy.Interface2 or '?'} IP:{self._proxy.Ip}")
         else:
-            parts.append(f"Static: {self._proxy.Interface}  IP: {self._proxy.Ip}")
+            parts.append(f"管理: {self._proxy.Interface} IP:{self._proxy.Ip}")
+        if self._proxy.Bond1Enabled:
+            b1 = f"业务: {self._proxy.Bond1Interface}"
+            if self._proxy.Bond1Interface2:
+                b1 += f",{self._proxy.Bond1Interface2}"
+            parts.append(b1)
+        if self._proxy.Bond2Enabled:
+            b2 = f"存储: {self._proxy.Bond2Interface}"
+            if self._proxy.Bond2Interface2:
+                b2 += f",{self._proxy.Bond2Interface2}"
+            parts.append(b2)
         parts.append(self._proxy.Role or "server")
         return " | ".join(parts)
