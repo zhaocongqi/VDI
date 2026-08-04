@@ -160,7 +160,7 @@ if [ "${INTERACTIVE:-0}" = "1" ]; then
     MON_ARG="-monitor unix:${MON_SOCK},server,nowait"
     VNC_PORT="${VNC_PORT:-5900}"
     # VNC 无密码（仅本机调试用，不暴露公网），vnc=:0 监听 5900
-    DISPLAY_ARG="-vnc :$((VNC_PORT-5900))"
+    DISPLAY_ARG="-vnc 0.0.0.0:$((VNC_PORT-5900))"
 fi
 
 qemu-system-x86_64 \
@@ -319,7 +319,7 @@ P2_DISPLAY="-display none"
 P2_SERIAL="-serial file:${SERIAL_LOG}"
 P2_MONITOR=""
 if [ "${INTERACTIVE:-0}" = "1" ]; then
-    P2_DISPLAY="-vnc :$((VNC_PORT-5900))"
+    P2_DISPLAY="-vnc 0.0.0.0:$((VNC_PORT-5900))"
     # TCP 串口：nc 127.0.0.1 <SERIAL_TCP_PORT> 可交互登录
     P2_SERIAL_PORT="${P2_SERIAL_PORT:-4444}"
     P2_SERIAL="-serial tcp:${P2_SERIAL_PORT},server,nowait"
