@@ -149,9 +149,8 @@ class VdiInstallConfigSpoke(NormalSpoke):
         "token_label", "token_entry", "token_icon",
         "pod_cidr_entry", "pod_cidr_icon",
         "service_cidr_entry", "service_cidr_icon",
-        "join_cidr_entry", "join_cidr_icon",
         # 系统配置
-        "data_disk_combo",
+        "apps_disk_combo", "longhorn_disk_combo",
     ]
     mainWidgetName = "vdi_scrolled_window"
     uiFile = "vdi_install_config.glade"
@@ -232,14 +231,13 @@ class VdiInstallConfigSpoke(NormalSpoke):
         self._token_entry = None
         self._pod_cidr_entry = None
         self._service_cidr_entry = None
-        self._join_cidr_entry = None
         self._server_url_icon = None
         self._token_icon = None
         self._pod_cidr_icon = None
         self._service_cidr_icon = None
-        self._join_cidr_icon = None
         # 系统配置
-        self._data_disk_combo = None
+        self._apps_disk_combo = None
+        self._longhorn_disk_combo = None
         self._validation_errors = set()
         NormalSpoke.__init__(self, data, storage, payload)
         self._proxy = VDI.get_proxy()
@@ -316,12 +314,11 @@ class VdiInstallConfigSpoke(NormalSpoke):
         self._token_icon = self.builder.get_object("token_icon")
         self._pod_cidr_entry = self.builder.get_object("pod_cidr_entry")
         self._service_cidr_entry = self.builder.get_object("service_cidr_entry")
-        self._join_cidr_entry = self.builder.get_object("join_cidr_entry")
         self._pod_cidr_icon = self.builder.get_object("pod_cidr_icon")
         self._service_cidr_icon = self.builder.get_object("service_cidr_icon")
-        self._join_cidr_icon = self.builder.get_object("join_cidr_icon")
         # 系统配置区
-        self._data_disk_combo = self.builder.get_object("data_disk_combo")
+        self._apps_disk_combo = self.builder.get_object("apps_disk_combo")
+        self._longhorn_disk_combo = self.builder.get_object("longhorn_disk_combo")
 
         # 绑定信号
         self._mgmt_enabled_check.connect("toggled", self._on_mgmt_enabled_toggled)
@@ -349,7 +346,6 @@ class VdiInstallConfigSpoke(NormalSpoke):
             (self._dns_entry, self._dns_icon, _is_valid_ipv4),
             (self._pod_cidr_entry, self._pod_cidr_icon, _is_valid_cidr),
             (self._service_cidr_entry, self._service_cidr_icon, _is_valid_cidr),
-            (self._join_cidr_entry, self._join_cidr_icon, _is_valid_cidr),
         ]:
             entry.connect("changed", self._on_validate_entry, icon, validator)
 
@@ -379,7 +375,7 @@ class VdiInstallConfigSpoke(NormalSpoke):
             self._validation_errors.add(entry)
 
     def _on_validate_server_url(self, _widget=None):
-        if self._proxy.Role != "agent":
+        if self._proxy.Role != "node":
             self._server_url_icon.clear()
             self._validation_errors.discard("server_url")
             return
@@ -405,7 +401,6 @@ class VdiInstallConfigSpoke(NormalSpoke):
         for entry, icon, validator in [
             (self._pod_cidr_entry, self._pod_cidr_icon, _is_valid_cidr),
             (self._service_cidr_entry, self._service_cidr_icon, _is_valid_cidr),
-            (self._join_cidr_entry, self._join_cidr_icon, _is_valid_cidr),
         ]:
             self._on_validate_entry(entry, icon, validator)
         self._on_validate_server_url()
@@ -415,7 +410,7 @@ class VdiInstallConfigSpoke(NormalSpoke):
     def _sync_visibility(self):
         mode = self._proxy.Mode or "single"
         network_mode = self._proxy.NetworkMode or "dhcp"
-        role = self._proxy.Role or "server"
+        role = self._proxy.Role or "first-master"
 
         # 管理网络：始终启用（不可关闭），配置区始终可见
         mgmt_on = self._mgmt_enabled_check.get_active()
@@ -446,14 +441,14 @@ class VdiInstallConfigSpoke(NormalSpoke):
             b2_static = (self._proxy.Bond2NetworkMode == "static")
             self._storage_static_grid.set_visible(b2_static)
 
-        # Agent 字段
-        is_agent = (role == "agent")
-        self._server_url_label.set_visible(is_agent)
-        self._server_url_entry.set_visible(is_agent)
-        self._server_url_icon.set_visible(is_agent)
-        self._token_label.set_visible(is_agent)
-        self._token_entry.set_visible(is_agent)
-        self._token_icon.set_visible(is_agent)
+        # node 角色字段：Master 地址仅 node 可见；集群密钥两种角色均必填
+        is_node = (role == "node")
+        self._server_url_label.set_visible(is_node)
+        self._server_url_entry.set_visible(is_node)
+        self._server_url_icon.set_visible(is_node)
+        self._token_label.set_visible(True)
+        self._token_entry.set_visible(True)
+        self._token_icon.set_visible(True)
 
         self._refresh_default_route_combo()
 
@@ -477,7 +472,7 @@ class VdiInstallConfigSpoke(NormalSpoke):
         self._sync_visibility()
 
     def _on_role_changed(self, combo):
-        active_id = combo.get_active_id() or "server"
+        active_id = combo.get_active_id() or "first-master"
         self._proxy.Role = active_id
         self._sync_visibility()
 
@@ -544,9 +539,8 @@ class VdiInstallConfigSpoke(NormalSpoke):
         self._refresh_port_sensitivity()
 
     def _fill_data_disks(self):
-        self._data_disk_combo.remove_all()
-        self._data_disk_combo.append("auto", "自动探测")
         import glob
+        disk_items = []
         for dev_path in sorted(glob.glob("/sys/block/vd*")) + sorted(glob.glob("/sys/block/sd*")):
             dev_name = os.path.basename(dev_path)
             size_path = os.path.join(dev_path, "size")
@@ -554,9 +548,15 @@ class VdiInstallConfigSpoke(NormalSpoke):
                 with open(size_path) as f:
                     sectors = int(f.read().strip())
                 size_gb = sectors * 512 / (1024 ** 3)
-                self._data_disk_combo.append(dev_name, f"/dev/{dev_name} ({size_gb:.0f} GB)")
+                disk_items.append((dev_name, f"/dev/{dev_name} ({size_gb:.0f} GB)"))
             except Exception:
-                self._data_disk_combo.append(dev_name, f"/dev/{dev_name}")
+                disk_items.append((dev_name, f"/dev/{dev_name}"))
+
+        for combo in (self._apps_disk_combo, self._longhorn_disk_combo):
+            combo.remove_all()
+            combo.append("auto", "自动探测")
+            for dev_name, label in disk_items:
+                combo.append(dev_name, label)
 
     def _refresh_port_sensitivity(self):
         """实时灰化已被任一 bond 选中的网卡，防止跨 bond 重复选。"""
@@ -658,16 +658,16 @@ class VdiInstallConfigSpoke(NormalSpoke):
         self._gateway_entry.set_text(self._proxy.Gateway or "")
         self._dns_entry.set_text(self._proxy.Dns or "8.8.8.8")
 
-        role_val = self._proxy.Role or "server"
+        role_val = self._proxy.Role or "first-master"
         self._role_combo.set_active_id(role_val)
         self._server_url_entry.set_text(self._proxy.ServerUrl or "")
         self._token_entry.set_text(self._proxy.Token or "")
 
         self._pod_cidr_entry.set_text(self._proxy.PodCidr or "10.16.0.0/16")
         self._service_cidr_entry.set_text(self._proxy.ServiceCidr or "10.96.0.0/12")
-        self._join_cidr_entry.set_text(self._proxy.JoinCidr or "100.64.0.0/16")
 
-        self._data_disk_combo.set_active_id(self._proxy.DataDisk or "auto")
+        self._apps_disk_combo.set_active_id(self._proxy.AppsDisk or "auto")
+        self._longhorn_disk_combo.set_active_id(self._proxy.LonghornDisk or "auto")
 
         # 业务网络状态恢复
         self._biz_enabled_check.set_active(self._proxy.Bond1Enabled)
@@ -707,7 +707,7 @@ class VdiInstallConfigSpoke(NormalSpoke):
     def apply(self):
         self._proxy.NetworkMode = self._network_mode_combo.get_active_id() or "dhcp"
         self._proxy.Interface = self._interface_combo.get_active_id() or ""
-        self._proxy.Role = self._role_combo.get_active_id() or "server"
+        self._proxy.Role = self._role_combo.get_active_id() or "first-master"
 
         # 管理网络 Bond
         if self._mgmt_bond_check.get_active():
@@ -753,17 +753,31 @@ class VdiInstallConfigSpoke(NormalSpoke):
             self._proxy.Dns = ""
             self._proxy.Vip = ""
 
-        # Agent 字段
-        self._proxy.ServerUrl = self._server_url_entry.get_text() if self._proxy.Role == "agent" else ""
-        self._proxy.Token = self._token_entry.get_text() if self._proxy.Role == "agent" else ""
+        # 集群字段：Master 地址仅 node 采集；集群密钥两种角色均采集
+        self._proxy.ServerUrl = self._server_url_entry.get_text() if self._proxy.Role == "node" else ""
+        self._proxy.Token = self._token_entry.get_text()
 
         # CIDR
         self._proxy.PodCidr = self._pod_cidr_entry.get_text() or "10.16.0.0/16"
         self._proxy.ServiceCidr = self._service_cidr_entry.get_text() or "10.96.0.0/12"
-        self._proxy.JoinCidr = self._join_cidr_entry.get_text() or "100.64.0.0/16"
 
-        # 系统配置
-        self._proxy.DataDisk = self._data_disk_combo.get_active_id() or "auto"
+        # 系统配置：双数据盘
+        self._proxy.AppsDisk = self._apps_disk_combo.get_active_id() or "auto"
+        self._proxy.LonghornDisk = self._longhorn_disk_combo.get_active_id() or "auto"
+
+        # 双盘同设备校验
+        if (self._proxy.AppsDisk != "auto" and self._proxy.LonghornDisk != "auto"
+                and self._proxy.AppsDisk == self._proxy.LonghornDisk):
+            dialog = Gtk.MessageDialog(
+                transient_for=None,
+                flags=Gtk.DialogFlags.MODAL,
+                message_type=Gtk.MessageType.WARNING,
+                buttons=Gtk.ButtonsType.OK,
+                text="/apps 盘与 Longhorn 盘不能为同一设备",
+            )
+            dialog.format_secondary_text("EKI 要求 /apps 独立挂载，请为 Longhorn 选择另一块数据盘。")
+            dialog.run()
+            dialog.destroy()
 
         # 业务网络
         self._proxy.Bond1Enabled = self._biz_enabled_check.get_active()
@@ -854,6 +868,11 @@ class VdiInstallConfigSpoke(NormalSpoke):
             return False
         if self._proxy.NetworkMode == "static" and not self._proxy.Ip:
             return False
+        # 集群密钥必填（两种角色）；node 角色 Master 地址必填
+        if not self._proxy.Token:
+            return False
+        if self._proxy.Role == "node" and not self._proxy.ServerUrl:
+            return False
         # 业务/存储网络启用但未选主网卡
         if self._proxy.Bond1Enabled and not self._proxy.Bond1Interface:
             return False
@@ -888,5 +907,5 @@ class VdiInstallConfigSpoke(NormalSpoke):
             if self._proxy.Bond2Interface2:
                 b2 += f",{self._proxy.Bond2Interface2}"
             parts.append(b2)
-        parts.append(self._proxy.Role or "server")
+        parts.append(self._proxy.Role or "first-master")
         return " | ".join(parts)

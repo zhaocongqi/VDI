@@ -551,7 +551,7 @@
             <property name="margin_top">8</property>
             <property name="margin_bottom">8</property>
             <child>
-              <object class="GtkLabel" id="role_label"><property name="visible">True</property><property name="label" translatable="yes">RKE2 角色:</property><property name="xalign">1</property></object>
+              <object class="GtkLabel" id="role_label"><property name="visible">True</property><property name="label" translatable="yes">集群角色:</property><property name="xalign">1</property></object>
               <packing><property name="left_attach">0</property><property name="top_attach">0</property></packing>
             </child>
             <child>
@@ -559,18 +559,18 @@
                 <property name="visible">True</property>
                 <property name="can_focus">False</property>
                 <items>
-                  <item id="server" translatable="yes">Server (主控节点)</item>
-                  <item id="agent" translatable="yes">Agent (工作节点)</item>
+                  <item id="first-master" translatable="yes">首台 Master (控制面)</item>
+                  <item id="node" translatable="yes">Node (工作节点)</item>
                 </items>
               </object>
               <packing><property name="left_attach">1</property><property name="top_attach">0</property></packing>
             </child>
             <child>
-              <object class="GtkLabel" id="server_url_label"><property name="visible">False</property><property name="label" translatable="yes">Server URL:</property><property name="xalign">1</property><property name="no_show_all">True</property></object>
+              <object class="GtkLabel" id="server_url_label"><property name="visible">False</property><property name="label" translatable="yes">Master 地址:</property><property name="xalign">1</property><property name="no_show_all">True</property></object>
               <packing><property name="left_attach">0</property><property name="top_attach">1</property></packing>
             </child>
             <child>
-              <object class="GtkEntry" id="server_url_entry"><property name="visible">False</property><property name="can_focus">True</property><property name="placeholder_text" translatable="yes">https://server-ip:9345</property><property name="width_chars">20</property><property name="no_show_all">True</property></object>
+              <object class="GtkEntry" id="server_url_entry"><property name="visible">False</property><property name="can_focus">True</property><property name="placeholder_text" translatable="yes">http://master-ip:9345</property><property name="width_chars">20</property><property name="no_show_all">True</property></object>
               <packing><property name="left_attach">1</property><property name="top_attach">1</property></packing>
             </child>
             <child>
@@ -578,15 +578,15 @@
               <packing><property name="left_attach">2</property><property name="top_attach">1</property></packing>
             </child>
             <child>
-              <object class="GtkLabel" id="token_label"><property name="visible">False</property><property name="label" translatable="yes">Join Token:</property><property name="xalign">1</property><property name="no_show_all">True</property></object>
+              <object class="GtkLabel" id="token_label"><property name="visible">True</property><property name="label" translatable="yes">集群密钥:</property><property name="xalign">1</property></object>
               <packing><property name="left_attach">0</property><property name="top_attach">2</property></packing>
             </child>
             <child>
-              <object class="GtkEntry" id="token_entry"><property name="visible">False</property><property name="can_focus">True</property><property name="placeholder_text" translatable="yes">集群加入令牌</property><property name="width_chars">20</property><property name="no_show_all">True</property></object>
+              <object class="GtkEntry" id="token_entry"><property name="visible">True</property><property name="can_focus">True</property><property name="placeholder_text" translatable="yes">集群预共享密钥（两角色保持一致）</property><property name="width_chars">20</property></object>
               <packing><property name="left_attach">1</property><property name="top_attach">2</property></packing>
             </child>
             <child>
-              <object class="GtkImage" id="token_icon"><property name="visible">False</property><property name="icon_size">3</property><property name="no_show_all">True</property></object>
+              <object class="GtkImage" id="token_icon"><property name="visible">True</property><property name="icon_size">3</property></object>
               <packing><property name="left_attach">2</property><property name="top_attach">2</property></packing>
             </child>
             <child>
@@ -612,18 +612,6 @@
             <child>
               <object class="GtkImage" id="service_cidr_icon"><property name="visible">True</property><property name="icon_size">3</property></object>
               <packing><property name="left_attach">2</property><property name="top_attach">4</property></packing>
-            </child>
-            <child>
-              <object class="GtkLabel" id="join_cidr_label"><property name="visible">True</property><property name="label" translatable="yes">JOIN CIDR:</property><property name="xalign">1</property></object>
-              <packing><property name="left_attach">0</property><property name="top_attach">5</property></packing>
-            </child>
-            <child>
-              <object class="GtkEntry" id="join_cidr_entry"><property name="visible">True</property><property name="can_focus">True</property><property name="text">100.64.0.0/16</property><property name="width_chars">20</property></object>
-              <packing><property name="left_attach">1</property><property name="top_attach">5</property></packing>
-            </child>
-            <child>
-              <object class="GtkImage" id="join_cidr_icon"><property name="visible">True</property><property name="icon_size">3</property></object>
-              <packing><property name="left_attach">2</property><property name="top_attach">5</property></packing>
             </child>
           </object>
         </child>
@@ -655,11 +643,11 @@
             <property name="margin_top">8</property>
             <property name="margin_bottom">8</property>
             <child>
-              <object class="GtkLabel" id="data_disk_label"><property name="visible">True</property><property name="label" translatable="yes">数据盘:</property><property name="xalign">1</property></object>
+              <object class="GtkLabel" id="apps_disk_label"><property name="visible">True</property><property name="label" translatable="yes">/apps 数据盘:</property><property name="xalign">1</property></object>
               <packing><property name="left_attach">0</property><property name="top_attach">0</property></packing>
             </child>
             <child>
-              <object class="GtkComboBoxText" id="data_disk_combo">
+              <object class="GtkComboBoxText" id="apps_disk_combo">
                 <property name="visible">True</property>
                 <property name="can_focus">False</property>
                 <items>
@@ -667,6 +655,20 @@
                 </items>
               </object>
               <packing><property name="left_attach">1</property><property name="top_attach">0</property><property name="width">2</property></packing>
+            </child>
+            <child>
+              <object class="GtkLabel" id="longhorn_disk_label"><property name="visible">True</property><property name="label" translatable="yes">Longhorn 数据盘:</property><property name="xalign">1</property></object>
+              <packing><property name="left_attach">0</property><property name="top_attach">1</property></packing>
+            </child>
+            <child>
+              <object class="GtkComboBoxText" id="longhorn_disk_combo">
+                <property name="visible">True</property>
+                <property name="can_focus">False</property>
+                <items>
+                  <item id="auto" translatable="yes">自动探测</item>
+                </items>
+              </object>
+              <packing><property name="left_attach">1</property><property name="top_attach">1</property><property name="width">2</property></packing>
             </child>
           </object>
         </child>
