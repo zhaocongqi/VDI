@@ -42,11 +42,11 @@ class VdiInterface(KickstartModuleInterface):
         self.watch_property("Dns", self.implementation.dns_changed)
         self.watch_property("PodCidr", self.implementation.pod_cidr_changed)
         self.watch_property("ServiceCidr", self.implementation.service_cidr_changed)
-        self.watch_property("JoinCidr", self.implementation.join_cidr_changed)
         self.watch_property("Role", self.implementation.role_changed)
         self.watch_property("ServerUrl", self.implementation.server_url_changed)
         self.watch_property("Token", self.implementation.token_changed)
-        self.watch_property("DataDisk", self.implementation.data_disk_changed)
+        self.watch_property("AppsDisk", self.implementation.apps_disk_changed)
+        self.watch_property("LonghornDisk", self.implementation.longhorn_disk_changed)
 
     @property
     def Mode(self) -> Str:
@@ -339,18 +339,8 @@ class VdiInterface(KickstartModuleInterface):
         self.implementation.service_cidr = value
 
     @property
-    def JoinCidr(self) -> Str:
-        """JOIN CIDR 地址段。"""
-        return self.implementation.join_cidr
-
-    @JoinCidr.setter
-    @emits_properties_changed
-    def JoinCidr(self, value: Str):
-        self.implementation.join_cidr = value
-
-    @property
     def Role(self) -> Str:
-        """RKE2 角色 (server / agent)。"""
+        """集群角色 (first-master / node)。"""
         return self.implementation.role
 
     @Role.setter
@@ -360,7 +350,7 @@ class VdiInterface(KickstartModuleInterface):
 
     @property
     def ServerUrl(self) -> Str:
-        """Agent 模式下 RKE2 Server 的 URL。"""
+        """node 角色下 master 节点 vdi-clusterd 的地址（http://<ip>:9345）。"""
         return self.implementation.server_url
 
     @ServerUrl.setter
@@ -370,7 +360,7 @@ class VdiInterface(KickstartModuleInterface):
 
     @property
     def Token(self) -> Str:
-        """Agent 模式下加入集群的 Token。"""
+        """集群预共享密钥（first-master 生成端持有，node 上报时出示）。"""
         return self.implementation.token
 
     @Token.setter
@@ -379,12 +369,22 @@ class VdiInterface(KickstartModuleInterface):
         self.implementation.token = value
 
     @property
-    def DataDisk(self) -> Str:
-        """数据盘选择 (auto 或具体设备名)。"""
-        return self.implementation.data_disk
+    def AppsDisk(self) -> Str:
+        """/apps 数据盘选择 (auto 或具体设备名)。"""
+        return self.implementation.apps_disk
 
-    @DataDisk.setter
+    @AppsDisk.setter
     @emits_properties_changed
-    def DataDisk(self, value: Str):
-        self.implementation.data_disk = value
+    def AppsDisk(self, value: Str):
+        self.implementation.apps_disk = value
+
+    @property
+    def LonghornDisk(self) -> Str:
+        """Longhorn 数据盘选择 (auto 或具体设备名)。"""
+        return self.implementation.longhorn_disk
+
+    @LonghornDisk.setter
+    @emits_properties_changed
+    def LonghornDisk(self, value: Str):
+        self.implementation.longhorn_disk = value
 

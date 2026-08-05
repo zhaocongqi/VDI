@@ -96,10 +96,7 @@ class VdiService(KickstartService):
         self._service_cidr = "10.96.0.0/12"
         self.service_cidr_changed = Signal()
 
-        self._join_cidr = "100.64.0.0/16"
-        self.join_cidr_changed = Signal()
-
-        self._role = "server"
+        self._role = "first-master"
         self.role_changed = Signal()
 
         self._server_url = ""
@@ -108,8 +105,11 @@ class VdiService(KickstartService):
         self._token = ""
         self.token_changed = Signal()
 
-        self._data_disk = "auto"
-        self.data_disk_changed = Signal()
+        self._apps_disk = "auto"
+        self.apps_disk_changed = Signal()
+
+        self._longhorn_disk = "auto"
+        self.longhorn_disk_changed = Signal()
 
     def publish(self):
         """发布 DBus 对象。"""
@@ -419,16 +419,6 @@ class VdiService(KickstartService):
         log.debug("VDI ServiceCidr is set to '%s'.", value)
 
     @property
-    def join_cidr(self):
-        return self._join_cidr
-
-    @join_cidr.setter
-    def join_cidr(self, value):
-        self._join_cidr = value
-        self.join_cidr_changed.emit()
-        log.debug("VDI JoinCidr is set to '%s'.", value)
-
-    @property
     def role(self):
         return self._role
 
@@ -459,14 +449,24 @@ class VdiService(KickstartService):
         log.debug("VDI Token is set to '%s'.", value)
 
     @property
-    def data_disk(self):
-        return self._data_disk
+    def apps_disk(self):
+        return self._apps_disk
 
-    @data_disk.setter
-    def data_disk(self, value):
-        self._data_disk = value
-        self.data_disk_changed.emit()
-        log.debug("VDI DataDisk is set to '%s'.", value)
+    @apps_disk.setter
+    def apps_disk(self, value):
+        self._apps_disk = value
+        self.apps_disk_changed.emit()
+        log.debug("VDI AppsDisk is set to '%s'.", value)
+
+    @property
+    def longhorn_disk(self):
+        return self._longhorn_disk
+
+    @longhorn_disk.setter
+    def longhorn_disk(self, value):
+        self._longhorn_disk = value
+        self.longhorn_disk_changed.emit()
+        log.debug("VDI LonghornDisk is set to '%s'.", value)
 
     @property
     def kickstart_specification(self):
@@ -504,11 +504,11 @@ class VdiService(KickstartService):
         self.network_mode = addon_data.network_mode
         self.pod_cidr = addon_data.pod_cidr
         self.service_cidr = addon_data.service_cidr
-        self.join_cidr = addon_data.join_cidr
         self.role = addon_data.role
         self.server_url = addon_data.server_url
         self.token = addon_data.token
-        self.data_disk = addon_data.data_disk
+        self.apps_disk = addon_data.apps_disk
+        self.longhorn_disk = addon_data.longhorn_disk
 
     def setup_kickstart(self, data):
         """将当前配置写回 Kickstart 数据。"""
@@ -541,11 +541,11 @@ class VdiService(KickstartService):
         data.addons.vdi.network_mode = self.network_mode
         data.addons.vdi.pod_cidr = self.pod_cidr
         data.addons.vdi.service_cidr = self.service_cidr
-        data.addons.vdi.join_cidr = self.join_cidr
         data.addons.vdi.role = self.role
         data.addons.vdi.server_url = self.server_url
         data.addons.vdi.token = self.token
-        data.addons.vdi.data_disk = self.data_disk
+        data.addons.vdi.apps_disk = self.apps_disk
+        data.addons.vdi.longhorn_disk = self.longhorn_disk
 
     def install_with_tasks(self):
         """返回安装任务列表。
@@ -568,13 +568,13 @@ class VdiService(KickstartService):
                 dns=self.dns,
                 pod_cidr=self.pod_cidr,
                 service_cidr=self.service_cidr,
-                join_cidr=self.join_cidr,
                 vip=self.vip,
                 network_mode=self.network_mode,
                 role=self.role,
                 server_url=self.server_url,
                 token=self.token,
-                data_disk=self.data_disk,
+                apps_disk=self.apps_disk,
+                longhorn_disk=self.longhorn_disk,
                 bond1_enabled=self.bond1_enabled,
                 bond1_interface=self.bond1_interface,
                 bond1_interface2=self.bond1_interface2,
