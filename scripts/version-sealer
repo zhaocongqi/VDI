@@ -1,0 +1,3 @@
+#!/bin/bash
+SEALER_VERSION="v1.0.1-eki"
+SEALER_BINARY="sealer_amd64"

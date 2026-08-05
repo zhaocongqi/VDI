@@ -4,12 +4,16 @@ set -e
 TOP_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )/.." &> /dev/null && pwd )"
 SCRIPTS_DIR="${TOP_DIR}/scripts"
 PACKAGE_VDI_OS_DIR="${TOP_DIR}/package/vdi-os"
-: ${RKE2_IMAGE_REPO:=https://github.com/rancher/rke2/releases/download/}
+# EKI 集群镜像与 sealer 二进制为客户交付制品，公网不可下载，必须经
+# LOCAL_PKG_DIR 或 cache/downloads 提供（登记路径示例：
+# /home/zcq/tmp/kubernetes_v1.34.3-eki.2606.0-noncni-amd64/）
+: ${EKI_ASSETS_DIR:=}
 
 cd ${TOP_DIR}
 
 source ${SCRIPTS_DIR}/version
-source ${SCRIPTS_DIR}/version-rke2
+source ${SCRIPTS_DIR}/version-eki-k8s
+source ${SCRIPTS_DIR}/version-sealer
 source ${SCRIPTS_DIR}/version-kubeovn
 source ${SCRIPTS_DIR}/version-kubevirt
 source ${SCRIPTS_DIR}/version-cdi
@@ -22,8 +26,6 @@ IMAGES_LISTS_DIR="${BUNDLE_DIR}/vdi/images-lists"
 mkdir -p ${IMAGES_DIR}
 mkdir -p ${IMAGES_LISTS_DIR}
 
-RKE2_VERSION_NORMALIZED=${RKE2_VERSION/+/-} # v1.21.3-rc6+rke2r2 -> v1.21.3-rc6-rke2r2
-
 # Use offline bundle cache
 if [ -n "$VDI_INSTALLER_OFFLINE_BUILD" -a -e /bundle ]; then
   cp -rf /bundle/* ${BUNDLE_DIR}/
@@ -31,28 +33,40 @@ if [ -n "$VDI_INSTALLER_OFFLINE_BUILD" -a -e /bundle ]; then
 fi
 
 # ============================================================
-# RKE2 images
-# ============================================================
-RKE2_IMAGES_URL="${RKE2_IMAGE_REPO}${RKE2_VERSION}"
-image_list_file="${IMAGES_LISTS_DIR}/rke2-images.linux-${ARCH}-${RKE2_VERSION_NORMALIZED}.txt"
-image_archive="${IMAGES_DIR}/rke2-images.linux-${ARCH}-${RKE2_VERSION_NORMALIZED}.tar.zst"
-get_url "${RKE2_IMAGES_URL}/rke2-images.linux-${ARCH}.txt" $image_list_file
-get_url "${RKE2_IMAGES_URL}/rke2-images.linux-${ARCH}.tar.zst" $image_archive
-
-# RKE2 multus images (exclude SR-IOV)
-image_list_file="${IMAGES_LISTS_DIR}/rke2-images-multus.linux-amd64-${RKE2_VERSION_NORMALIZED}.txt"
-get_url "${RKE2_IMAGES_URL}/rke2-images-multus.linux-amd64.txt" $image_list_file
-save_image $image_list_file ${IMAGES_DIR}
-
-# ============================================================
-# RKE2 二进制（rke2 + containerd + chart-templates + systemd unit）
+# EKI 集群镜像 + sealer 二进制（客户制品，仅本地获取）
 # ============================================================
 BINARIES_DIR="${BUNDLE_DIR}/vdi/binaries"
 mkdir -p ${BINARIES_DIR}
-rke2_binary="${BINARIES_DIR}/rke2.linux-${ARCH}.tar.gz"
-get_url "${RKE2_IMAGES_URL}/rke2.linux-${ARCH}.tar.gz" ${rke2_binary}
-test -s "${rke2_binary}" || { echo "ERROR: RKE2 binary download failed (0 bytes): ${rke2_binary}" >&2; exit 1; }
-echo "==> RKE2 binary: $(ls -lh ${rke2_binary} 2>/dev/null | awk '{print $5}')"
+
+# 显式指定 EKI_ASSETS_DIR 时优先从该目录拷贝
+if [ -n "${EKI_ASSETS_DIR}" ]; then
+  for f in "${EKI_K8S_IMAGE_TAR}" "${SEALER_BINARY}" black_white; do
+    [ -f "${EKI_ASSETS_DIR}/${f}" ] || { echo "ERROR: EKI 制品缺失: ${EKI_ASSETS_DIR}/${f}" >&2; exit 1; }
+    cp "${EKI_ASSETS_DIR}/${f}" "${BINARIES_DIR}/"
+  done
+else
+  # get_url 本地缓存兜底：URL 仅占位，实际必须命中 LOCAL_PKG_DIR/cache/downloads
+  get_url "file:///eki/${EKI_K8S_IMAGE_TAR}" "${BINARIES_DIR}/${EKI_K8S_IMAGE_TAR}" \
+    || { echo "ERROR: 集群镜像未命中本地缓存: ${EKI_K8S_IMAGE_TAR}（请设置 LOCAL_PKG_DIR 或放入 cache/downloads）" >&2; exit 1; }
+  get_url "file:///eki/${SEALER_BINARY}" "${BINARIES_DIR}/${SEALER_BINARY}" \
+    || { echo "ERROR: sealer 二进制未命中本地缓存: ${SEALER_BINARY}" >&2; exit 1; }
+  get_url "file:///eki/black_white" "${BINARIES_DIR}/black_white" \
+    || { echo "ERROR: black_white 未命中本地缓存" >&2; exit 1; }
+fi
+
+test -s "${BINARIES_DIR}/${EKI_K8S_IMAGE_TAR}" || { echo "ERROR: 集群镜像为 0 字节" >&2; exit 1; }
+test -s "${BINARIES_DIR}/${SEALER_BINARY}" || { echo "ERROR: sealer 二进制为 0 字节" >&2; exit 1; }
+chmod +x "${BINARIES_DIR}/${SEALER_BINARY}"
+echo "==> EKI cluster image: $(ls -lh ${BINARIES_DIR}/${EKI_K8S_IMAGE_TAR} | awk '{print $5}')"
+
+# ============================================================
+# helm 二进制（组件栈 PostGuest 安装用，集群镜像 bin/ 不含 helm）
+# ============================================================
+HELM_VERSION="v3.16.4"
+get_url "https://get.helm.sh/helm-${HELM_VERSION}-linux-${ARCH}.tar.gz" "${BINARIES_DIR}/helm-${HELM_VERSION}-linux-${ARCH}.tar.gz" \
+  || echo "WARN: helm 二进制下载失败，组件安装需改用纯 kubectl apply"
+test -s "${BINARIES_DIR}/helm-${HELM_VERSION}-linux-${ARCH}.tar.gz" 2>/dev/null \
+  && echo "==> helm binary: $(ls -lh ${BINARIES_DIR}/helm-${HELM_VERSION}-linux-${ARCH}.tar.gz | awk '{print $5}')"
 
 # ============================================================
 # Kube-OVN images + Helm chart
@@ -117,5 +131,5 @@ get_url "https://github.com/kubevirt/containerized-data-importer/releases/downlo
 get_url "https://github.com/kubevirt/containerized-data-importer/releases/download/${CDI_VERSION}/cdi-operator.yaml" ${MANIFESTS_DIR}/cdi-operator.yaml
 get_url "https://github.com/kubevirt/containerized-data-importer/releases/download/${CDI_VERSION}/cdi-cr.yaml" ${MANIFESTS_DIR}/cdi-cr.yaml
 
-echo "==> Build bundle completed (RKE2 + Kube-OVN + KubeVirt + CDI)"
+echo "==> Build bundle completed (EKI/sealer + Kube-OVN + KubeVirt + CDI)"
 ls -la ${BUNDLE_DIR}/vdi/images/ ${BUNDLE_DIR}/vdi/binaries/ ${CHARTS_DIR}/ 2>/dev/null

@@ -90,13 +90,13 @@ cmd_verify() {
     info "=== 验证装机结果 ==="
 
     local checks=(
-        "/usr/local/bin/rke2:RKE2 二进制"
-        "/etc/rancher/rke2/config.yaml:RKE2 配置"
+        "/usr/local/bin/sealer:sealer 二进制"
+        "/opt/vdi/Clusterfile:sealer Clusterfile"
         "/etc/ssh/sshd_config.d/00-vdi-root-login.conf:SSH root 登录配置"
         "/etc/vdi/network.conf:VDI 网络配置"
-        "/var/lib/rancher/rke2/agent/images:RKE2 离线镜像目录"
-        "/usr/local/bin/kubectl:kubectl 软链"
-        "/etc/profile.d/rke2.sh:RKE2 PATH 配置"
+        "/etc/vdi/cluster-token:集群密钥（master）"
+        "/usr/local/bin/vdi-clusterd:vdi-clusterd 守护进程"
+        "/etc/profile.d/vdi-k8s.sh:KUBECONFIG profile"
         "/root/.kube/config:root kubeconfig"
     )
 
@@ -115,14 +115,14 @@ cmd_verify() {
         fi
     done
 
-    # 检查 rke2-server 服务状态
+    # 检查 vdi-clusterd 服务状态（master）/ vdi-join-agent（worker）
     local svc_status
-    svc_status=$(ssh ${SSH_OPTS} root@${SSH_HOST} "systemctl is-active rke2-server" 2>/dev/null || echo "unknown")
+    svc_status=$(ssh ${SSH_OPTS} root@${SSH_HOST} "systemctl is-active vdi-clusterd" 2>/dev/null || echo "unknown")
     if [ "$svc_status" = "active" ]; then
-        echo -e "  ${GREEN}✓${NC} rke2-server 服务 (${svc_status})"
+        echo -e "  ${GREEN}✓${NC} vdi-clusterd 服务 (${svc_status})"
         ((pass++))
     else
-        echo -e "  ${YELLOW}○${NC} rke2-server 服务 (${svc_status})"
+        echo -e "  ${YELLOW}○${NC} vdi-clusterd 服务 (${svc_status})（worker 节点属预期）"
     fi
 
     echo ""

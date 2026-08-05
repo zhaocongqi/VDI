@@ -160,8 +160,8 @@ rm -rf "${CACHE_DIR}/install-rootfs"
 rm -rf "${ISO_ROOTFS}/ks"
 
 # ============================================================
-# 步骤 2b: 打包离线 bundle（RKE2 二进制/镜像/组件镜像/charts）进 ISO
-# %post 从 /run/install/repo/bundle/ 读取，装机时无需联网
+# 步骤 2b: 打包离线 bundle（EKI 集群镜像/sealer/组件镜像/charts）进 ISO
+# Addon Task 从 /run/install/repo/bundle/ 读取，装机时无需联网
 # ============================================================
 BUNDLE_SRC="${PACKAGE_VDI_OS_DIR}/iso/bundle"
 if [ -d "${BUNDLE_SRC}/vdi" ]; then
@@ -170,7 +170,7 @@ if [ -d "${BUNDLE_SRC}/vdi" ]; then
     cp -a "${BUNDLE_SRC}/." "${ISO_ROOTFS}/bundle/"
     echo "  bundle: $(du -sh "${ISO_ROOTFS}/bundle" | cut -f1)"
 else
-    echo "WARN: 无离线 bundle（${BUNDLE_SRC}），%post 装 RKE2 将失败。先跑 make build-bundle"
+    echo "WARN: 无离线 bundle（${BUNDLE_SRC}），集群部署将失败。先跑 make build-bundle"
 fi
 
 # xorriso 解包保留 ISO 9660 权限（0444 只读），改写前放开写权限

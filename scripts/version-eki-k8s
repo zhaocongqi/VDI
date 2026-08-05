@@ -1,0 +1,3 @@
+#!/bin/bash
+EKI_K8S_VERSION="v1.34.3-eki.2606.0"
+EKI_K8S_IMAGE_TAR="kubernetes_v1.34.3-eki.2606.0-noncni-amd64.tar"
