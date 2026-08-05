@@ -47,11 +47,11 @@ class VdiKickstartData(AddonData):
         self.network_mode = "dhcp"
         self.pod_cidr = "10.16.0.0/16"
         self.service_cidr = "10.96.0.0/12"
-        self.join_cidr = "100.64.0.0/16"
-        self.role = "server"
+        self.role = "first-master"
         self.server_url = ""
         self.token = ""
-        self.data_disk = "auto"
+        self.apps_disk = "auto"
+        self.longhorn_disk = "auto"
 
     def __str__(self):
         """生成 Kickstart 文本表示。"""
@@ -94,14 +94,15 @@ class VdiKickstartData(AddonData):
         addon_str += " --network-mode='%s'" % self.network_mode
         addon_str += " --pod-cidr='%s'" % self.pod_cidr
         addon_str += " --service-cidr='%s'" % self.service_cidr
-        addon_str += " --join-cidr='%s'" % self.join_cidr
         addon_str += " --role='%s'" % self.role
         if self.server_url:
             addon_str += " --server-url='%s'" % self.server_url
         if self.token:
             addon_str += " --token='%s'" % self.token
-        if self.data_disk and self.data_disk != "auto":
-            addon_str += " --data-disk='%s'" % self.data_disk
+        if self.apps_disk and self.apps_disk != "auto":
+            addon_str += " --apps-disk='%s'" % self.apps_disk
+        if self.longhorn_disk and self.longhorn_disk != "auto":
+            addon_str += " --longhorn-disk='%s'" % self.longhorn_disk
         addon_str += "\n\n%end\n"
         return addon_str
 
@@ -155,11 +156,11 @@ class VdiKickstartData(AddonData):
         parser.add_argument("--network-mode", default="dhcp")
         parser.add_argument("--pod-cidr", default="10.16.0.0/16")
         parser.add_argument("--service-cidr", default="10.96.0.0/12")
-        parser.add_argument("--join-cidr", default="100.64.0.0/16")
-        parser.add_argument("--role", default="server")
+        parser.add_argument("--role", default="first-master")
         parser.add_argument("--server-url", default="")
         parser.add_argument("--token", default="")
-        parser.add_argument("--data-disk", default="auto")
+        parser.add_argument("--apps-disk", default="auto")
+        parser.add_argument("--longhorn-disk", default="auto")
 
         parsed, _ = parser.parse_known_args(args)
         self.mode = parsed.mode
@@ -191,11 +192,11 @@ class VdiKickstartData(AddonData):
         self.network_mode = parsed.network_mode
         self.pod_cidr = parsed.pod_cidr
         self.service_cidr = parsed.service_cidr
-        self.join_cidr = parsed.join_cidr
         self.role = parsed.role
         self.server_url = parsed.server_url
         self.token = parsed.token
-        self.data_disk = parsed.data_disk
+        self.apps_disk = parsed.apps_disk
+        self.longhorn_disk = parsed.longhorn_disk
 
     def handle_line(self, line, line_number=None):
         """处理 %addon 段内部的行。"""
